@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bloXroute-Labs/rproxy/common"
-	"github.com/bloXroute-Labs/rproxy/fluentstats"
+	"github.com/bloXroute-Labs/rproxy/relayproxy/common"
+	"github.com/bloXroute-Labs/rproxy/relayproxy/fluentstats"
 	gjson "github.com/goccy/go-json"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/attribute"

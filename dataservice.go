@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bloXroute-Labs/rproxy/common"
-	"github.com/bloXroute-Labs/rproxy/fluentstats"
+	"github.com/bloXroute-Labs/rproxy/relayproxy/common"
+	"github.com/bloXroute-Labs/rproxy/relayproxy/fluentstats"
 	"gopkg.in/yaml.v2"
 
 	"github.com/patrickmn/go-cache"

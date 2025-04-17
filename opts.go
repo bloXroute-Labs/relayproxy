@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"github.com/bloXroute-Labs/rproxy/common"
-	"github.com/bloXroute-Labs/rproxy/fluentstats"
+	"github.com/bloXroute-Labs/rproxy/relayproxy/common"
+	"github.com/bloXroute-Labs/rproxy/relayproxy/fluentstats"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/patrickmn/go-cache"
 	"go.opentelemetry.io/otel/trace"
