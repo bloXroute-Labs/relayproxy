@@ -50,7 +50,7 @@ const (
 	preFetchPayloadChanBufSize        = 100
 	getPayloadRequestCutoffMs         = 4000
 	duplicateSlotCacheCleanupInterval = 180 * time.Second // 30 slots
-	reconnectTime                     = 100
+	reconnectTime                     = 6000
 
 	prefetchAttempts = 20
 )
