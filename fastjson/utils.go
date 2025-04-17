@@ -9,7 +9,7 @@ import (
 
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	proxycommon "github.com/bloXroute-Labs/rproxy/relayproxy/common"
+	proxycommon "github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flashbots/go-boost-utils/bls"
 

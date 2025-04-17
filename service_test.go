@@ -19,8 +19,8 @@ import (
 
 	"github.com/attestantio/go-builder-client/spec"
 	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
-	"github.com/bloXroute-Labs/rproxy/relayproxy/common"
-	"github.com/bloXroute-Labs/rproxy/relayproxy/fluentstats"
+	"github.com/bloXroute-Labs/relayproxy/common"
+	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 	"github.com/patrickmn/go-cache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"

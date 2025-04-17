@@ -18,9 +18,9 @@ import (
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
-	"github.com/bloXroute-Labs/rproxy/relayproxy/common"
-	"github.com/bloXroute-Labs/rproxy/relayproxy/fastjson"
-	"github.com/bloXroute-Labs/rproxy/relayproxy/fluentstats"
+	"github.com/bloXroute-Labs/relayproxy/common"
+	"github.com/bloXroute-Labs/relayproxy/fastjson"
+	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/utils"
 	"github.com/google/uuid"

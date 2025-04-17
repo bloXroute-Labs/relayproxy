@@ -5,7 +5,7 @@ import (
 	capellaapi "github.com/attestantio/go-eth2-client/api/v1/capella"
 	"github.com/attestantio/go-eth2-client/api/v1/deneb"
 	"github.com/attestantio/go-eth2-client/spec"
-	"github.com/bloXroute-Labs/rproxy/relayproxy/common"
+	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/pkg/errors"
 	"github.com/valyala/fastjson"
 )
