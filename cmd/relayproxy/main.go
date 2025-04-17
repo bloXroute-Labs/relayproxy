@@ -288,9 +288,13 @@ func main() {
 	if pubKey.String() != *expectedPublicKey {
 		l.Fatal("mismatched public keys", zap.String("expectedPubkey", *expectedPublicKey), zap.String("pubkey", pubKey.String()))
 	}
-	accountsLists, err := relayproxy.LoadAccountsFromYAML(*accountImportPath)
-	if err != nil {
-		log.Fatalf("could not load accounts from yaml: %s", err.Error())
+
+	var accountsLists *relayproxy.AccountsLists
+	if *accountImportPath != "" {
+		accountsLists, err = relayproxy.LoadAccountsFromYAML(*accountImportPath)
+		if err != nil {
+			log.Fatalf("could not load accounts from yaml: %s", err.Error())
+		}
 	}
 
 	// compute builder signing domain for Ethereum Mainnet
