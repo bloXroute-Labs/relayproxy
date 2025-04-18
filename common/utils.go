@@ -5,8 +5,10 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/rs/zerolog"
 	goacceptheaders "github.com/timewasted/go-accept-headers"
 )
 
@@ -81,4 +83,38 @@ func ParseBuilderContentType(req *http.Request) (bool, bool) {
 		sszResponse = true
 	}
 	return sszRequest, sszResponse
+}
+
+func SlotStartTime(beaconGenesisTime, secondsPerSlot, slot int64) time.Time {
+	return time.Unix(beaconGenesisTime+(slot*secondsPerSlot), 0).UTC()
+}
+
+func TimeOfFork(forkEpoch int64, genesisTime, secondsPerSlot int64) time.Time {
+	if forkEpoch < 0 {
+		return time.Time{}
+	}
+
+	epochSlot := forkEpoch * int64(32)
+	return SlotStartTime(genesisTime, secondsPerSlot, epochSlot)
+}
+
+func CheckElectraEpochFork(curTime time.Time, beaconGenesisTime, secondsPerSlot, slotsPerEpoch, forkElectraEpoch int64, log zerolog.Logger) bool {
+	if IsElectra {
+		log.Info().Msg("isElectra")
+		return true
+	}
+	electraTime := TimeOfFork(forkElectraEpoch, beaconGenesisTime, secondsPerSlot)
+
+	curTimeUnix := curTime.Unix()
+	subTime := curTimeUnix - beaconGenesisTime
+	curSlot := subTime / secondsPerSlot
+	curSlot++
+	epoch := curSlot / slotsPerEpoch
+
+	if epoch >= int64(forkElectraEpoch) {
+		IsElectra = true
+	}
+	log.Info().Time("electraTime", electraTime.UTC()).Int64("electraSlot", forkElectraEpoch*32).Int64("proposalSlot", int64(curSlot)).Bool("isElectra", IsElectra).Dur("electraCountdownMin", time.Until(electraTime)/1000/60).Msg("electra fork time")
+
+	return IsElectra
 }

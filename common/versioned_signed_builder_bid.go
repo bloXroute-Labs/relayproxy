@@ -3,8 +3,8 @@ package common
 import (
 	"fmt"
 
-	builderApiCapella "github.com/attestantio/go-builder-client/api/capella"
 	builderApiDeneb "github.com/attestantio/go-builder-client/api/deneb"
+	builderApiElectra "github.com/attestantio/go-builder-client/api/electra"
 	builderSpec "github.com/attestantio/go-builder-client/spec"
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
@@ -18,20 +18,25 @@ type VersionedSignedBuilderBid struct {
 
 func (r *VersionedSignedBuilderBid) MarshalSSZ() ([]byte, error) {
 	switch r.Version {
-	case spec.DataVersionCapella:
-		return r.Capella.MarshalSSZ()
+	case spec.DataVersionElectra:
+		return r.Electra.MarshalSSZ()
 	case spec.DataVersionDeneb:
 		return r.Deneb.MarshalSSZ()
-	case spec.DataVersionUnknown, spec.DataVersionPhase0, spec.DataVersionAltair, spec.DataVersionBellatrix:
-		fallthrough
 	default:
-		return nil, errors.Wrap(errInvalidVersion, fmt.Sprintf("%d is not supported", r.Version))
+		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
 	}
 }
 
 func (r *VersionedSignedBuilderBid) UnmarshalSSZ(input []byte) error {
 	var err error
-
+	if IsElectra {
+		electraRequest := new(builderApiElectra.SignedBuilderBid)
+		if err = electraRequest.UnmarshalSSZ(input); err == nil {
+			r.Version = spec.DataVersionElectra
+			r.Electra = electraRequest
+			return nil
+		}
+	}
 	denebRequest := new(builderApiDeneb.SignedBuilderBid)
 	if err = denebRequest.UnmarshalSSZ(input); err == nil {
 		r.Version = spec.DataVersionDeneb
@@ -39,10 +44,10 @@ func (r *VersionedSignedBuilderBid) UnmarshalSSZ(input []byte) error {
 		return nil
 	}
 
-	capellaRequest := new(builderApiCapella.SignedBuilderBid)
-	if err = capellaRequest.UnmarshalSSZ(input); err == nil {
-		r.Version = spec.DataVersionCapella
-		r.Capella = capellaRequest
+	electraRequest := new(builderApiElectra.SignedBuilderBid)
+	if err = electraRequest.UnmarshalSSZ(input); err == nil {
+		r.Version = spec.DataVersionElectra
+		r.Electra = electraRequest
 		return nil
 	}
 	return errors.Wrap(err, "failed to unmarshal SubmitBlockRequest SSZ")
@@ -50,17 +55,17 @@ func (r *VersionedSignedBuilderBid) UnmarshalSSZ(input []byte) error {
 
 func (r *VersionedSignedBuilderBid) WithdrawalsRoot() (phase0.Root, error) {
 	switch r.Version {
-	case spec.DataVersionCapella:
-		if r.Capella == nil {
+	case spec.DataVersionElectra:
+		if r.Electra == nil {
 			return phase0.Root{}, errors.New("no data")
 		}
-		if r.Capella.Message == nil {
+		if r.Electra.Message == nil {
 			return phase0.Root{}, errors.New("no data message")
 		}
-		if r.Capella.Message.Header == nil {
+		if r.Electra.Message.Header == nil {
 			return phase0.Root{}, errors.New("no data message header")
 		}
-		return r.Capella.Message.Header.WithdrawalsRoot, nil
+		return r.Electra.Message.Header.WithdrawalsRoot, nil
 	case spec.DataVersionDeneb:
 		if r.Deneb == nil {
 			return phase0.Root{}, errors.New("no data")
@@ -72,27 +77,24 @@ func (r *VersionedSignedBuilderBid) WithdrawalsRoot() (phase0.Root, error) {
 			return phase0.Root{}, errors.New("no data message header")
 		}
 		return r.Deneb.Message.Header.WithdrawalsRoot, nil
-	case spec.DataVersionUnknown, spec.DataVersionPhase0, spec.DataVersionAltair, spec.DataVersionBellatrix:
-		fallthrough
 	default:
-		return phase0.Root{}, errors.Wrap(errInvalidVersion, fmt.Sprintf("%d is not supported", r.Version))
+		return phase0.Root{}, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
 	}
 }
 
-// TODO: delete if we don't end up using
 func (r *VersionedSignedBuilderBid) ExtraData() ([]byte, error) {
 	switch r.Version {
-	case spec.DataVersionCapella:
-		if r.Capella == nil {
+	case spec.DataVersionElectra:
+		if r.Electra == nil {
 			return nil, errors.New("no data")
 		}
-		if r.Capella.Message == nil {
+		if r.Electra.Message == nil {
 			return nil, errors.New("no data message")
 		}
-		if r.Capella.Message.Header == nil {
+		if r.Electra.Message.Header == nil {
 			return nil, errors.New("no data message header")
 		}
-		return r.Capella.Message.Header.ExtraData, nil
+		return r.Electra.Message.Header.ExtraData, nil
 	case spec.DataVersionDeneb:
 		if r.Deneb == nil {
 			return nil, errors.New("no data")
@@ -104,23 +106,18 @@ func (r *VersionedSignedBuilderBid) ExtraData() ([]byte, error) {
 			return nil, errors.New("no data message header")
 		}
 		return r.Deneb.Message.Header.ExtraData, nil
-	case spec.DataVersionUnknown, spec.DataVersionPhase0, spec.DataVersionAltair, spec.DataVersionBellatrix:
-		fallthrough
 	default:
-		return nil, errors.Wrap(errInvalidVersion, fmt.Sprintf("%d is not supported", r.Version))
+		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
 	}
 }
 
-// TODO: delete if we don't end up using
 func (r *VersionedSignedBuilderBid) Bid() (any, error) {
 	switch r.Version {
-	case spec.DataVersionCapella:
-		return r.Capella, nil
+	case spec.DataVersionElectra:
+		return r.Electra, nil
 	case spec.DataVersionDeneb:
 		return r.Deneb, nil
-	case spec.DataVersionUnknown, spec.DataVersionPhase0, spec.DataVersionAltair, spec.DataVersionBellatrix:
-		fallthrough
 	default:
-		return nil, errors.Wrap(errInvalidVersion, fmt.Sprintf("%d is not supported", r.Version))
+		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
 	}
 }

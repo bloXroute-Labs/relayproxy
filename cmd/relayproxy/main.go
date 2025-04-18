@@ -299,19 +299,32 @@ func main() {
 
 	// compute builder signing domain for Ethereum Mainnet
 	var genesisForkVersion string
+	var electraForkEpoch int64
 	switch *network {
 	case common.EthNetworkHolesky:
 		genesisForkVersion = common.GenesisForkVersionHolesky
+		electraForkEpoch = common.ElectraForkEpochHolesky
 	case common.EthNetworkSepolia:
 		genesisForkVersion = boostTypes.GenesisForkVersionSepolia
+		electraForkEpoch = common.ElectraForkEpochSepolia
+	case common.EthNetworkHoodi:
+		genesisForkVersion = common.GenesisForkVersionHoodi
+		electraForkEpoch = common.ElectraForkEpochHoodi
 	case common.EthNetworkMainnet:
 		genesisForkVersion = boostTypes.GenesisForkVersionMainnet
+		electraForkEpoch = common.ElectraForkEpochMainnet
 	case common.EthNetworkCustom:
 		genesisForkVersion = os.Getenv("GENESIS_FORK_VERSION")
+		electraForkEpochStr := os.Getenv("ELECTRA_FORK_EPOCH")
+		electraForkEpoch, err = strconv.ParseInt(electraForkEpochStr, 10, 64)
+		if err != nil {
+			l.Fatal("failed to parse ELECTRA_FORK_EPOCH", zap.Error(err))
+		}
 	default:
 		genesisForkVersion = boostTypes.GenesisForkVersionMainnet
+		electraForkEpoch = common.ElectraForkEpochMainnet
 	}
-
+	l.Info("electraForkEpoch", zap.Int64("electraForkEpoch", electraForkEpoch))
 	builderSigningDomain, err := common.ComputeDomain(boostSsz.DomainTypeAppBuilder, genesisForkVersion, phase0.Root{}.String())
 	if err != nil {
 		l.Fatal("failed to compute builder signing domain", zap.Error(err))

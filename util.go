@@ -2,7 +2,6 @@ package relayproxy
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"math/big"
 	"net"
@@ -12,10 +11,6 @@ import (
 	"strings"
 	"time"
 
-	eth2Api "github.com/attestantio/go-eth2-client/api"
-	eth2ApiV1Capella "github.com/attestantio/go-eth2-client/api/v1/capella"
-	eth2ApiV1Deneb "github.com/attestantio/go-eth2-client/api/v1/deneb"
-	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -126,40 +121,6 @@ func GetSlotStartTime(beaconGenesisTime, slot, secondsPerSlot int64) time.Time {
 }
 func CalculateCurrentSlot(beaconGenesisTime, secondsPerSlot int64) int64 {
 	return ((time.Now().UTC().Unix() - beaconGenesisTime) / secondsPerSlot) + 1
-}
-
-type VersionedSignedBlindedBeaconBlock struct {
-	eth2Api.VersionedSignedBlindedBeaconBlock
-}
-
-func (r *VersionedSignedBlindedBeaconBlock) MarshalJSON() ([]byte, error) {
-	switch r.Version { //nolint:exhaustive
-	case spec.DataVersionCapella:
-		return json.Marshal(r.Capella)
-	case spec.DataVersionDeneb:
-		return json.Marshal(r.Deneb)
-	default:
-		return nil, fmt.Errorf("%s is not supported", r.Version)
-	}
-}
-
-func (r *VersionedSignedBlindedBeaconBlock) UnmarshalJSON(input []byte) error {
-	var err error
-
-	denebBlock := new(eth2ApiV1Deneb.SignedBlindedBeaconBlock)
-	if err = json.Unmarshal(input, denebBlock); err == nil {
-		r.Version = spec.DataVersionDeneb
-		r.Deneb = denebBlock
-		return nil
-	}
-
-	capellaBlock := new(eth2ApiV1Capella.SignedBlindedBeaconBlock)
-	if err = json.Unmarshal(input, capellaBlock); err == nil {
-		r.Version = spec.DataVersionCapella
-		r.Capella = capellaBlock
-		return nil
-	}
-	return fmt.Errorf("failed to unmarshal SignedBlindedBeaconBlock : %v", err)
 }
 
 func weiToEther(wei *big.Int) string {
