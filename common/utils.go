@@ -114,7 +114,13 @@ func CheckElectraEpochFork(curTime time.Time, beaconGenesisTime, secondsPerSlot,
 	if epoch >= int64(forkElectraEpoch) {
 		IsElectra = true
 	}
-	log.Info().Time("electraTime", electraTime.UTC()).Int64("electraSlot", forkElectraEpoch*32).Int64("proposalSlot", int64(curSlot)).Bool("isElectra", IsElectra).Dur("electraCountdownMin", time.Until(electraTime)/1000/60).Msg("electra fork time")
+	log.Info().
+		Time("electraTime", electraTime.UTC()).
+		Int64("electraSlot", forkElectraEpoch*32).
+		Int64("proposalSlot", int64(curSlot)).
+		Bool("isElectra", IsElectra).
+		Dur("electraCountdownMin", time.Until(electraTime)/1000/60).
+		Msg("electra fork time")
 
 	return IsElectra
 }
