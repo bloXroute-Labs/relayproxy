@@ -1,10 +1,10 @@
 repos:
--   repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v2.3.0
-    hooks:
-    -   id: check-yaml
-    -   id: end-of-file-fixer
-    -   id: trailing-whitespace
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v2.3.0
+  hooks:
+    - id: check-yaml
+    - id: end-of-file-fixer
+    - id: trailing-whitespace
     - id: check-added-large-files
 - repo: https://github.com/dnephin/pre-commit-golang
   rev: v0.5.1
@@ -12,9 +12,9 @@ repos:
     - id: go-fmt
     - id: go-imports
     - id: golangci-lint
--   repo: https://github.com/gitleaks/gitleaks
-    rev: v8.21.1
-    hooks:
-      - id: gitleaks
-        name: Detect hardcoded secrets
-        args: ["detect", "--source=."]
+- repo: https://github.com/gitleaks/gitleaks
+  rev: v8.21.1
+  hooks:
+    - id: gitleaks
+      name: Detect hardcoded secrets
+      args: ["detect", "--source=."]
