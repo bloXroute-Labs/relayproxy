@@ -18,14 +18,35 @@ import (
 
 func CheckProposerSignature(ethNetwork *proxycommon.EthNetworkDetails, block *proxycommon.VersionedSignedBlindedBeaconBlock, pubKey []byte) (bool, error) {
 	switch block.Version {
-	case spec.DataVersionCapella:
-		return verifyBlockSignature(block, ethNetwork.DomainBeaconProposerCapella, pubKey)
+	case spec.DataVersionElectra:
+		return verifyBlockSignature(block, ethNetwork.DomainBeaconProposerElectra, pubKey)
 	case spec.DataVersionDeneb:
 		return verifyBlockSignature(block, ethNetwork.DomainBeaconProposerDeneb, pubKey)
 	default:
 		return false, errors.New("unsupported consensus data version")
 	}
 }
+
+func convertTo8ByteArray(stringBytes []byte) ([bytes8Length]byte, error) {
+	if len(stringBytes) == 0 {
+		return [bytes8Length]byte{}, errors.New("string bytes slice is empty")
+	}
+
+	if has0xPrefix(stringBytes) {
+		stringBytes = common.Hex2BytesFixed(string(stringBytes[hexPrefixByteLength:]), bytes8Length)
+	}
+
+	bytesLength := len(stringBytes)
+	if bytesLength != bytes8Length {
+		return [bytes8Length]byte{}, fmt.Errorf("input bytes length %v does not equal expected bytes length %v", bytesLength, bytes8Length)
+	}
+
+	array := [bytes8Length]byte{}
+	copy(array[:bytesLength], stringBytes[:])
+
+	return array, nil
+}
+
 func convertTo20ByteArray(stringBytes []byte) ([bytes20Length]byte, error) {
 	if len(stringBytes) == 0 {
 		return [bytes20Length]byte{}, errors.New("string bytes slice is empty")

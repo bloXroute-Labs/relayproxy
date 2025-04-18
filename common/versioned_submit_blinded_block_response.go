@@ -2,21 +2,25 @@ package common
 
 import (
 	"fmt"
+
 	builderApi "github.com/attestantio/go-builder-client/api"
 	builderApiDeneb "github.com/attestantio/go-builder-client/api/deneb"
 	"github.com/attestantio/go-eth2-client/spec"
-	"github.com/attestantio/go-eth2-client/spec/capella"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/pkg/errors"
 )
 
 func BuildGetPayloadResponse(payload *VersionedSubmitBlockRequest) (*builderApi.VersionedSubmitBlindedBlockResponse, error) {
 	switch payload.Version {
-	case spec.DataVersionCapella:
+	case spec.DataVersionElectra:
 		return &builderApi.VersionedSubmitBlindedBlockResponse{
-			Version: spec.DataVersionCapella,
-			Capella: payload.Capella.ExecutionPayload,
+			Version: spec.DataVersionElectra,
+			Electra: &builderApiDeneb.ExecutionPayloadAndBlobsBundle{
+				ExecutionPayload: payload.Electra.ExecutionPayload,
+				BlobsBundle:      payload.Electra.BlobsBundle,
+			},
 		}, nil
+
 	case spec.DataVersionDeneb:
 		return &builderApi.VersionedSubmitBlindedBlockResponse{
 			Version: spec.DataVersionDeneb,
@@ -26,9 +30,9 @@ func BuildGetPayloadResponse(payload *VersionedSubmitBlockRequest) (*builderApi.
 			},
 		}, nil
 	case spec.DataVersionUnknown, spec.DataVersionPhase0, spec.DataVersionAltair, spec.DataVersionBellatrix:
-		return nil, errInvalidVersion
+		return nil, ErrInvalidVersion
 	}
-	return nil, errEmptyPayload
+	return nil, ErrEmptyPayload
 }
 
 // VersionedSubmitBlindedBlockResponse represents a getPayload response (replaces old GetPayloadResponse)
@@ -38,17 +42,26 @@ type VersionedSubmitBlindedBlockResponse struct {
 
 func (r *VersionedSubmitBlindedBlockResponse) MarshalSSZ() ([]byte, error) {
 	switch r.Version {
-	case spec.DataVersionCapella:
-		return r.Capella.MarshalSSZ()
+	case spec.DataVersionElectra:
+		return r.Electra.MarshalSSZ()
 	case spec.DataVersionDeneb:
 		return r.Deneb.MarshalSSZ()
 	default:
-		return nil, errors.Wrap(errInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
+		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
 	}
 }
 
 func (r *VersionedSubmitBlindedBlockResponse) UnmarshalSSZ(input []byte) error {
 	var err error
+
+	if IsElectra {
+		electraRequest := new(builderApiDeneb.ExecutionPayloadAndBlobsBundle)
+		if err = electraRequest.UnmarshalSSZ(input); err == nil {
+			r.Version = spec.DataVersionElectra
+			r.Electra = electraRequest
+			return nil
+		}
+	}
 
 	denebRequest := new(builderApiDeneb.ExecutionPayloadAndBlobsBundle)
 	if err = denebRequest.UnmarshalSSZ(input); err == nil {
@@ -57,10 +70,10 @@ func (r *VersionedSubmitBlindedBlockResponse) UnmarshalSSZ(input []byte) error {
 		return nil
 	}
 
-	capellaRequest := new(capella.ExecutionPayload)
-	if err = capellaRequest.UnmarshalSSZ(input); err == nil {
-		r.Version = spec.DataVersionCapella
-		r.Capella = capellaRequest
+	electraRequest := new(builderApiDeneb.ExecutionPayloadAndBlobsBundle)
+	if err = electraRequest.UnmarshalSSZ(input); err == nil {
+		r.Version = spec.DataVersionElectra
+		r.Electra = electraRequest
 		return nil
 	}
 	return errors.Wrap(err, "failed to unmarshal SubmitBlockRequest SSZ")
@@ -68,11 +81,14 @@ func (r *VersionedSubmitBlindedBlockResponse) UnmarshalSSZ(input []byte) error {
 
 func (r *VersionedSubmitBlindedBlockResponse) BlockNumber() (uint64, error) {
 	switch r.Version {
-	case spec.DataVersionCapella:
-		if r.Capella == nil {
+	case spec.DataVersionElectra:
+		if r.Electra == nil {
 			return 0, errors.New("no data")
 		}
-		return r.Capella.BlockNumber, nil
+		if r.Electra.ExecutionPayload == nil {
+			return 0, errors.New("no execution payload")
+		}
+		return r.Electra.ExecutionPayload.BlockNumber, nil
 	case spec.DataVersionDeneb:
 		if r.Deneb == nil {
 			return 0, errors.New("no data")
@@ -82,17 +98,20 @@ func (r *VersionedSubmitBlindedBlockResponse) BlockNumber() (uint64, error) {
 		}
 		return r.Deneb.ExecutionPayload.BlockNumber, nil
 	default:
-		return 0, errors.Wrap(errInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
+		return 0, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
 	}
 }
 
 func (r *VersionedSubmitBlindedBlockResponse) ExtraData() ([]byte, error) {
 	switch r.Version {
-	case spec.DataVersionCapella:
-		if r.Capella == nil {
+	case spec.DataVersionElectra:
+		if r.Electra == nil {
 			return nil, errors.New("no data")
 		}
-		return r.Capella.ExtraData, nil
+		if r.Electra.ExecutionPayload == nil {
+			return nil, errors.New("no execution payload")
+		}
+		return r.Electra.ExecutionPayload.ExtraData, nil
 	case spec.DataVersionDeneb:
 		if r.Deneb == nil {
 			return nil, errors.New("no data")
@@ -102,17 +121,20 @@ func (r *VersionedSubmitBlindedBlockResponse) ExtraData() ([]byte, error) {
 		}
 		return r.Deneb.ExecutionPayload.ExtraData, nil
 	default:
-		return nil, errors.Wrap(errInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
+		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
 	}
 }
 
 func (r *VersionedSubmitBlindedBlockResponse) ParentHash() (phase0.Hash32, error) {
 	switch r.Version {
-	case spec.DataVersionCapella:
-		if r.Capella == nil {
+	case spec.DataVersionElectra:
+		if r.Electra == nil {
 			return phase0.Hash32{}, errors.New("no data")
 		}
-		return r.Capella.ParentHash, nil
+		if r.Electra.ExecutionPayload == nil {
+			return phase0.Hash32{}, errors.New("no execution payload")
+		}
+		return r.Electra.ExecutionPayload.ParentHash, nil
 	case spec.DataVersionDeneb:
 		if r.Deneb == nil {
 			return phase0.Hash32{}, errors.New("no data")
@@ -122,17 +144,20 @@ func (r *VersionedSubmitBlindedBlockResponse) ParentHash() (phase0.Hash32, error
 		}
 		return r.Deneb.ExecutionPayload.ParentHash, nil
 	default:
-		return phase0.Hash32{}, errors.Wrap(errInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
+		return phase0.Hash32{}, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
 	}
 }
 
 func (r *VersionedSubmitBlindedBlockResponse) GasUsed() (uint64, error) {
 	switch r.Version {
-	case spec.DataVersionCapella:
-		if r.Capella == nil {
+	case spec.DataVersionElectra:
+		if r.Electra == nil {
 			return 0, errors.New("no data")
 		}
-		return r.Capella.GasUsed, nil
+		if r.Electra.ExecutionPayload == nil {
+			return 0, errors.New("no execution payload")
+		}
+		return r.Electra.ExecutionPayload.GasUsed, nil
 	case spec.DataVersionDeneb:
 		if r.Deneb == nil {
 			return 0, errors.New("no data")
@@ -142,17 +167,20 @@ func (r *VersionedSubmitBlindedBlockResponse) GasUsed() (uint64, error) {
 		}
 		return r.Deneb.ExecutionPayload.GasUsed, nil
 	default:
-		return 0, errors.Wrap(errInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
+		return 0, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
 	}
 }
 
 func (r *VersionedSubmitBlindedBlockResponse) GasLimit() (uint64, error) {
 	switch r.Version {
-	case spec.DataVersionCapella:
-		if r.Capella == nil {
+	case spec.DataVersionElectra:
+		if r.Electra == nil {
 			return 0, errors.New("no data")
 		}
-		return r.Capella.GasLimit, nil
+		if r.Electra.ExecutionPayload == nil {
+			return 0, errors.New("no execution payload")
+		}
+		return r.Electra.ExecutionPayload.GasLimit, nil
 	case spec.DataVersionDeneb:
 		if r.Deneb == nil {
 			return 0, errors.New("no data")
@@ -162,6 +190,6 @@ func (r *VersionedSubmitBlindedBlockResponse) GasLimit() (uint64, error) {
 		}
 		return r.Deneb.ExecutionPayload.GasLimit, nil
 	default:
-		return 0, errors.Wrap(errInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
+		return 0, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
 	}
 }

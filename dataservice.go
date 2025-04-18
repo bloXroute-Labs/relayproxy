@@ -59,6 +59,10 @@ func NewDataService(opts ...DataServiceOption) *DataService {
 		accounts:     cache.New(cache.NoExpiration, cache.NoExpiration),
 		accountCh:    make(chan account, 500),
 		ipCacheStore: cache.New(delayEligibilityCacheCleanupInterval, delayEligibilityCacheCleanupInterval),
+		accountsLists: &AccountsLists{
+			AccountIDToInfo:   make(map[string]*AccountInfo),
+			AccountNameToInfo: make(map[AccountName]*AccountInfo),
+		},
 	}
 
 	for _, opt := range opts {

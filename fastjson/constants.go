@@ -3,6 +3,7 @@ package fastjson
 import "math/big"
 
 const (
+	bytes8Length   = 8
 	bytes20Length  = 20
 	bytes32Length  = 32
 	bytes48Length  = 48
@@ -88,6 +89,7 @@ const (
 
 	// Attestation JSON fields
 	jsonAggregationBits = "aggregation_bits"
+	jsonCommitteeBits   = "committee_bits"
 
 	// AttestationData JSON fields
 	jsonIndex           = "index"
@@ -111,6 +113,29 @@ const (
 
 	// BeaconBlockHeader JSON fields
 	jsonBodyRoot = "body_root"
+
+	// Electra ExecutionRequests JSON fields
+	jsonExecutionRequests     = "execution_requests"
+	jsonDepositRequests       = "deposits"
+	jsonWithdrawalRequests    = "withdrawals"
+	jsonConsolidationRequests = "consolidations"
+
+	// DepositRequest JSON fields
+	// jsonPublicKey = "pubkey"
+	// jsonWithdrawalCredentials = "withdrawal_credentials"
+	// jsonAmount    = "amount"
+	// jsonSignature = "signature"
+	// jsonIndex     = "index"
+
+	// WithdrawalRequest JSON fields
+	jsonSourceAddress   = "source_address"
+	jsonValidatorPubkey = "validator_pubkey"
+	// jsonAmount          = "amount"
+
+	// ConsolidationRequest JSON fields
+	// jsonSourceAddress = "source_address"
+	jsonSourcePubkey = "source_pubkey"
+	jsonTargetPubkey = "target_pubkey"
 )
 
 var (
