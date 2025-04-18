@@ -722,8 +722,8 @@ func (s *Service) GetHeader(ctx context.Context, receivedAt time.Time, getHeader
 	}
 	if slotBestHeader.AccountID != "" {
 		accountID = slotBestHeader.AccountID
-		if s.accountsLists.AccountIDToInfo[AccountID(accountID)] != nil &&
-			s.accountsLists.AccountIDToInfo[AccountID(accountID)].UseAccountAsValidator {
+		if s.accountsLists.AccountIDToInfo[accountID] != nil &&
+			s.accountsLists.AccountIDToInfo[accountID].UseAccountAsValidator {
 			validatorID = string(accountID)
 		}
 	}

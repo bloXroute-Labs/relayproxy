@@ -431,6 +431,9 @@ func main() {
 		svc.StartStreamHeaders(_ctx, wg)
 	}(ctx)
 
+	if err := server.Start(); err != nil {
+		l.Fatal("failed to start relayproxy server", zap.Error(err))
+	}
 	<-exit
 }
 

@@ -154,7 +154,7 @@ func TestServer_HandleRegistration(t *testing.T) {
 			}
 			rr := httptest.NewRecorder()
 			dataSvc := NewDataService()
-			server := &Server{svc: tc.mockService, logger: zap.NewNop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[AccountID]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
+			server := &Server{svc: tc.mockService, logger: zap.NewNop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
 			go dataSvc.SetAccounts(context.Background())
 			h := server.Middleware(http.HandlerFunc(server.HandleRegistration))
 			h.ServeHTTP(rr, req)
@@ -246,7 +246,7 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 			req.Header.Add("X-Forwarded-For", tc.ip)
 			rr := httptest.NewRecorder()
-			server := &Server{svc: tc.mockService, logger: zap.NewNop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[AccountID]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
+			server := &Server{svc: tc.mockService, logger: zap.NewNop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
 
 			h := server.Middleware(http.HandlerFunc(server.HandleGetHeader))
 			h.ServeHTTP(rr, req)
@@ -301,7 +301,7 @@ func TestServer_HandleGetPayload(t *testing.T) {
 				t.Fatal(err)
 			}
 			rr := httptest.NewRecorder()
-			server := &Server{svc: tc.mockService, logger: zap.NewNop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[AccountID]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
+			server := &Server{svc: tc.mockService, logger: zap.NewNop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
 			h := server.Middleware(http.HandlerFunc(server.HandleGetPayload))
 			h.ServeHTTP(rr, req)
 
@@ -386,7 +386,7 @@ func TestServer_HandleSetDelays(t *testing.T) {
 			opts := make([]ServiceOption, 0)
 			opts = append(opts, WithDataService(dSvc))
 			svc := NewService(opts...)
-			server := &Server{svc: svc, logger: zap.NewNop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[AccountID]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
+			server := &Server{svc: svc, logger: zap.NewNop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
 			server.HandleSetDelays(rrPost, tc.reqPostFunc())
 			assert.Equal(t, rrPost.Code, tc.expectedPostCode)
 
@@ -429,7 +429,7 @@ func TestServer_Middleware(t *testing.T) {
 						},
 					},
 					logger: zaptest.NewLogger(t),
-					accountsLists: &AccountsLists{AccountIDToInfo: make(map[AccountID]*AccountInfo),
+					accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 						AccountNameToInfo: make(map[AccountName]*AccountInfo)},
 				}
 			},
@@ -455,7 +455,7 @@ func TestServer_Middleware(t *testing.T) {
 						},
 					},
 					logger: zaptest.NewLogger(t),
-					accountsLists: &AccountsLists{AccountIDToInfo: make(map[AccountID]*AccountInfo),
+					accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 						AccountNameToInfo: make(map[AccountName]*AccountInfo)},
 				}
 			},
@@ -481,7 +481,7 @@ func TestServer_Middleware(t *testing.T) {
 						},
 					},
 					logger: zaptest.NewLogger(t),
-					accountsLists: &AccountsLists{AccountIDToInfo: make(map[AccountID]*AccountInfo),
+					accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 						AccountNameToInfo: make(map[AccountName]*AccountInfo)},
 				}
 			},

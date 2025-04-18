@@ -159,7 +159,7 @@ func TestService_GetHeader(t *testing.T) {
 			dopts = append(dopts, WithDataSvcSecondsPerSlot(12))
 			dopts = append(dopts, WithDataSvcBeaconGenesisTime(1606824023))
 			dSvc := NewDataService(dopts...)
-			dSvc.accountsLists = &AccountsLists{AccountIDToInfo: make(map[AccountID]*AccountInfo),
+			dSvc.accountsLists = &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 				AccountNameToInfo: make(map[AccountName]*AccountInfo)}
 			opts := make([]ServiceOption, 0)
 			opts = append(opts, WithSvcLogger(zap.NewNop()))
@@ -171,7 +171,7 @@ func TestService_GetHeader(t *testing.T) {
 			opts = append(opts, WithSvcSecondsPerSlot(12))
 			opts = append(opts, WithBuilderBidsForProxySlot(cache.New(5*time.Minute, 12*time.Minute)))
 			svc := NewService(opts...)
-			svc.accountsLists = &AccountsLists{AccountIDToInfo: make(map[AccountID]*AccountInfo),
+			svc.accountsLists = &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 				AccountNameToInfo: make(map[AccountName]*AccountInfo)}
 			slotInt, _ := strconv.Atoi(tt.slot)
 			slotStartTime := GetSlotStartTime(1606824023, int64(slotInt), 12)
@@ -221,7 +221,7 @@ func TestService_getPayload(t *testing.T) {
 			svcOpts = append(svcOpts, WithSvcFluentD(fluentstats.NewStats(true, "0.0.0.0:24224")))
 
 			s := NewService(svcOpts...)
-			s.accountsLists = &AccountsLists{AccountIDToInfo: make(map[AccountID]*AccountInfo),
+			s.accountsLists = &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 				AccountNameToInfo: make(map[AccountName]*AccountInfo)}
 			got, _, err := s.GetPayload(context.Background(), time.Now(), nil, "", TestAuthHeader, "", "", "", "", "", "")
 			if err == nil {
@@ -236,7 +236,7 @@ func TestBlockCancellation(t *testing.T) {
 	s := &Service{
 		logger:                  zap.NewNop(),
 		builderBidsForProxySlot: cache.New(BuilderBidsCleanupInterval, BuilderBidsCleanupInterval),
-		accountsLists: &AccountsLists{AccountIDToInfo: make(map[AccountID]*AccountInfo),
+		accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 			AccountNameToInfo: make(map[AccountName]*AccountInfo)},
 	}
 
@@ -292,7 +292,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 	s := &Service{
 		logger:                  zap.NewNop(),
 		builderBidsForProxySlot: cache.New(BuilderBidsCleanupInterval, BuilderBidsCleanupInterval),
-		accountsLists: &AccountsLists{AccountIDToInfo: make(map[AccountID]*AccountInfo),
+		accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 			AccountNameToInfo: make(map[AccountName]*AccountInfo)},
 	}
 
@@ -440,7 +440,7 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	defer conn.Close()
 	relayClient := relaygrpc.NewRelayClient(conn)
 	dSvc := NewDataService(WithDataSvcLogger(zap.NewNop()))
-	dSvc.accountsLists = &AccountsLists{AccountIDToInfo: make(map[AccountID]*AccountInfo),
+	dSvc.accountsLists = &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 		AccountNameToInfo: make(map[AccountName]*AccountInfo)}
 	svcOpts := make([]ServiceOption, 0)
 	c := &common.Client{URL: lis.Addr().String(), NodeID: "", Conn: conn, RelayClient: relayClient}
@@ -461,7 +461,7 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	svcOpts = append(svcOpts, WithBuilderBidsForProxySlot(cache.New(BuilderBidsCleanupInterval, BuilderBidsCleanupInterval)))
 
 	service := NewService(svcOpts...)
-	service.accountsLists = &AccountsLists{AccountIDToInfo: make(map[AccountID]*AccountInfo),
+	service.accountsLists = &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 		AccountNameToInfo: make(map[AccountName]*AccountInfo)}
 	go func() {
 		if _, err := service.StreamHeader(ctx, c); err != nil {
@@ -469,7 +469,7 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 		}
 	}()
 
-	server := &Server{svc: service, logger: zap.NewNop(), listenAddress: "127.0.0.1:9090", accountsLists: &AccountsLists{AccountIDToInfo: make(map[AccountID]*AccountInfo),
+	server := &Server{svc: service, logger: zap.NewNop(), listenAddress: "127.0.0.1:9090", accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 		AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
 	go func() {
 		if err := server.Start(); err != nil {
@@ -590,7 +590,7 @@ func TestGetBuilderBidForSlot(t *testing.T) {
 	svc := &Service{
 		logger:                  zap.NewNop(),
 		builderBidsForProxySlot: cache.New(5*time.Minute, 10*time.Minute),
-		accountsLists: &AccountsLists{AccountIDToInfo: make(map[AccountID]*AccountInfo),
+		accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 			AccountNameToInfo: make(map[AccountName]*AccountInfo)},
 	}
 	bid1 := &common.Bid{}
@@ -890,7 +890,7 @@ func TestGetPayloadWithRetry(t *testing.T) {
 			service := &Service{
 				clients: []*common.Client{client},
 				tracer:  trcr,
-				accountsLists: &AccountsLists{AccountIDToInfo: make(map[AccountID]*AccountInfo),
+				accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 					AccountNameToInfo: make(map[AccountName]*AccountInfo)},
 			}
 			result, err := service.getPayloadWithRetry(context.Background(), client, span, tc.mockReq, 2)

@@ -189,7 +189,7 @@ func (s *Server) authorizeAdmin(w http.ResponseWriter, r *http.Request, next htt
 		s.writeErrorResponse(w, "failed to authorize", fmt.Errorf("failed to authorize and decode auth header : %v, url: %v, Err: %v", authHeader, parsedURL.String(), err), http.StatusUnauthorized)
 		return
 	}
-	if accountID != AccountID(s.AdminAccountID) { // TODO:set admin account id
+	if accountID != s.AdminAccountID { // TODO:set admin account id
 		s.writeErrorResponse(w, "access denied", fmt.Errorf("acdess denied accountID: %v, auth header %v, url: %v", accountID, authHeader, parsedURL.String()), http.StatusUnauthorized)
 		return
 	}
@@ -218,7 +218,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 	}
 
 	var (
-		accountID     AccountID
+		accountID     string
 		isWhitelisted bool
 	)
 	if _, allowed := s.accessFilter.IPs.AllowList[clientIP]; !allowed {

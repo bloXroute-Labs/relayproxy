@@ -78,7 +78,7 @@ func LoadAccountsFromYAML(filename string) (*AccountsLists, error) {
 		return nil, err
 	}
 	a := AccountsLists{
-		AccountIDToInfo:   make(map[AccountID]*AccountInfo),
+		AccountIDToInfo:   make(map[string]*AccountInfo),
 		AccountNameToInfo: make(map[AccountName]*AccountInfo),
 	}
 	for _, v := range data {
@@ -89,17 +89,16 @@ func LoadAccountsFromYAML(filename string) (*AccountsLists, error) {
 }
 
 type AccountName string
-type AccountID string
 type AccountInfo struct {
 	AccountName               AccountName `yaml:"account-name"`
-	AccountID                 AccountID   `yaml:"account-id"`
+	AccountID                 string      `yaml:"account-id"`
 	UseAccountAsValidator     bool        `yaml:"use-account-as-validator"`
 	CustomCtx                 string      `yaml:"custom-ctx"`
 	InstantReturnFirstRequest bool        `yaml:"instant-return-first-request"`
 	IsWhitelisted             bool        `yaml:"is-whitelisted"`
 }
 type AccountsLists struct {
-	AccountIDToInfo   map[AccountID]*AccountInfo
+	AccountIDToInfo   map[string]*AccountInfo
 	AccountNameToInfo map[AccountName]*AccountInfo
 }
 type DelayGetHeaderResponse struct {
@@ -139,8 +138,8 @@ func (s *DataService) DelayGetHeader(ctx context.Context, receivedAt time.Time, 
 	_, latency := getBoostSendTimeAndLatency(receivedAt, getHeaderStartTimeUnixMS, commitBoostSendTimeUnixMS)
 	// first request from an IP is responded immediately
 	// subsequent request from same IP will be delayed
-	if s.accountsLists.AccountIDToInfo[AccountID(accountID)] != nil &&
-		s.accountsLists.AccountIDToInfo[AccountID(accountID)].InstantReturnFirstRequest {
+	if s.accountsLists.AccountIDToInfo[accountID] != nil &&
+		s.accountsLists.AccountIDToInfo[accountID].InstantReturnFirstRequest {
 		if ok := s.shouldRequestDelayed(clientIP, slotWithParentHash); !ok {
 			return DelayGetHeaderResponse{
 				Sleep:         0,

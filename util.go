@@ -77,7 +77,7 @@ func GetOrgID(r *http.Request, parsedURL *url.URL) string {
 	return parsedURL.Query().Get("id")
 }
 
-func DecodeAuth(in string) (AccountID, string, error) {
+func DecodeAuth(in string) (string, string, error) {
 	if in == "" {
 		return "", "", fmt.Errorf("empty auth header")
 	}
@@ -90,7 +90,7 @@ func DecodeAuth(in string) (AccountID, string, error) {
 	if len(data) != 2 {
 		return "", "", fmt.Errorf("invalid auth header")
 	}
-	return AccountID(data[0]), data[1], nil
+	return data[0], data[1], nil
 }
 
 // GetSleepParams returns the sleep time and max sleep time from the request
