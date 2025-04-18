@@ -289,7 +289,10 @@ func main() {
 		l.Fatal("mismatched public keys", zap.String("expectedPubkey", *expectedPublicKey), zap.String("pubkey", pubKey.String()))
 	}
 
-	var accountsLists *relayproxy.AccountsLists
+	accountsLists := &relayproxy.AccountsLists{
+		AccountIDToInfo:   make(map[string]*relayproxy.AccountInfo),
+		AccountNameToInfo: make(map[relayproxy.AccountName]*relayproxy.AccountInfo),
+	}
 	if *accountImportPath != "" {
 		accountsLists, err = relayproxy.LoadAccountsFromYAML(*accountImportPath)
 		if err != nil {
