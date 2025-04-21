@@ -25,7 +25,7 @@ import (
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flashbots/go-boost-utils/bls"
-	boostSsz "github.com/flashbots/go-boost-utils/ssz"
+	"github.com/flashbots/go-boost-utils/ssz"
 	boostTypes "github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/go-boost-utils/utils"
 	"github.com/fluent/fluent-logger-golang/fluent"
@@ -289,7 +289,10 @@ func main() {
 		l.Fatal("mismatched public keys", zap.String("expectedPubkey", *expectedPublicKey), zap.String("pubkey", pubKey.String()))
 	}
 
-	var accountsLists *relayproxy.AccountsLists
+	accountsLists := &relayproxy.AccountsLists{
+		AccountIDToInfo:   make(map[string]*relayproxy.AccountInfo),
+		AccountNameToInfo: make(map[relayproxy.AccountName]*relayproxy.AccountInfo),
+	}
 	if *accountImportPath != "" {
 		accountsLists, err = relayproxy.LoadAccountsFromYAML(*accountImportPath)
 		if err != nil {
@@ -299,20 +302,33 @@ func main() {
 
 	// compute builder signing domain for Ethereum Mainnet
 	var genesisForkVersion string
+	var electraForkEpoch int64
 	switch *network {
 	case common.EthNetworkHolesky:
 		genesisForkVersion = common.GenesisForkVersionHolesky
+		electraForkEpoch = common.ElectraForkEpochHolesky
 	case common.EthNetworkSepolia:
 		genesisForkVersion = boostTypes.GenesisForkVersionSepolia
+		electraForkEpoch = common.ElectraForkEpochSepolia
+	case common.EthNetworkHoodi:
+		genesisForkVersion = common.GenesisForkVersionHoodi
+		electraForkEpoch = common.ElectraForkEpochHoodi
 	case common.EthNetworkMainnet:
 		genesisForkVersion = boostTypes.GenesisForkVersionMainnet
+		electraForkEpoch = common.ElectraForkEpochMainnet
 	case common.EthNetworkCustom:
 		genesisForkVersion = os.Getenv("GENESIS_FORK_VERSION")
+		electraForkEpochStr := os.Getenv("ELECTRA_FORK_EPOCH")
+		electraForkEpoch, err = strconv.ParseInt(electraForkEpochStr, 10, 64)
+		if err != nil {
+			l.Fatal("failed to parse ELECTRA_FORK_EPOCH", zap.Error(err))
+		}
 	default:
 		genesisForkVersion = boostTypes.GenesisForkVersionMainnet
+		electraForkEpoch = common.ElectraForkEpochMainnet
 	}
-
-	builderSigningDomain, err := common.ComputeDomain(boostSsz.DomainTypeAppBuilder, genesisForkVersion, phase0.Root{}.String())
+	l.Info("electraForkEpoch", zap.Int64("electraForkEpoch", electraForkEpoch))
+	builderSigningDomain, err := common.ComputeDomain(ssz.DomainTypeAppBuilder, genesisForkVersion, phase0.Root{}.String())
 	if err != nil {
 		l.Fatal("failed to compute builder signing domain", zap.Error(err))
 	}

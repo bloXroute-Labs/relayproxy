@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	builderApi "github.com/attestantio/go-builder-client/api"
-	builderApiCapella "github.com/attestantio/go-builder-client/api/capella"
 	builderApiDeneb "github.com/attestantio/go-builder-client/api/deneb"
+	builderApiElectra "github.com/attestantio/go-builder-client/api/electra"
 	builderSpec "github.com/attestantio/go-builder-client/spec"
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
@@ -29,8 +29,8 @@ func BuildGetHeaderResponse(payload *VersionedSubmitBlockRequest) (*builderSpec.
 
 	versionedPayload := &builderApi.VersionedExecutionPayload{Version: payload.Version}
 	switch payload.Version {
-	case spec.DataVersionCapella:
-		versionedPayload.Capella = payload.Capella.ExecutionPayload
+	case spec.DataVersionElectra:
+		versionedPayload.Electra = payload.Electra.ExecutionPayload
 		header, err := utils.PayloadToPayloadHeader(versionedPayload)
 		if err != nil {
 			return nil, err
@@ -40,8 +40,8 @@ func BuildGetHeaderResponse(payload *VersionedSubmitBlockRequest) (*builderSpec.
 			return nil, err
 		}
 		return &builderSpec.VersionedSignedBuilderBid{
-			Version: spec.DataVersionCapella,
-			Capella: signedBuilderBid.Capella,
+			Version: spec.DataVersionElectra,
+			Electra: signedBuilderBid.Electra,
 		}, nil
 	case spec.DataVersionDeneb:
 		versionedPayload.Deneb = payload.Deneb.ExecutionPayload
@@ -81,16 +81,18 @@ func BuilderBlockRequestToSignedBuilderBid(payload *VersionedSubmitBlockRequest,
 	}
 
 	switch payload.Version {
-	case spec.DataVersionCapella:
-		builderBid := builderApiCapella.BuilderBid{
-			Value:  value,
-			Header: header.Capella,
-			Pubkey: builderPubkey,
+	case spec.DataVersionElectra:
+		builderBid := builderApiElectra.BuilderBid{
+			Header:             header.Electra,
+			BlobKZGCommitments: payload.Electra.BlobsBundle.Commitments,
+			Value:              value,
+			Pubkey:             builderPubkey,
+			ExecutionRequests:  payload.Electra.ExecutionRequests,
 		}
 
 		return &builderSpec.VersionedSignedBuilderBid{
-			Version: spec.DataVersionCapella,
-			Capella: &builderApiCapella.SignedBuilderBid{
+			Version: spec.DataVersionElectra,
+			Electra: &builderApiElectra.SignedBuilderBid{
 				Message:   &builderBid,
 				Signature: signature,
 			},
@@ -121,24 +123,43 @@ func ReSignVersionedSignedBuilderBid(versionedSignedBuilderBid *VersionedSignedB
 	if versionedSignedBuilderBid == nil {
 		return nil, fmt.Errorf("versioned signed builder bid is nil")
 	}
-	if versionedSignedBuilderBid.Version != spec.DataVersionDeneb {
-		return nil, fmt.Errorf("versioned signed builder bid version is not Deneb")
+	switch versionedSignedBuilderBid.Version {
+	case spec.DataVersionElectra:
+		newBuilderBid := versionedSignedBuilderBid.Electra.Message
+		newBuilderBid.Pubkey = *resignPubkey
+		sig, err := ssz.SignMessage(newBuilderBid, domain, sk)
+		if err != nil {
+			return nil, err
+		}
+		resignedVersionedSignedBuilderBid := &VersionedSignedBuilderBid{}
+		resignedVersionedSignedBuilderBid.VersionedSignedBuilderBid = builderSpec.VersionedSignedBuilderBid{
+			Version: spec.DataVersionElectra,
+			Electra: &builderApiElectra.SignedBuilderBid{
+				Message:   newBuilderBid,
+				Signature: sig,
+			},
+		}
+		return resignedVersionedSignedBuilderBid, nil
+
+	case spec.DataVersionDeneb:
+		newBuilderBid := versionedSignedBuilderBid.Deneb.Message
+		newBuilderBid.Pubkey = *resignPubkey
+		sig, err := ssz.SignMessage(newBuilderBid, domain, sk)
+		if err != nil {
+			return nil, err
+		}
+		resignedVersionedSignedBuilderBid := &VersionedSignedBuilderBid{}
+		resignedVersionedSignedBuilderBid.VersionedSignedBuilderBid = builderSpec.VersionedSignedBuilderBid{
+			Version: spec.DataVersionDeneb,
+			Deneb: &builderApiDeneb.SignedBuilderBid{
+				Message:   newBuilderBid,
+				Signature: sig,
+			},
+		}
+		return resignedVersionedSignedBuilderBid, nil
+	default:
+		return nil, fmt.Errorf("versioned signed builder bid version is not available")
 	}
-	newBuilderBid := versionedSignedBuilderBid.Deneb.Message
-	newBuilderBid.Pubkey = *resignPubkey
-	sig, err := ssz.SignMessage(newBuilderBid, domain, sk)
-	if err != nil {
-		return nil, err
-	}
-	resignedVersionedSignedBuilderBid := &VersionedSignedBuilderBid{}
-	resignedVersionedSignedBuilderBid.VersionedSignedBuilderBid = builderSpec.VersionedSignedBuilderBid{
-		Version: spec.DataVersionDeneb,
-		Deneb: &builderApiDeneb.SignedBuilderBid{
-			Message:   newBuilderBid,
-			Signature: sig,
-		},
-	}
-	return resignedVersionedSignedBuilderBid, nil
 }
 
 // TODO: refactor to combine the following two functions with the two above
@@ -153,8 +174,8 @@ func BuildGetHeaderResponseAndSign(payload *VersionedSubmitBlockRequest, sk *bls
 
 	versionedPayload := &builderApi.VersionedExecutionPayload{Version: payload.Version}
 	switch payload.Version {
-	case spec.DataVersionCapella:
-		versionedPayload.Capella = payload.Capella.ExecutionPayload
+	case spec.DataVersionElectra:
+		versionedPayload.Electra = payload.Electra.ExecutionPayload
 		header, err := utils.PayloadToPayloadHeader(versionedPayload)
 		if err != nil {
 			return nil, err
@@ -164,8 +185,8 @@ func BuildGetHeaderResponseAndSign(payload *VersionedSubmitBlockRequest, sk *bls
 			return nil, err
 		}
 		return &builderSpec.VersionedSignedBuilderBid{
-			Version: spec.DataVersionCapella,
-			Capella: signedBuilderBid.Capella,
+			Version: spec.DataVersionElectra,
+			Electra: signedBuilderBid.Electra,
 		}, nil
 	case spec.DataVersionDeneb:
 		versionedPayload.Deneb = payload.Deneb.ExecutionPayload
@@ -195,11 +216,13 @@ func BuilderBlockRequestToSignedBuilderBidAndSign(payload *VersionedSubmitBlockR
 	}
 
 	switch payload.Version { //nolint:exhaustive
-	case spec.DataVersionCapella:
-		builderBid := builderApiCapella.BuilderBid{
-			Value:  value,
-			Header: header.Capella,
-			Pubkey: *pubkey,
+	case spec.DataVersionElectra:
+		builderBid := builderApiElectra.BuilderBid{
+			Header:             header.Electra,
+			BlobKZGCommitments: payload.Electra.BlobsBundle.Commitments,
+			Value:              value,
+			Pubkey:             *pubkey,
+			ExecutionRequests:  payload.Electra.ExecutionRequests,
 		}
 
 		sig, err := ssz.SignMessage(&builderBid, domain, sk)
@@ -208,8 +231,8 @@ func BuilderBlockRequestToSignedBuilderBidAndSign(payload *VersionedSubmitBlockR
 		}
 
 		return &builderSpec.VersionedSignedBuilderBid{
-			Version: spec.DataVersionCapella,
-			Capella: &builderApiCapella.SignedBuilderBid{
+			Version: spec.DataVersionElectra,
+			Electra: &builderApiElectra.SignedBuilderBid{
 				Message:   &builderBid,
 				Signature: sig,
 			},

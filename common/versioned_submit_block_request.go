@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	builderApiCapella "github.com/attestantio/go-builder-client/api/capella"
 	builderApiDeneb "github.com/attestantio/go-builder-client/api/deneb"
+	builderApiElectra "github.com/attestantio/go-builder-client/api/electra"
 	builderSpec "github.com/attestantio/go-builder-client/spec"
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/pkg/errors"
@@ -16,22 +16,50 @@ type VersionedSubmitBlockRequest struct {
 	builderSpec.VersionedSubmitBlockRequest
 }
 
+func (r *VersionedSubmitBlockRequest) SizeSSZ() int {
+	switch r.Version { //nolint:exhaustive
+	case spec.DataVersionElectra:
+		return r.Electra.SizeSSZ()
+	case spec.DataVersionDeneb:
+		return r.Deneb.SizeSSZ()
+	default:
+		return 0
+	}
+}
+
+func (r *VersionedSubmitBlockRequest) MarshalSSZTo(buf []byte) (dst []byte, err error) {
+	switch r.Version { //nolint:exhaustive
+	case spec.DataVersionElectra:
+		return r.Electra.MarshalSSZTo(buf)
+	case spec.DataVersionDeneb:
+		return r.Deneb.MarshalSSZTo(buf)
+	default:
+		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
+	}
+}
+
 func (r *VersionedSubmitBlockRequest) MarshalSSZ() ([]byte, error) {
-	switch r.Version {
-	case spec.DataVersionCapella:
-		return r.Capella.MarshalSSZ()
+	switch r.Version { //nolint:exhaustive
+	case spec.DataVersionElectra:
+		return r.Electra.MarshalSSZ()
 	case spec.DataVersionDeneb:
 		return r.Deneb.MarshalSSZ()
-	case spec.DataVersionUnknown, spec.DataVersionPhase0, spec.DataVersionAltair, spec.DataVersionBellatrix:
-		fallthrough
 	default:
-		return nil, errors.Wrap(errInvalidVersion, fmt.Sprintf("%d is not supported", r.Version))
+		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
 	}
 }
 
 func (r *VersionedSubmitBlockRequest) UnmarshalSSZ(input []byte) error {
 	var err error
 
+	if IsElectra {
+		electraRequest := new(builderApiElectra.SubmitBlockRequest)
+		if err = electraRequest.UnmarshalSSZ(input); err == nil {
+			r.Version = spec.DataVersionElectra
+			r.Electra = electraRequest
+			return nil
+		}
+	}
 	denebRequest := new(builderApiDeneb.SubmitBlockRequest)
 	if err = denebRequest.UnmarshalSSZ(input); err == nil {
 		r.Version = spec.DataVersionDeneb
@@ -39,33 +67,37 @@ func (r *VersionedSubmitBlockRequest) UnmarshalSSZ(input []byte) error {
 		return nil
 	}
 
-	capellaRequest := new(builderApiCapella.SubmitBlockRequest)
-	if err = capellaRequest.UnmarshalSSZ(input); err == nil {
-		r.Version = spec.DataVersionCapella
-		r.Capella = capellaRequest
+	electraRequest := new(builderApiElectra.SubmitBlockRequest)
+	if err = electraRequest.UnmarshalSSZ(input); err == nil {
+		r.Version = spec.DataVersionElectra
+		r.Electra = electraRequest
 		return nil
 	}
+
 	return errors.Wrap(err, "failed to unmarshal SubmitBlockRequest SSZ")
 }
 
-// TODO: overriding this JSON method may not be necessary
 func (r *VersionedSubmitBlockRequest) MarshalJSON() ([]byte, error) {
-	switch r.Version {
-	case spec.DataVersionCapella:
-		return json.Marshal(r.Capella)
+	switch r.Version { //nolint:exhaustive
+	case spec.DataVersionElectra:
+		return json.Marshal(r.Electra)
 	case spec.DataVersionDeneb:
 		return json.Marshal(r.Deneb)
-	case spec.DataVersionUnknown, spec.DataVersionPhase0, spec.DataVersionAltair, spec.DataVersionBellatrix:
-		fallthrough
 	default:
-		return nil, errors.Wrap(errInvalidVersion, fmt.Sprintf("%d is not supported", r.Version))
+		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
 	}
 }
 
-// TODO: overriding this JSON method may not be necessary
 func (r *VersionedSubmitBlockRequest) UnmarshalJSON(input []byte) error {
 	var err error
-
+	if IsElectra {
+		electraRequest := new(builderApiElectra.SubmitBlockRequest)
+		if err = json.Unmarshal(input, electraRequest); err == nil {
+			r.Version = spec.DataVersionElectra
+			r.Electra = electraRequest
+			return nil
+		}
+	}
 	denebRequest := new(builderApiDeneb.SubmitBlockRequest)
 	if err = json.Unmarshal(input, denebRequest); err == nil {
 		r.Version = spec.DataVersionDeneb
@@ -73,11 +105,11 @@ func (r *VersionedSubmitBlockRequest) UnmarshalJSON(input []byte) error {
 		return nil
 	}
 
-	capellaRequest := new(builderApiCapella.SubmitBlockRequest)
-	if err = json.Unmarshal(input, capellaRequest); err == nil {
-		r.Version = spec.DataVersionCapella
-		r.Capella = capellaRequest
+	electraRequest := new(builderApiElectra.SubmitBlockRequest)
+	if err = json.Unmarshal(input, electraRequest); err == nil {
+		r.Version = spec.DataVersionElectra
+		r.Electra = electraRequest
 		return nil
 	}
-	return errors.Wrap(err, "failed to unmarshal SubmitBlockRequest")
+	return errors.Wrap(err, "failed to unmarshal SubmitBlockRequest ")
 }

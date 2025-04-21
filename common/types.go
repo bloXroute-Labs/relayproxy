@@ -14,14 +14,13 @@ import (
 	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
 
 	eth2Api "github.com/attestantio/go-eth2-client/api"
-	eth2ApiV1Capella "github.com/attestantio/go-eth2-client/api/v1/capella"
 	eth2ApiV1Deneb "github.com/attestantio/go-eth2-client/api/v1/deneb"
+	eth2ApiV1Electra "github.com/attestantio/go-eth2-client/api/v1/electra"
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flashbots/go-boost-utils/ssz"
-	boostSsz "github.com/flashbots/go-boost-utils/ssz"
 	boostTypes "github.com/flashbots/go-boost-utils/types"
 )
 
@@ -30,121 +29,118 @@ var (
 	ErrInvalidVersion = errors.New("invalid version")
 	ErrDataMissing    = errors.New("data missing")
 	ErrLateHeader     = errors.New("getHeader request too late")
+	ErrEmptyPayload   = errors.New("empty payload")
 
 	EthNetworkHolesky = "holesky"
 	EthNetworkSepolia = "sepolia"
+	EthNetworkHoodi   = "hoodi"
 	EthNetworkGoerli  = "goerli"
 	EthNetworkMainnet = "mainnet"
 	EthNetworkCustom  = "custom"
 
 	GenesisForkVersionHolesky = "0x01017000"
+	GenesisForkVersionHoodi   = "0x10000910"
 
 	GenesisValidatorsRootHolesky = "0x9143aa7c615a7f7115e2b6aac319c03529df8242ae705fba9df39b79c59fa8b1"
+	GenesisValidatorsRootHoodi   = "0x212f13fc4df078b6cb7db228f1c8307566dcecf900867401a92023d7ba99cb5f"
 
 	BellatrixForkVersionHolesky = "0x03017000"
 
-	CapellaForkVersionHolesky = "0x04017000"
-	CapellaForkVersionSepolia = "0x90000072"
-	CapellaForkVersionGoerli  = "0x03001020"
-	CapellaForkVersionMainnet = "0x03000000"
-
 	DenebForkVersionHolesky = "0x05017000"
 	DenebForkVersionSepolia = "0x90000073"
+	DenebForkVersionHoodi   = "0x50000910"
 	DenebForkVersionGoerli  = "0x04001020"
 	DenebForkVersionMainnet = "0x04000000"
+
+	ElectraForkVersionHolesky = "0x06017000"
+	ElectraForkVersionSepolia = "0x90000074"
+	ElectraForkVersionHoodi   = "0x60000910"
+	ElectraForkVersionMainnet = "0x05000000"
+	ElectraForkEpochHolesky   = int64(115968)
+	ElectraForkEpochSepolia   = int64(222464)
+	ElectraForkEpochHoodi     = int64(2048)
+	ElectraForkEpochMainnet   = int64(364032)
+
+	HoodiChainID = 560048
+
+	IsElectra bool
 )
 
 type EthNetworkDetails struct {
 	Name                     string
 	GenesisForkVersionHex    string
 	GenesisValidatorsRootHex string
-	BellatrixForkVersionHex  string
-	CapellaForkVersionHex    string
 	DenebForkVersionHex      string
+	ElectraForkVersionHex    string
 
-	DomainBuilder                 phase0.Domain
-	DomainBeaconProposerBellatrix phase0.Domain
-	DomainBeaconProposerCapella   phase0.Domain
-	DomainBeaconProposerDeneb     phase0.Domain
+	DomainBuilder               phase0.Domain
+	DomainBeaconProposerDeneb   phase0.Domain
+	DomainBeaconProposerElectra phase0.Domain
 }
 
 func NewEthNetworkDetails(networkName string) (ret *EthNetworkDetails, err error) {
 	var genesisForkVersion string
 	var genesisValidatorsRoot string
-	var bellatrixForkVersion string
-	var capellaForkVersion string
 	var denebForkVersion string
+	var electraForkVersion string
 	var domainBuilder phase0.Domain
-	var domainBeaconProposerBellatrix phase0.Domain
-	var domainBeaconProposerCapella phase0.Domain
 	var domainBeaconProposerDeneb phase0.Domain
+	var domainBeaconProposerElectra phase0.Domain
 
 	switch networkName {
 	case EthNetworkHolesky:
 		genesisForkVersion = GenesisForkVersionHolesky
 		genesisValidatorsRoot = GenesisValidatorsRootHolesky
-		bellatrixForkVersion = BellatrixForkVersionHolesky
-		capellaForkVersion = CapellaForkVersionHolesky
 		denebForkVersion = DenebForkVersionHolesky
+		electraForkVersion = ElectraForkVersionHolesky
 	case EthNetworkSepolia:
 		genesisForkVersion = boostTypes.GenesisForkVersionSepolia
 		genesisValidatorsRoot = boostTypes.GenesisValidatorsRootSepolia
-		bellatrixForkVersion = boostTypes.BellatrixForkVersionSepolia
-		capellaForkVersion = CapellaForkVersionSepolia
 		denebForkVersion = DenebForkVersionSepolia
-	case EthNetworkGoerli:
-		genesisForkVersion = boostTypes.GenesisForkVersionGoerli
-		genesisValidatorsRoot = boostTypes.GenesisValidatorsRootGoerli
-		bellatrixForkVersion = boostTypes.BellatrixForkVersionGoerli
-		capellaForkVersion = CapellaForkVersionGoerli
-		denebForkVersion = DenebForkVersionGoerli
+		electraForkVersion = ElectraForkVersionSepolia
+	case EthNetworkHoodi:
+		genesisForkVersion = GenesisForkVersionHoodi
+		genesisValidatorsRoot = GenesisValidatorsRootHoodi
+		denebForkVersion = DenebForkVersionHoodi
+		electraForkVersion = ElectraForkVersionHoodi
 	case EthNetworkMainnet:
 		genesisForkVersion = boostTypes.GenesisForkVersionMainnet
 		genesisValidatorsRoot = boostTypes.GenesisValidatorsRootMainnet
-		bellatrixForkVersion = boostTypes.BellatrixForkVersionMainnet
-		capellaForkVersion = CapellaForkVersionMainnet
 		denebForkVersion = DenebForkVersionMainnet
+		electraForkVersion = ElectraForkVersionMainnet
 	case EthNetworkCustom:
 		genesisForkVersion = os.Getenv("GENESIS_FORK_VERSION")
 		genesisValidatorsRoot = os.Getenv("GENESIS_VALIDATORS_ROOT")
-		bellatrixForkVersion = os.Getenv("BELLATRIX_FORK_VERSION")
-		capellaForkVersion = os.Getenv("CAPELLA_FORK_VERSION")
 		denebForkVersion = os.Getenv("DENEB_FORK_VERSION")
+		electraForkVersion = os.Getenv("ELECTRA_FORK_VERSION")
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnknownNetwork, networkName)
 	}
 
-	domainBuilder, err = ComputeDomain(boostSsz.DomainTypeAppBuilder, genesisForkVersion, phase0.Root{}.String())
+	domainBuilder, err = ComputeDomain(ssz.DomainTypeAppBuilder, genesisForkVersion, phase0.Root{}.String())
 	if err != nil {
 		return nil, err
 	}
 
-	domainBeaconProposerBellatrix, err = ComputeDomain(boostSsz.DomainTypeBeaconProposer, bellatrixForkVersion, genesisValidatorsRoot)
+	domainBeaconProposerDeneb, err = ComputeDomain(ssz.DomainTypeBeaconProposer, denebForkVersion, genesisValidatorsRoot)
 	if err != nil {
 		return nil, err
 	}
 
-	domainBeaconProposerCapella, err = ComputeDomain(boostSsz.DomainTypeBeaconProposer, capellaForkVersion, genesisValidatorsRoot)
-	if err != nil {
-		return nil, err
-	}
-
-	domainBeaconProposerDeneb, err = ComputeDomain(boostSsz.DomainTypeBeaconProposer, denebForkVersion, genesisValidatorsRoot)
+	domainBeaconProposerElectra, err = ComputeDomain(ssz.DomainTypeBeaconProposer, electraForkVersion, genesisValidatorsRoot)
 	if err != nil {
 		return nil, err
 	}
 
 	return &EthNetworkDetails{
-		Name:                          networkName,
-		GenesisForkVersionHex:         genesisForkVersion,
-		GenesisValidatorsRootHex:      genesisValidatorsRoot,
-		BellatrixForkVersionHex:       bellatrixForkVersion,
-		CapellaForkVersionHex:         capellaForkVersion,
-		DenebForkVersionHex:           denebForkVersion,
-		DomainBuilder:                 domainBuilder,
-		DomainBeaconProposerBellatrix: domainBeaconProposerBellatrix,
-		DomainBeaconProposerCapella:   domainBeaconProposerCapella,
-		DomainBeaconProposerDeneb:     domainBeaconProposerDeneb,
+		Name:                        networkName,
+		GenesisForkVersionHex:       genesisForkVersion,
+		GenesisValidatorsRootHex:    genesisValidatorsRoot,
+		DenebForkVersionHex:         denebForkVersion,
+		ElectraForkVersionHex:       electraForkVersion,
+		DomainBuilder:               domainBuilder,
+		DomainBeaconProposerDeneb:   domainBeaconProposerDeneb,
+		DomainBeaconProposerElectra: domainBeaconProposerElectra,
 	}, nil
 }
 
@@ -154,24 +150,20 @@ func (e *EthNetworkDetails) String() string {
 	Name: %s,
 	GenesisForkVersionHex: %s,
 	GenesisValidatorsRootHex: %s,
-	BellatrixForkVersionHex: %s,
-	CapellaForkVersionHex: %s,
 	DenebForkVersionHex: %s,
+	ElectraForkVersionHex: %s,
 	DomainBuilder: %x,
-	DomainBeaconProposerBellatrix: %x,
-	DomainBeaconProposerCapella: %x,
 	DomainBeaconProposerDeneb: %x
+	DomainBeaconProposerElectra: %x
 }`,
 		e.Name,
 		e.GenesisForkVersionHex,
 		e.GenesisValidatorsRootHex,
-		e.BellatrixForkVersionHex,
-		e.CapellaForkVersionHex,
 		e.DenebForkVersionHex,
+		e.ElectraForkVersionHex,
 		e.DomainBuilder,
-		e.DomainBeaconProposerBellatrix,
-		e.DomainBeaconProposerCapella,
-		e.DomainBeaconProposerDeneb)
+		e.DomainBeaconProposerDeneb,
+		e.DomainBeaconProposerElectra)
 }
 
 // ComputeDomain computes the signing domain
@@ -192,8 +184,8 @@ type VersionedSignedBlindedBeaconBlock struct {
 
 func (r *VersionedSignedBlindedBeaconBlock) MarshalJSON() ([]byte, error) {
 	switch r.Version { //nolint:exhaustive
-	case spec.DataVersionCapella:
-		return json.Marshal(r.Capella)
+	case spec.DataVersionElectra:
+		return json.Marshal(r.Electra)
 	case spec.DataVersionDeneb:
 		return json.Marshal(r.Deneb)
 	default:
@@ -203,7 +195,14 @@ func (r *VersionedSignedBlindedBeaconBlock) MarshalJSON() ([]byte, error) {
 
 func (r *VersionedSignedBlindedBeaconBlock) UnmarshalJSON(input []byte) error {
 	var err error
-
+	if IsElectra {
+		electraBlock := new(eth2ApiV1Electra.SignedBlindedBeaconBlock)
+		if err = json.Unmarshal(input, electraBlock); err == nil {
+			r.Version = spec.DataVersionElectra
+			r.Electra = electraBlock
+			return nil
+		}
+	}
 	denebBlock := new(eth2ApiV1Deneb.SignedBlindedBeaconBlock)
 	if err = json.Unmarshal(input, denebBlock); err == nil {
 		r.Version = spec.DataVersionDeneb
@@ -211,10 +210,10 @@ func (r *VersionedSignedBlindedBeaconBlock) UnmarshalJSON(input []byte) error {
 		return nil
 	}
 
-	capellaBlock := new(eth2ApiV1Capella.SignedBlindedBeaconBlock)
-	if err = json.Unmarshal(input, capellaBlock); err == nil {
-		r.Version = spec.DataVersionCapella
-		r.Capella = capellaBlock
+	electraBlock := new(eth2ApiV1Electra.SignedBlindedBeaconBlock)
+	if err = json.Unmarshal(input, electraBlock); err == nil {
+		r.Version = spec.DataVersionElectra
+		r.Electra = electraBlock
 		return nil
 	}
 	return fmt.Errorf("failed to unmarshal SignedBlindedBeaconBlock %v", err)
@@ -223,6 +222,15 @@ func (r *VersionedSignedBlindedBeaconBlock) UnmarshalJSON(input []byte) error {
 func (r *VersionedSignedBlindedBeaconBlock) UnmarshalSSZ(input []byte) error {
 	var err error
 
+	if IsElectra {
+		electraBlock := new(eth2ApiV1Electra.SignedBlindedBeaconBlock)
+		if err = electraBlock.UnmarshalSSZ(input); err == nil {
+			r.Version = spec.DataVersionElectra
+			r.Electra = electraBlock
+			return nil
+		}
+	}
+
 	denebBlock := new(eth2ApiV1Deneb.SignedBlindedBeaconBlock)
 	if err = denebBlock.UnmarshalSSZ(input); err == nil {
 		r.Version = spec.DataVersionDeneb
@@ -230,10 +238,10 @@ func (r *VersionedSignedBlindedBeaconBlock) UnmarshalSSZ(input []byte) error {
 		return nil
 	}
 
-	capellaBlock := new(eth2ApiV1Capella.SignedBlindedBeaconBlock)
-	if err = capellaBlock.UnmarshalSSZ(input); err == nil {
-		r.Version = spec.DataVersionCapella
-		r.Capella = capellaBlock
+	electraBlock := new(eth2ApiV1Electra.SignedBlindedBeaconBlock)
+	if err = electraBlock.UnmarshalSSZ(input); err == nil {
+		r.Version = spec.DataVersionElectra
+		r.Electra = electraBlock
 		return nil
 	}
 
@@ -243,24 +251,15 @@ func (r *VersionedSignedBlindedBeaconBlock) UnmarshalSSZ(input []byte) error {
 // ExecutionParentHash returns the parent hash of the beacon block.
 func (r *VersionedSignedBlindedBeaconBlock) ExecutionParentHash() (phase0.Hash32, error) {
 	switch r.Version {
-	case spec.DataVersionBellatrix:
-		if r.Bellatrix == nil ||
-			r.Bellatrix.Message == nil ||
-			r.Bellatrix.Message.Body == nil ||
-			r.Bellatrix.Message.Body.ExecutionPayloadHeader == nil {
+	case spec.DataVersionElectra:
+		if r.Electra == nil ||
+			r.Electra.Message == nil ||
+			r.Electra.Message.Body == nil ||
+			r.Electra.Message.Body.ExecutionPayloadHeader == nil {
 			return phase0.Hash32{}, ErrDataMissing
 		}
 
-		return r.Bellatrix.Message.Body.ExecutionPayloadHeader.ParentHash, nil
-	case spec.DataVersionCapella:
-		if r.Capella == nil ||
-			r.Capella.Message == nil ||
-			r.Capella.Message.Body == nil ||
-			r.Capella.Message.Body.ExecutionPayloadHeader == nil {
-			return phase0.Hash32{}, ErrDataMissing
-		}
-
-		return r.Capella.Message.Body.ExecutionPayloadHeader.ParentHash, nil
+		return r.Electra.Message.Body.ExecutionPayloadHeader.ParentHash, nil
 	case spec.DataVersionDeneb:
 		if r.Deneb == nil ||
 			r.Deneb.Message == nil ||

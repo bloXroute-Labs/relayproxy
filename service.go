@@ -1183,20 +1183,27 @@ func (s *Service) GetPayload(ctx context.Context, receivedAt time.Time, payload 
 	metricCopy := logMetric.Copy()
 	var wg sync.WaitGroup
 	wg.Add(1)
-	var totalPrefetchResponses int
+	totalPrefetchResponses := 1
 	go func(l *LogMetric) {
 		defer wg.Done()
 		// fetch payload from cache
 		blindedBeaconBlock, errRes := s.prefetchPayloadToSignedBlindedBeaconBlock(ctx, l, payload)
 		if errRes != nil {
-			totalPrefetchResponses += 1
 			s.logger.Info("validateAndFetchPayload failed", logMetric.GetFields()...)
 			errChan <- ErrorRespWithPayload{err: errRes, resp: nil}
 			return
 		}
+		s.logger.With(zap.String("version", blindedBeaconBlock.Version.String())).Info("validateAndFetchPayload prefetching payload", logMetric.GetFields()...)
+		firstAttempt := true
 		for range attempts {
 			payloadInfo, errRes := s.validateAndFetchPayload(ctx, l, blindedBeaconBlock)
-			totalPrefetchResponses += 1
+
+			if !firstAttempt {
+				totalPrefetchResponses += 1
+			} else {
+				firstAttempt = false
+			}
+
 			if errRes != nil {
 				errChan <- ErrorRespWithPayload{err: errRes, resp: payloadInfo}
 				time.Sleep(100 * time.Millisecond)
@@ -1385,7 +1392,7 @@ func (s *Service) sendPayloadStats(payload []byte, logMetric *LogMetric, isSucce
 	}
 	if out == nil { // case 3
 		// Decode payload
-		decodedPayload := new(VersionedSignedBlindedBeaconBlock)
+		decodedPayload := new(common.VersionedSignedBlindedBeaconBlock)
 		if err := json.NewDecoder(bytes.NewReader(payload)).Decode(decodedPayload); err != nil {
 			s.logger.With(logMetric.GetFields()...).Warn("failed to decode getPayload request")
 			return
@@ -1404,14 +1411,12 @@ func (s *Service) sendPayloadStats(payload []byte, logMetric *LogMetric, isSucce
 					s.logger.With(logMetric.GetFields()...).Warn("failed to decode getPayload BlockHash")
 				} else {
 					out.SetBlockHash(_blockHash.String())
-					if decodedPayload.Deneb == nil ||
-						decodedPayload.Deneb.Message == nil ||
-						decodedPayload.Deneb.Message.Body == nil ||
-						decodedPayload.Deneb.Message.Body.ExecutionPayloadHeader == nil {
+					parentHash, err := decodedPayload.ExecutionParentHash()
+					if err != nil {
 						s.logger.With(logMetric.GetFields()...).Warn("failed to decode getPayload parentHash")
 					} else {
 						// block value will be empty as it's not available as part of VersionedSignedBlindedBeaconBlock
-						out.SetParentHash(decodedPayload.Deneb.Message.Body.ExecutionPayloadHeader.ParentHash.String())
+						out.SetParentHash(parentHash.String())
 					}
 				}
 			}
