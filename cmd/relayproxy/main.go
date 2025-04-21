@@ -25,7 +25,7 @@ import (
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flashbots/go-boost-utils/bls"
-	boostSsz "github.com/flashbots/go-boost-utils/ssz"
+	"github.com/flashbots/go-boost-utils/ssz"
 	boostTypes "github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/go-boost-utils/utils"
 	"github.com/fluent/fluent-logger-golang/fluent"
@@ -328,7 +328,7 @@ func main() {
 		electraForkEpoch = common.ElectraForkEpochMainnet
 	}
 	l.Info("electraForkEpoch", zap.Int64("electraForkEpoch", electraForkEpoch))
-	builderSigningDomain, err := common.ComputeDomain(boostSsz.DomainTypeAppBuilder, genesisForkVersion, phase0.Root{}.String())
+	builderSigningDomain, err := common.ComputeDomain(ssz.DomainTypeAppBuilder, genesisForkVersion, phase0.Root{}.String())
 	if err != nil {
 		l.Fatal("failed to compute builder signing domain", zap.Error(err))
 	}

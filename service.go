@@ -1193,6 +1193,7 @@ func (s *Service) GetPayload(ctx context.Context, receivedAt time.Time, payload 
 			errChan <- ErrorRespWithPayload{err: errRes, resp: nil}
 			return
 		}
+		s.logger.With(zap.String("version", blindedBeaconBlock.Version.String())).Info("validateAndFetchPayload prefetching payload", logMetric.GetFields()...)
 		firstAttempt := true
 		for range attempts {
 			payloadInfo, errRes := s.validateAndFetchPayload(ctx, l, blindedBeaconBlock)
