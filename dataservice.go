@@ -81,6 +81,7 @@ func LoadAccountsFromYAML(filename string) (*AccountsLists, error) {
 	if err != nil {
 		return nil, err
 	}
+	log.Default().Printf("loaded accounts: %+v\n", data)
 	a := AccountsLists{
 		AccountIDToInfo:   make(map[string]*AccountInfo),
 		AccountNameToInfo: make(map[AccountName]*AccountInfo),
@@ -97,9 +98,9 @@ type AccountInfo struct {
 	AccountName               AccountName `yaml:"account-name"`
 	AccountID                 string      `yaml:"account-id"`
 	UseAccountAsValidator     bool        `yaml:"use-account-as-validator"`
-	CustomCtx                 string      `yaml:"custom-ctx"`
+	CustomCtx                 string      `yaml:"custom-context"`
 	InstantReturnFirstRequest bool        `yaml:"instant-return-first-request"`
-	IsWhitelisted             bool        `yaml:"is-whitelisted"`
+	IsWhitelisted             bool        `yaml:"whitelisted"`
 }
 type AccountsLists struct {
 	AccountIDToInfo   map[string]*AccountInfo
