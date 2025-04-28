@@ -1699,7 +1699,7 @@ func (s *Service) StreamBlock(ctx context.Context, client *common.Client) (*rela
 		return nil, err
 	}
 	ctx = metadata.AppendToOutgoingContext(ctx, "listenAddress", port)
-	ctx = metadata.AppendToOutgoingContext(ctx, "grpcListenAddress", "5010")
+	ctx = metadata.AppendToOutgoingContext(ctx, "grpcListenAddress", s.GrpcListenAddress)
 	streamBlockCtx, span := s.tracer.Start(ctx, "streamBlock-start")
 	defer span.End(trace.WithTimestamp(time.Now().UTC()))
 	id := uuid.NewString()
