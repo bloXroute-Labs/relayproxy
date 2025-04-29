@@ -256,30 +256,42 @@ func TestBlockCancellation(t *testing.T) {
 	assert.Contains(t, err.Error(), "no builder bids found")
 
 	// add low value bid
-	lowBid := &common.Bid{
-		Value:         new(big.Int).SetInt64(testValueLow).Bytes(),
-		Payload:       []byte(`lowBlock`),
-		BlockHash:     hex.EncodeToString(testBlockHash1[:]),
-		BuilderPubkey: testBuilderPubkey1,
-	}
+	lowBid := common.NewBid(
+		new(big.Int).SetInt64(testValueLow).Bytes(),
+		[]byte(`lowBlock`),
+		nil,
+		hex.EncodeToString(testBlockHash1[:]),
+		testBuilderPubkey1,
+		"",
+		"",
+		nil,
+	)
 	bidsMap.Store(testBuilderPubkey1, lowBid)
 
 	// add high value bid
-	highBid := &common.Bid{
-		Value:         new(big.Int).SetInt64(testValueHigh).Bytes(),
-		Payload:       []byte(`highBlock`),
-		BlockHash:     hex.EncodeToString(testBlockHash2[:]),
-		BuilderPubkey: testBuilderPubkey2,
-	}
+	highBid := common.NewBid(
+		new(big.Int).SetInt64(testValueHigh).Bytes(),
+		[]byte(`highBlock`),
+		nil,
+		hex.EncodeToString(testBlockHash2[:]),
+		testBuilderPubkey2,
+		"",
+		"",
+		nil,
+	)
 	bidsMap.Store(testBuilderPubkey2, highBid)
 
 	// add medium value bid
-	mediumBid := &common.Bid{
-		Value:         new(big.Int).SetInt64(testValueMedium).Bytes(),
-		Payload:       []byte(`mediumBlock`),
-		BlockHash:     hex.EncodeToString(testBlockHash3[:]),
-		BuilderPubkey: testBuilderPubkey3,
-	}
+	mediumBid := common.NewBid(
+		new(big.Int).SetInt64(testValueMedium).Bytes(),
+		[]byte(`mediumBlock`),
+		nil,
+		hex.EncodeToString(testBlockHash3[:]),
+		testBuilderPubkey3,
+		"",
+		"",
+		nil,
+	)
 	bidsMap.Store(testBuilderPubkey3, mediumBid)
 
 	// test expected high bid found
@@ -313,86 +325,122 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 
 	// Add value for testBuilderPubkey1
 	// add low value bid
-	lowBid := &common.Bid{
-		Value:         new(big.Int).SetInt64(testValueLow).Bytes(),
-		Payload:       []byte(`lowBlock`),
-		BlockHash:     hex.EncodeToString(testBlockHash1[:]),
-		BuilderPubkey: testBuilderPubkey1,
-	}
+	lowBid := common.NewBid(
+		new(big.Int).SetInt64(testValueLow).Bytes(),
+		[]byte(`lowBlock`),
+		nil,
+		hex.EncodeToString(testBlockHash1[:]),
+		testBuilderPubkey1,
+		"",
+		"",
+		nil,
+	)
 	bidsMap.Store(testBuilderPubkey1, lowBid)
 
 	// add high value bid
-	highBid := &common.Bid{
-		Value:         new(big.Int).SetInt64(testValueHigh).Bytes(),
-		Payload:       []byte(`highBlock`),
-		BlockHash:     hex.EncodeToString(testBlockHash2[:]),
-		BuilderPubkey: testBuilderPubkey1,
-	}
+	highBid := common.NewBid(
+		new(big.Int).SetInt64(testValueHigh).Bytes(),
+		[]byte(`highBlock`),
+		nil,
+		hex.EncodeToString(testBlockHash2[:]),
+		testBuilderPubkey1,
+		"",
+		"",
+		nil,
+	)
 	bidsMap.Store(testBuilderPubkey1, highBid)
 
 	// add medium value bid
-	mediumBid := &common.Bid{
-		Value:         new(big.Int).SetInt64(testValueMedium).Bytes(),
-		Payload:       []byte(`mediumBlock`),
-		BlockHash:     hex.EncodeToString(testBlockHash3[:]),
-		BuilderPubkey: testBuilderPubkey1,
-	}
+	mediumBid := common.NewBid(
+		new(big.Int).SetInt64(testValueMedium).Bytes(),
+		[]byte(`mediumBlock`),
+		nil,
+		hex.EncodeToString(testBlockHash3[:]),
+		testBuilderPubkey1,
+		"",
+		"",
+		nil,
+	)
 	bidsMap.Store(testBuilderPubkey1, mediumBid)
 
 	// Add value for testBuilderPubkey2
 	// add low value bid
-	lowBid1 := &common.Bid{
-		Value:         new(big.Int).SetInt64(testValueLow).Bytes(),
-		Payload:       []byte(`lowBlock`),
-		BlockHash:     hex.EncodeToString(testBlockHash1[:]),
-		BuilderPubkey: testBuilderPubkey2,
-	}
+	lowBid1 := common.NewBid(
+		new(big.Int).SetInt64(testValueLow).Bytes(),
+		[]byte(`lowBlock`),
+		nil,
+		hex.EncodeToString(testBlockHash1[:]),
+		testBuilderPubkey2,
+		"",
+		"",
+		nil,
+	)
 	bidsMap.Store(testBuilderPubkey2, lowBid1)
 
 	// add medium value bid
-	mediumBid1 := &common.Bid{
-		Value:         new(big.Int).SetInt64(testValueMedium).Bytes(),
-		Payload:       []byte(`mediumBlock`),
-		BlockHash:     hex.EncodeToString(testBlockHash3[:]),
-		BuilderPubkey: testBuilderPubkey2,
-	}
+	mediumBid1 := common.NewBid(
+		new(big.Int).SetInt64(testValueMedium).Bytes(),
+		[]byte(`mediumBlock`),
+		nil,
+		hex.EncodeToString(testBlockHash3[:]),
+		testBuilderPubkey2,
+		"",
+		"",
+		nil,
+	)
 	bidsMap.Store(testBuilderPubkey2, mediumBid1)
 
 	// add high value bid
-	highBid1 := &common.Bid{
-		Value:         new(big.Int).SetInt64(testValueHigh).Bytes(),
-		Payload:       []byte(`highBlock`),
-		BlockHash:     hex.EncodeToString(testBlockHash2[:]),
-		BuilderPubkey: testBuilderPubkey2,
-	}
+	highBid1 := common.NewBid(
+		new(big.Int).SetInt64(testValueHigh).Bytes(),
+		[]byte(`highBlock`),
+		nil,
+		hex.EncodeToString(testBlockHash2[:]),
+		testBuilderPubkey2,
+		"",
+		"",
+		nil,
+	)
 	bidsMap.Store(testBuilderPubkey2, highBid1)
 
 	// Add value for testBuilderPubkey3
 	// add medium value bid
-	mediumBid2 := &common.Bid{
-		Value:         new(big.Int).SetInt64(testValueMedium).Bytes(),
-		Payload:       []byte(`mediumBlock`),
-		BlockHash:     hex.EncodeToString(testBlockHash3[:]),
-		BuilderPubkey: testBuilderPubkey3,
-	}
+	mediumBid2 := common.NewBid(
+		new(big.Int).SetInt64(testValueMedium).Bytes(),
+		[]byte(`mediumBlock`),
+		nil,
+		hex.EncodeToString(testBlockHash3[:]),
+		testBuilderPubkey3,
+		"",
+		"",
+		nil,
+	)
 	bidsMap.Store(testBuilderPubkey3, mediumBid2)
 
 	// add high value bid
-	highBid2 := &common.Bid{
-		Value:         new(big.Int).SetInt64(testValueHigh).Bytes(),
-		Payload:       []byte(`highBlock`),
-		BlockHash:     hex.EncodeToString(testBlockHash2[:]),
-		BuilderPubkey: testBuilderPubkey3,
-	}
+	highBid2 := common.NewBid(
+		new(big.Int).SetInt64(testValueHigh).Bytes(),
+		[]byte(`highBlock`),
+		nil,
+		hex.EncodeToString(testBlockHash2[:]),
+		testBuilderPubkey3,
+		"",
+		"",
+		nil,
+	)
 	bidsMap.Store(testBuilderPubkey3, highBid2)
 
 	// add low value bid
-	lowBid2 := &common.Bid{
-		Value:         new(big.Int).SetInt64(testValueLow).Bytes(),
-		Payload:       []byte(`lowBlock`),
-		BlockHash:     hex.EncodeToString(testBlockHash1[:]),
-		BuilderPubkey: testBuilderPubkey3,
-	}
+	lowBid2 := common.NewBid(
+		new(big.Int).SetInt64(testValueLow).Bytes(),
+		[]byte(`lowBlock`),
+		nil,
+		hex.EncodeToString(testBlockHash1[:]),
+		testBuilderPubkey3,
+		"",
+		"",
+		nil,
+	)
 	bidsMap.Store(testBuilderPubkey3, lowBid2)
 
 	// test expected high bid found
