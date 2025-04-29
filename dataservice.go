@@ -30,7 +30,7 @@ type IDataService interface {
 	GetDelaySettings(ctx context.Context) map[string]DelaySettings
 	SetDelayForValidator(id string, delay, maxDelay int64)
 	SetDelayForValidators(settings map[string]DelaySettings)
-	DelayGetHeader(ctx context.Context, receivedAt time.Time, getHeaderStartTimeUnixMS, slot, accountID, cluster, userAgent, clientIP, slotWithParentHash, commitBoostSendTimeUnixMS string) (DelayGetHeaderResponse, error)
+	DelayGetHeader(ctx context.Context, in DelayGetHeaderParams) (DelayGetHeaderResponse, error)
 }
 
 type DataService struct {
@@ -134,22 +134,21 @@ func (s *DataService) shouldRequestDelayed(ip, slotWithParentHash string) bool {
 	return false
 }
 
-func (s *DataService) DelayGetHeader(ctx context.Context, receivedAt time.Time, getHeaderStartTimeUnixMS, slot, accountID, cluster, userAgent, clientIP, slotWithParentHash, commitBoostSendTimeUnixMS string) (DelayGetHeaderResponse, error) {
+func (s *DataService) DelayGetHeader(ctx context.Context, in DelayGetHeaderParams) (DelayGetHeaderResponse, error) {
 
-	slotInt := AToI(slot)
+	slotInt := AToI(in.Slot)
 	slotStartTime := GetSlotStartTime(s.beaconGenesisTime, slotInt, s.secondsPerSlot)
-	msIntoSlot := receivedAt.Sub(slotStartTime).Milliseconds()
+	msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds()
 
-	_, latency := getBoostSendTimeAndLatency(receivedAt, getHeaderStartTimeUnixMS, commitBoostSendTimeUnixMS)
 	// first request from an IP is responded immediately
 	// subsequent request from same IP will be delayed
-	if s.accountsLists.AccountIDToInfo[accountID] != nil &&
-		s.accountsLists.AccountIDToInfo[accountID].InstantReturnFirstRequest {
-		if ok := s.shouldRequestDelayed(clientIP, slotWithParentHash); !ok {
+	if s.accountsLists.AccountIDToInfo[in.AccountID] != nil &&
+		s.accountsLists.AccountIDToInfo[in.AccountID].InstantReturnFirstRequest {
+		if ok := s.shouldRequestDelayed(in.ClientIP, in.SlotWithParentHash); !ok {
 			return DelayGetHeaderResponse{
 				Sleep:         0,
 				MaxSleep:      0,
-				Latency:       latency,
+				Latency:       in.Latency,
 				SlotStartTime: slotStartTime,
 			}, nil
 		}
@@ -161,7 +160,7 @@ func (s *DataService) DelayGetHeader(ctx context.Context, receivedAt time.Time, 
 	if GetHeaderRequestCutoffMs > 0 && msIntoSlot > GetHeaderRequestCutoffMs {
 		return DelayGetHeaderResponse{}, common.ErrLateHeader
 	}
-	sleep, maxSleep, err = s.dynamicFuncWrapper(accountID, msIntoSlot, cluster, userAgent, latency, clientIP)
+	sleep, maxSleep, err = s.dynamicFuncWrapper(in.AccountID, msIntoSlot, in.Cluster, in.UserAgent, in.Latency, in.ClientIP)
 	if err != nil {
 		return DelayGetHeaderResponse{}, err
 	}
@@ -181,7 +180,7 @@ func (s *DataService) DelayGetHeader(ctx context.Context, receivedAt time.Time, 
 	return DelayGetHeaderResponse{
 		Sleep:         sleep,
 		MaxSleep:      maxSleep,
-		Latency:       latency,
+		Latency:       in.Latency,
 		SlotStartTime: slotStartTime,
 	}, nil
 }

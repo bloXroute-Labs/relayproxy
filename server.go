@@ -100,7 +100,6 @@ func New(opts ...ServerOption) *Server {
 	for _, opt := range opts {
 		opt(server)
 	}
-
 	server.ghRatelimit = GetHeaderRateLimitInfo{
 		lastGetHeaderRequest: 0,
 		slotToIPToGHRequest:  NewIntegerMapOf[uint64, map[string]bool](),
@@ -283,7 +282,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 	ctx = context.WithValue(ctx, keyParsedURL, parsedURL)
 	ctx = context.WithValue(ctx, keyClientIP, clientIP)
 	ctx = context.WithValue(ctx, keyAuthHeader, authHeader)
-	ctx = context.WithValue(ctx, keyAccountID, string(accountID))
+	ctx = context.WithValue(ctx, keyAccountID, accountID)
 	next.ServeHTTP(w, r.WithContext(ctx))
 }
 
@@ -486,7 +485,17 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 	handleRegistrationSpan.AddEvent("handleRegistration- svcRegisterValidator")
 	go func() {
-		_, lm, err := s.svc.RegisterValidator(handleRegistrationCtx, outgoingCtx, receivedAt, bodyBytes, clientIP, authHeader, validatorID, accountID, complianceList, hasProposerMevProtect, isSkipOptimism)
+		_, lm, err := s.svc.RegisterValidator(handleRegistrationCtx, outgoingCtx, &RegistrationParams{
+			ReceivedAt:         receivedAt,
+			Payload:            bodyBytes,
+			ClientIP:           clientIP,
+			AuthHeader:         authHeader,
+			ValidatorID:        validatorID,
+			AccountID:          accountID,
+			ComplianceList:     complianceList,
+			ProposerMevProtect: hasProposerMevProtect,
+			SkipOptimism:       isSkipOptimism,
+		})
 		logMetric.Merge(lm)
 		if err != nil {
 			handleRegistrationSpan.SetStatus(codes.Error, err.Error())
@@ -514,8 +523,9 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	validatorID := r.Context().Value(keyOrgID).(string)
 	authHeader := r.Context().Value(keyAuthHeader).(string)
 	accountID := r.Context().Value(keyAccountID).(string)
-	getHeaderStartTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
+	mevBoostSendTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
 	commitBoostSendTimeUnixMS := r.Header.Get(commitBoostStartTimeUnixMS)
+	boostSendTime, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
 	cluster := r.Header.Get(VouchCluster)
 	userAgent := r.Header.Get("User-Agent")
 	headers := []string{}
@@ -539,8 +549,8 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 			zap.String("parentHash", parentHash),
 			zap.String("pubKey", pubKey),
 			zap.String("traceID", span.SpanContext().TraceID().String()),
-			zap.String("getHeaderStartTimeUnixMS", getHeaderStartTimeUnixMS),
-			zap.String("commitBoostSendTimeUnixMS", commitBoostSendTimeUnixMS),
+			zap.String("getHeaderStartTimeUnixMS", boostSendTime),
+			zap.Int64("latency", latency),
 			zap.String("cluster", cluster),
 			zap.String("userAgent", userAgent),
 			zap.Bool("sszResponse", sszResponse),
@@ -558,7 +568,8 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 			attribute.String("parentHash", parentHash),
 			attribute.String("pubKey", pubKey),
 			attribute.String("traceID", span.SpanContext().TraceID().String()),
-			attribute.String("getHeaderStartTimeUnixMS", getHeaderStartTimeUnixMS),
+			attribute.String("getHeaderStartTimeUnixMS", boostSendTime),
+			attribute.Int64("latency", latency),
 			attribute.String("cluster", cluster),
 			attribute.String("userAgent", userAgent),
 			attribute.Bool("sszResponse", sszResponse),
@@ -569,7 +580,20 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 
 	span.AddEvent("handleGetHeader-svcGetHeader")
 	//svcGetHeader, handleGetHeaderSpan := s.tracer.Start(handleGetHeaderCtx, "svcGetHeader")
-	out, lm, err := s.svc.GetHeader(handleGetHeaderCtx, receivedAt, getHeaderStartTimeUnixMS, clientIP, slot, parentHash, pubKey, authHeader, validatorID, accountID, cluster, userAgent, commitBoostSendTimeUnixMS)
+	out, lm, err := s.svc.GetHeader(handleGetHeaderCtx, &HeaderRequestParams{
+		ReceivedAt:               receivedAt,
+		GetHeaderStartTimeUnixMS: boostSendTime,
+		Latency:                  latency,
+		ClientIP:                 clientIP,
+		Slot:                     slot,
+		ParentHash:               parentHash,
+		PubKey:                   pubKey,
+		AuthHeader:               authHeader,
+		ValidatorID:              validatorID,
+		AccountID:                accountID,
+		Cluster:                  cluster,
+		UserAgent:                userAgent,
+	})
 	logMetric.Merge(lm)
 	if err != nil {
 		respondError(handleGetHeaderCtx, getHeader, w, err, s.logger, s.tracer, logMetric)
@@ -608,10 +632,9 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	authHeader := r.Context().Value(keyAuthHeader).(string)
 	validatorID := r.Context().Value(keyOrgID).(string)
 	accountID := r.Context().Value(keyAccountID).(string)
-
-	getPayloadStartTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
+	mevBoostSendTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
 	commitBoostSendTimeUnixMS := r.Header.Get(commitBoostStartTimeUnixMS)
-
+	boostSendTime, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
 	cluster := r.Header.Get(VouchCluster)
 	userAgent := r.Header.Get("User-Agent")
 
@@ -633,8 +656,8 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 			zap.String("authHeader", authHeader),
 			zap.String("clientIP", clientIP),
 			zap.String("traceID", span.SpanContext().TraceID().String()),
-			zap.String("getPayloadStartTimeUnixMS", getPayloadStartTimeUnixMS),
-			zap.String("commitBoostSendTimeUnixMS", commitBoostSendTimeUnixMS),
+			zap.String("getPayloadStartTimeUnixMS", boostSendTime),
+			zap.Int64("latency", latency),
 			zap.String("cluster", cluster),
 			zap.String("userAgent", userAgent),
 			zap.Bool("sszRequest", sszRequest),
@@ -651,7 +674,8 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 			attribute.String("accountID", accountID),
 			attribute.String("authHeader", authHeader),
 			attribute.String("traceID", span.SpanContext().TraceID().String()),
-			attribute.String("getPayloadStartTimeUnixMS", getPayloadStartTimeUnixMS),
+			attribute.String("getPayloadStartTimeUnixMS", boostSendTime),
+			attribute.Int64("latency", latency),
 			attribute.String("cluster", cluster),
 			attribute.String("userAgent", userAgent),
 			attribute.Bool("sszRequest", sszRequest),
@@ -689,7 +713,17 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		encodeJSONSpan.End()
 	}
 	span.AddEvent("handleGetPayload-svcGetPayload")
-	out, lm, err := s.svc.GetPayload(getPayloadCtx, receivedAt, bodyBytes, clientIP, authHeader, validatorID, accountID, getPayloadStartTimeUnixMS, cluster, userAgent, commitBoostSendTimeUnixMS)
+	out, lm, err := s.svc.GetPayload(getPayloadCtx, &PayloadRequestParams{
+		ReceivedAt:                receivedAt,
+		Payload:                   bodyBytes,
+		ClientIP:                  clientIP,
+		AuthHeader:                authHeader,
+		ValidatorID:               validatorID,
+		AccountID:                 accountID,
+		GetPayloadStartTimeUnixMS: boostSendTime,
+		Cluster:                   cluster,
+		UserAgent:                 userAgent,
+	})
 	logMetric.Merge(lm)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
