@@ -98,7 +98,7 @@ func TestService_RegisterValidator(t *testing.T) {
 				tracer:              noop.NewTracerProvider().Tracer("test"),
 				fluentD:             fluentstats.NewStats(true, "0.0.0.0:24224"),
 			}
-			got, _, err := s.RegisterValidator(context.Background(), context.Background(), time.Now(), nil, "", TestAuthHeader, "", "", "", false, false)
+			got, _, err := s.RegisterValidator(context.Background(), context.Background(), &RegistrationParams{})
 			if err == nil {
 				assert.Equal(t, got, tt.wantSuccess)
 				return
@@ -109,6 +109,7 @@ func TestService_RegisterValidator(t *testing.T) {
 }
 
 func TestService_GetHeader(t *testing.T) {
+
 	tests := map[string]struct {
 		slot               string
 		parentHash         string
@@ -151,6 +152,17 @@ func TestService_GetHeader(t *testing.T) {
 				Message: common.ErrLateHeader.Error(),
 			},
 		},
+		" header too late": {
+			slot:               "123",
+			pubKey:             testBuilderPubkey1,
+			parentHash:         "dummy-parent-hash",
+			accountID:          "",
+			slotStartTimeShift: 2500 * time.Millisecond,
+			wantErr: &ErrorResp{
+				Code:    http.StatusNoContent,
+				Message: common.ErrLateHeader.Error(),
+			},
+		},
 	}
 	for testName, tt := range tests {
 		t.Run(testName, func(t *testing.T) {
@@ -159,8 +171,6 @@ func TestService_GetHeader(t *testing.T) {
 			dopts = append(dopts, WithDataSvcSecondsPerSlot(12))
 			dopts = append(dopts, WithDataSvcBeaconGenesisTime(1606824023))
 			dSvc := NewDataService(dopts...)
-			dSvc.accountsLists = &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
-				AccountNameToInfo: make(map[AccountName]*AccountInfo)}
 			opts := make([]ServiceOption, 0)
 			opts = append(opts, WithSvcLogger(zap.NewNop()))
 			opts = append(opts, WithDataService(dSvc))
@@ -169,18 +179,24 @@ func TestService_GetHeader(t *testing.T) {
 			opts = append(opts, WithSvcFluentD(fluentstats.NewStats(true, "0.0.0.0:24224")))
 			opts = append(opts, WithSvcBeaconGenesisTime(1606824023))
 			opts = append(opts, WithSvcSecondsPerSlot(12))
-			opts = append(opts, WithBuilderBidsForProxySlot(cache.New(5*time.Minute, 12*time.Minute)))
 			svc := NewService(opts...)
-			svc.accountsLists = &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
-				AccountNameToInfo: make(map[AccountName]*AccountInfo)}
 			slotInt, _ := strconv.Atoi(tt.slot)
 			slotStartTime := GetSlotStartTime(1606824023, int64(slotInt), 12)
 			if tt.slotStartTimeShift > 0 {
 				slotStartTime = slotStartTime.Add(tt.slotStartTimeShift)
 			}
+
 			accountID := tt.accountID
-			_, _, err := svc.GetHeader(context.Background(), slotStartTime, "", "ip", tt.slot, tt.parentHash, tt.pubKey, TestAuthHeader, "", accountID, "", "", "")
-			assert.Equal(t, tt.wantErr.Error(), err.Error())
+			_, _, err := svc.GetHeader(context.Background(), &HeaderRequestParams{
+				ReceivedAt: slotStartTime,
+				Slot:       tt.slot,
+				AccountID:  accountID,
+				ParentHash: tt.parentHash,
+				PubKey:     tt.pubKey,
+				ClientIP:   "ip",
+				AuthHeader: TestAuthHeader,
+			})
+			assert.Equal(t, err.Error(), tt.wantErr.Error())
 		})
 	}
 }
@@ -223,7 +239,7 @@ func TestService_getPayload(t *testing.T) {
 			s := NewService(svcOpts...)
 			s.accountsLists = &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 				AccountNameToInfo: make(map[AccountName]*AccountInfo)}
-			got, _, err := s.GetPayload(context.Background(), time.Now(), nil, "", TestAuthHeader, "", "", "", "", "", "")
+			got, _, err := s.GetPayload(context.Background(), &PayloadRequestParams{AuthHeader: TestAuthHeader})
 			if err == nil {
 				assert.Equal(t, string(got.(json.RawMessage)), string(tt.wantSuccess))
 				return
@@ -236,8 +252,6 @@ func TestBlockCancellation(t *testing.T) {
 	s := &Service{
 		logger:                  zap.NewNop(),
 		builderBidsForProxySlot: cache.New(BuilderBidsCleanupInterval, BuilderBidsCleanupInterval),
-		accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
-			AccountNameToInfo: make(map[AccountName]*AccountInfo)},
 	}
 
 	// test no bids found (cache key not found)
@@ -292,8 +306,6 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 	s := &Service{
 		logger:                  zap.NewNop(),
 		builderBidsForProxySlot: cache.New(BuilderBidsCleanupInterval, BuilderBidsCleanupInterval),
-		accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
-			AccountNameToInfo: make(map[AccountName]*AccountInfo)},
 	}
 
 	// test no bids found (cache key not found)
@@ -416,7 +428,6 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	}
 	// Set up your mock gRPC server and client.
 	srv := grpc.NewServer()
-
 	relaygrpc.RegisterRelayServer(srv, &mockRelayServer{output: streams, logger: l})
 
 	// Create a listener and start the server.
@@ -440,8 +451,6 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	defer conn.Close()
 	relayClient := relaygrpc.NewRelayClient(conn)
 	dSvc := NewDataService(WithDataSvcLogger(zap.NewNop()))
-	dSvc.accountsLists = &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
-		AccountNameToInfo: make(map[AccountName]*AccountInfo)}
 	svcOpts := make([]ServiceOption, 0)
 	c := &common.Client{URL: lis.Addr().String(), NodeID: "", Conn: conn, RelayClient: relayClient}
 	clients := []*common.Client{c}
@@ -503,7 +512,13 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	}
 	for testName, tt := range tests {
 		t.Run(testName, func(t *testing.T) {
-			got, _, err := service.GetHeader(ctx, time.Now(), "", "", strconv.FormatUint(tt.in.Slot, 10), tt.in.ParentHash, tt.in.ProposerPubKey, TestAuthHeader, "", "", "", "", "")
+			got, _, err := service.GetHeader(ctx, &HeaderRequestParams{
+				ReceivedAt: time.Now(),
+				AuthHeader: TestAuthHeader,
+				Slot:       strconv.FormatUint(tt.in.Slot, 10),
+				ParentHash: tt.in.ParentHash,
+				PubKey:     tt.in.ProposerPubKey,
+			})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetHeader() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -590,8 +605,6 @@ func TestGetBuilderBidForSlot(t *testing.T) {
 	svc := &Service{
 		logger:                  zap.NewNop(),
 		builderBidsForProxySlot: cache.New(5*time.Minute, 10*time.Minute),
-		accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
-			AccountNameToInfo: make(map[AccountName]*AccountInfo)},
 	}
 	bid1 := &common.Bid{}
 	bid2 := &common.Bid{}
@@ -690,7 +703,11 @@ type mockRelayClient struct {
 	StreamBuilderFunc     func(ctx context.Context, in *relaygrpc.StreamBuilderRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamBuilderClient, error)
 
 	ForwardBlockFunc func(ctx context.Context, in *relaygrpc.StreamBlockResponse, opts ...grpc.CallOption) (*relaygrpc.SubmitBlockResponse, error)
-	Pingfunc         func(ctx context.Context, in *relaygrpc.PingRequest, opts ...grpc.CallOption) (*relaygrpc.PingResponse, error)
+}
+
+func (m *mockRelayClient) Ping(ctx context.Context, in *relaygrpc.PingRequest, opts ...grpc.CallOption) (*relaygrpc.PingResponse, error) {
+	//TODO implement me
+	panic("implement me")
 }
 
 func (m *mockRelayClient) GetValidatorRegistration(ctx context.Context, in *relaygrpc.GetValidatorRegistrationRequest, opts ...grpc.CallOption) (*relaygrpc.GetValidatorRegistrationResponse, error) {
@@ -753,16 +770,14 @@ func (m *mockRelayClient) StreamBuilder(ctx context.Context, in *relaygrpc.Strea
 	return nil, nil
 }
 
-func (m *mockRelayClient) Ping(ctx context.Context, req *relaygrpc.PingRequest, opts ...grpc.CallOption) (*relaygrpc.PingResponse, error) {
-	if m.Pingfunc != nil {
-		return m.Pingfunc(ctx, req, opts...)
-	}
-	return nil, nil
-}
-
 // MockClient is a mock of Client interface
 type MockClient struct {
 	mock.Mock
+}
+
+func (m *MockClient) Ping(ctx context.Context, in *relaygrpc.PingRequest, opts ...grpc.CallOption) (*relaygrpc.PingResponse, error) {
+	//TODO implement me
+	panic("implement me")
 }
 
 func (m *MockClient) SubmitBlock(ctx context.Context, in *relaygrpc.SubmitBlockRequest, opts ...grpc.CallOption) (*relaygrpc.SubmitBlockResponse, error) {
@@ -815,11 +830,6 @@ func (m *MockClient) ForwardBlock(ctx context.Context, in *relaygrpc.StreamBlock
 	panic("implement me")
 }
 
-func (m *MockClient) Ping(ctx context.Context, in *relaygrpc.PingRequest, opts ...grpc.CallOption) (*relaygrpc.PingResponse, error) {
-	//TODO implement me
-	panic("implement me")
-}
-
 func TestGetPayloadWithRetry(t *testing.T) {
 	// Define test cases
 	tests := []struct {
@@ -845,7 +855,7 @@ func TestGetPayloadWithRetry(t *testing.T) {
 			mockReq:  &relaygrpc.GetPayloadRequest{},
 			expectedErr: toErrorResp(http.StatusBadRequest, "relay returned failure response code",
 				zap.String("relayError", "could not find requested payload"), zap.String("url", ""), zap.Uint64("slot", 0), zap.String("BlockHash", ""),
-				zap.String("parentHash", ""), zap.String("BlockValue", ""), zap.String("uniqueKey", "slot_0_bHash__pHash_")),
+				zap.String("in.ParentHash", ""), zap.String("BlockValue", ""), zap.String("uniqueKey", "slot_0_bHash__pHash_")),
 			expectedResult:          "could not find requested payload",
 			expectedNoOfTimesCalled: 3,
 		},
@@ -855,7 +865,7 @@ func TestGetPayloadWithRetry(t *testing.T) {
 			mockReq:  &relaygrpc.GetPayloadRequest{},
 			expectedErr: toErrorResp(http.StatusBadRequest, "relay returned error",
 				zap.String("relayError", "invalid signature"), zap.String("url", ""), zap.Uint64("slot", 0), zap.String("BlockHash", ""),
-				zap.String("parentHash", ""), zap.String("BlockValue", ""), zap.String("uniqueKey", "slot_0_bHash__pHash_")),
+				zap.String("in.ParentHash", ""), zap.String("BlockValue", ""), zap.String("uniqueKey", "slot_0_bHash__pHash_")),
 			expectedResult:          "invalid signature",
 			expectedNoOfTimesCalled: 1,
 		},
@@ -890,8 +900,6 @@ func TestGetPayloadWithRetry(t *testing.T) {
 			service := &Service{
 				clients: []*common.Client{client},
 				tracer:  trcr,
-				accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
-					AccountNameToInfo: make(map[AccountName]*AccountInfo)},
 			}
 			result, err := service.getPayloadWithRetry(context.Background(), client, span, tc.mockReq, 2)
 			if result != nil {
