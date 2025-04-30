@@ -1565,7 +1565,7 @@ func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey strin
 		builderBidsMap = entry.(*SyncMap[string, *common.Bid])
 	}
 	slotDuty, err := s.IDataService.GetSlotDuty(slot)
-	var replace bool
+	replace := true
 	if err != nil || slotDuty == nil {
 		if err != common.ErrNoProposerSlotMap {
 			s.logger.Error("failed to get slot duty", zap.Uint64("slot", slot), zap.Error(err))
@@ -1711,7 +1711,7 @@ func (s *Service) StreamBlock(ctx context.Context, client *common.Client) (*rela
 		return nil, err
 	}
 	ctx = metadata.AppendToOutgoingContext(ctx, "listenAddress", port)
-	ctx = metadata.AppendToOutgoingContext(ctx, "grpcListenAddress", "5010")
+	ctx = metadata.AppendToOutgoingContext(ctx, "grpcListenAddress", s.GrpcListenAddress)
 	streamBlockCtx, span := s.tracer.Start(ctx, "streamBlock-start")
 	defer span.End(trace.WithTimestamp(time.Now().UTC()))
 	id := uuid.NewString()
@@ -2131,7 +2131,7 @@ func (s *Service) StreamBuilderInfo(ctx context.Context, client *common.Client) 
 		return nil, err
 	}
 	ctx = metadata.AppendToOutgoingContext(ctx, "listenAddress", port)
-	ctx = metadata.AppendToOutgoingContext(ctx, "grpcListenAddress", "5010")
+	ctx = metadata.AppendToOutgoingContext(ctx, "grpcListenAddress", s.GrpcListenAddress)
 	streamBuilderInfoCtx, span := s.tracer.Start(ctx, "streamBuilderInfo-start")
 	defer span.End(trace.WithTimestamp(time.Now().UTC()))
 	id := uuid.NewString()
