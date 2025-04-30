@@ -561,7 +561,6 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client) (*rel
 		headerSubmissionV3, err := common.RelayGrpcHeaderSubmissionToVersioned(header, []byte(payloadURL))
 		if err != nil && header.GetPayload() == nil {
 			s.logger.Error("failed to convert to versioned header submission", logMetric.GetFields()...)
-			streamReceiveSpan.SetStatus(otelcodes.Error, err.Error())
 			continue
 		}
 		bid := common.NewBid(

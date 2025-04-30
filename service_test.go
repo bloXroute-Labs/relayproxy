@@ -47,9 +47,12 @@ const (
 )
 
 var (
-	testBlockHash1 = [32]byte{0x0000000000000000000000000000000000000000000000000000000000000001}
-	testBlockHash2 = [32]byte{0x0000000000000000000000000000000000000000000000000000000000000002}
-	testBlockHash3 = [32]byte{0x0000000000000000000000000000000000000000000000000000000000000003}
+	testBlockHash1   = [32]byte{0x0000000000000000000000000000000000000000000000000000000000000001}
+	testBlockHash2   = [32]byte{0x0000000000000000000000000000000000000000000000000000000000000002}
+	testBlockHash3   = [32]byte{0x0000000000000000000000000000000000000000000000000000000000000003}
+	lowBlockBytes    = []byte(`lowBlock`)
+	mediumBlockBytes = []byte(`mediumBlock`)
+	highBlockBytes   = []byte(`highBlock`)
 )
 
 const (
@@ -258,7 +261,7 @@ func TestBlockCancellation(t *testing.T) {
 	// add low value bid
 	lowBid := common.NewBid(
 		new(big.Int).SetInt64(testValueLow).Bytes(),
-		[]byte(`lowBlock`),
+		lowBlockBytes,
 		nil,
 		hex.EncodeToString(testBlockHash1[:]),
 		testBuilderPubkey1,
@@ -271,7 +274,7 @@ func TestBlockCancellation(t *testing.T) {
 	// add high value bid
 	highBid := common.NewBid(
 		new(big.Int).SetInt64(testValueHigh).Bytes(),
-		[]byte(`highBlock`),
+		highBlockBytes,
 		nil,
 		hex.EncodeToString(testBlockHash2[:]),
 		testBuilderPubkey2,
@@ -284,7 +287,7 @@ func TestBlockCancellation(t *testing.T) {
 	// add medium value bid
 	mediumBid := common.NewBid(
 		new(big.Int).SetInt64(testValueMedium).Bytes(),
-		[]byte(`mediumBlock`),
+		mediumBlockBytes,
 		nil,
 		hex.EncodeToString(testBlockHash3[:]),
 		testBuilderPubkey3,
@@ -327,7 +330,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 	// add low value bid
 	lowBid := common.NewBid(
 		new(big.Int).SetInt64(testValueLow).Bytes(),
-		[]byte(`lowBlock`),
+		lowBlockBytes,
 		nil,
 		hex.EncodeToString(testBlockHash1[:]),
 		testBuilderPubkey1,
@@ -340,7 +343,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 	// add high value bid
 	highBid := common.NewBid(
 		new(big.Int).SetInt64(testValueHigh).Bytes(),
-		[]byte(`highBlock`),
+		highBlockBytes,
 		nil,
 		hex.EncodeToString(testBlockHash2[:]),
 		testBuilderPubkey1,
@@ -353,7 +356,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 	// add medium value bid
 	mediumBid := common.NewBid(
 		new(big.Int).SetInt64(testValueMedium).Bytes(),
-		[]byte(`mediumBlock`),
+		mediumBlockBytes,
 		nil,
 		hex.EncodeToString(testBlockHash3[:]),
 		testBuilderPubkey1,
@@ -367,7 +370,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 	// add low value bid
 	lowBid1 := common.NewBid(
 		new(big.Int).SetInt64(testValueLow).Bytes(),
-		[]byte(`lowBlock`),
+		lowBlockBytes,
 		nil,
 		hex.EncodeToString(testBlockHash1[:]),
 		testBuilderPubkey2,
@@ -380,7 +383,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 	// add medium value bid
 	mediumBid1 := common.NewBid(
 		new(big.Int).SetInt64(testValueMedium).Bytes(),
-		[]byte(`mediumBlock`),
+		mediumBlockBytes,
 		nil,
 		hex.EncodeToString(testBlockHash3[:]),
 		testBuilderPubkey2,
@@ -393,7 +396,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 	// add high value bid
 	highBid1 := common.NewBid(
 		new(big.Int).SetInt64(testValueHigh).Bytes(),
-		[]byte(`highBlock`),
+		highBlockBytes,
 		nil,
 		hex.EncodeToString(testBlockHash2[:]),
 		testBuilderPubkey2,
@@ -407,7 +410,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 	// add medium value bid
 	mediumBid2 := common.NewBid(
 		new(big.Int).SetInt64(testValueMedium).Bytes(),
-		[]byte(`mediumBlock`),
+		mediumBlockBytes,
 		nil,
 		hex.EncodeToString(testBlockHash3[:]),
 		testBuilderPubkey3,
@@ -420,7 +423,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 	// add high value bid
 	highBid2 := common.NewBid(
 		new(big.Int).SetInt64(testValueHigh).Bytes(),
-		[]byte(`highBlock`),
+		highBlockBytes,
 		nil,
 		hex.EncodeToString(testBlockHash2[:]),
 		testBuilderPubkey3,
@@ -433,7 +436,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 	// add low value bid
 	lowBid2 := common.NewBid(
 		new(big.Int).SetInt64(testValueLow).Bytes(),
-		[]byte(`lowBlock`),
+		lowBlockBytes,
 		nil,
 		hex.EncodeToString(testBlockHash1[:]),
 		testBuilderPubkey3,
