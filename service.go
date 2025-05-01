@@ -566,7 +566,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client) (*rel
 			AccountID:        header.GetAccountId(),
 			Client:           client,
 		}
-		s.setBuilderBidForProxySlot(k, header.GetBuilderPubkey(), bid) // run it in goroutine ?
+		s.setBuilderBidForProxySlot(k, header.GetBuilderPubkey(), bid, header.GetSlot())
 		storeBidsSpan.SetAttributes(lm.GetAttributes()...)
 		storeBidsSpan.End(trace.WithTimestamp(time.Now()))
 	}
@@ -1552,7 +1552,7 @@ func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, error) {
 	return topBid, nil
 }
 
-func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey string, bid *common.Bid) {
+func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey string, bid *common.Bid, slot uint64) {
 
 	var builderBidsMap *SyncMap[string, *common.Bid]
 
@@ -1564,12 +1564,24 @@ func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey strin
 		// otherwise use the existing syncmap
 		builderBidsMap = entry.(*SyncMap[string, *common.Bid])
 	}
+	slotDuty, err := s.IDataService.GetSlotDuty(slot)
+	replace := true
+	if err != nil || slotDuty == nil {
+		if err != common.ErrNoProposerSlotMap {
+			s.logger.Error("failed to get slot duty", zap.Uint64("slot", slot), zap.Error(err))
+		}
+	} else {
+		replace = slotDuty.IsOptedIn
+	}
+
 	// disable bid replacement
-	if bidEntry, found := builderBidsMap.Load(builderPubkey); found {
-		bidValue := new(big.Int).SetBytes(bid.Value)
-		bidValueExist := new(big.Int).SetBytes(bidEntry.Value)
-		if bidValueExist.Cmp(bidValue) > 0 {
-			return
+	if !replace {
+		if bidEntry, found := builderBidsMap.Load(builderPubkey); found {
+			bidValue := new(big.Int).SetBytes(bid.Value)
+			bidValueExist := new(big.Int).SetBytes(bidEntry.Value)
+			if bidValueExist.Cmp(bidValue) > 0 {
+				return
+			}
 		}
 	}
 	builderBidsMap.Store(builderPubkey, bid)
@@ -1699,7 +1711,7 @@ func (s *Service) StreamBlock(ctx context.Context, client *common.Client) (*rela
 		return nil, err
 	}
 	ctx = metadata.AppendToOutgoingContext(ctx, "listenAddress", port)
-	ctx = metadata.AppendToOutgoingContext(ctx, "grpcListenAddress", "5010")
+	ctx = metadata.AppendToOutgoingContext(ctx, "grpcListenAddress", s.GrpcListenAddress)
 	streamBlockCtx, span := s.tracer.Start(ctx, "streamBlock-start")
 	defer span.End(trace.WithTimestamp(time.Now().UTC()))
 	id := uuid.NewString()
@@ -2001,7 +2013,7 @@ func (s *Service) handleStreamBlockResponse(ctx context.Context, block *relaygrp
 
 	_, storeBidsSpan := s.tracer.Start(spanCtx, "StreamHeader-storeBids")
 	// store the bid for builder pubkey
-	s.setBuilderBidForProxySlot(k, block.GetBuilderPubkey(), bid) // run it in goroutine ?
+	s.setBuilderBidForProxySlot(k, block.GetBuilderPubkey(), bid, block.GetSlot()) // run it in goroutine ?
 	storeBidsSpan.SetAttributes(lm.GetAttributes()...)
 	storeBidsSpan.End(trace.WithTimestamp(time.Now()))
 
@@ -2119,7 +2131,7 @@ func (s *Service) StreamBuilderInfo(ctx context.Context, client *common.Client) 
 		return nil, err
 	}
 	ctx = metadata.AppendToOutgoingContext(ctx, "listenAddress", port)
-	ctx = metadata.AppendToOutgoingContext(ctx, "grpcListenAddress", "5010")
+	ctx = metadata.AppendToOutgoingContext(ctx, "grpcListenAddress", s.GrpcListenAddress)
 	streamBuilderInfoCtx, span := s.tracer.Start(ctx, "streamBuilderInfo-start")
 	defer span.End(trace.WithTimestamp(time.Now().UTC()))
 	id := uuid.NewString()
