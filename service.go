@@ -93,10 +93,7 @@ type Service struct {
 	slotStatsEventCh   chan slotStatsEvent
 	ethNetworkDetails  *common.EthNetworkDetails
 
-	clients                       []*common.Client
-	streamingClients              []*common.Client
-	streamingBlockClients         []*common.Client
-	registrationClients           []*common.Client
+	dialerClients                 *DialerClients
 	currentRegistrationRelayIndex int
 	registrationRelayMutex        sync.Mutex
 
@@ -150,10 +147,42 @@ func NewService(opts ...ServiceOption) *Service {
 	return svc
 }
 
+func (s *Service) UpdateDialer(c *DialerClients) {
+	s.dialerClients.mu.Lock()
+	defer s.dialerClients.mu.Unlock()
+
+	s.dialerClients.clients = c.clients
+	s.dialerClients.streamingClients = c.streamingClients
+	s.dialerClients.registrationClients = c.registrationClients
+	s.dialerClients.streamingBlockClients = c.streamingBlockClients
+	s.logger.Info("Service clients updated")
+}
+
+func (s *Service) HealthCheck() error {
+	s.dialerClients.mu.RLock()
+	defer s.dialerClients.mu.RUnlock()
+	var (
+		failCount     int
+		failedClients []string
+	)
+
+	for _, client := range s.dialerClients.clients {
+		_, err := client.RelayClient.Ping(context.Background(), &relaygrpc.PingRequest{})
+		if err != nil {
+			failCount++
+			failedClients = append(failedClients, client.URL)
+		}
+	}
+	if failCount > 0 {
+		return fmt.Errorf("%d client(s) failed health check: %v", failCount, failedClients)
+	}
+	return nil
+}
+
 func (s *Service) RegisterValidator(ctx context.Context, outgoingCtx context.Context, receivedAt time.Time, payload []byte, clientIP, authHeader, validatorID, accountID, complianceList string, proposerMevProtect bool, skipOptimism bool) (any, *LogMetric, error) {
 	var (
-		errChan  = make(chan *ErrorResp, len(s.clients))
-		respChan = make(chan *relaygrpc.RegisterValidatorResponse, len(s.clients))
+		errChan  = make(chan *ErrorResp, len(s.dialerClients.clients))
+		respChan = make(chan *relaygrpc.RegisterValidatorResponse, len(s.dialerClients.clients))
 		_err     *ErrorResp
 	)
 	timer := time.NewTimer(regRequestTimeout)
@@ -252,11 +281,14 @@ func (s *Service) registerValidatorForClient(_ctx context.Context, req *relaygrp
 		out *relaygrpc.RegisterValidatorResponse
 		err error
 	)
-	for range s.registrationClients {
+	s.dialerClients.mu.RLock()
+	defer s.dialerClients.mu.RUnlock()
+
+	for range s.dialerClients.registrationClients {
 		req.NodeId = s.nodeID
 		s.registrationRelayMutex.Lock()
-		selectedRelay := s.registrationClients[s.currentRegistrationRelayIndex]
-		s.currentRegistrationRelayIndex = (s.currentRegistrationRelayIndex + 1) % len(s.registrationClients)
+		selectedRelay := s.dialerClients.registrationClients[s.currentRegistrationRelayIndex]
+		s.currentRegistrationRelayIndex = (s.currentRegistrationRelayIndex + 1) % len(s.dialerClients.registrationClients)
 		s.registrationRelayMutex.Unlock()
 
 		out, err = selectedRelay.RegisterValidator(_ctx, req)
@@ -292,8 +324,9 @@ func (s *Service) registerValidatorForClient(_ctx context.Context, req *relaygrp
 }
 
 func (s *Service) StartStreamHeaders(ctx context.Context, wg *sync.WaitGroup) {
-
-	for _, client := range s.streamingClients {
+	s.dialerClients.mu.RLock()
+	defer s.dialerClients.mu.RUnlock()
+	for _, client := range s.dialerClients.streamingClients {
 		wg.Add(1)
 		go func(_ctx context.Context, c *common.Client) {
 			defer wg.Done()
@@ -885,8 +918,8 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, clientIP, authHeader s
 	}
 
 	var (
-		errChan            = make(chan *ErrorResp, len(s.clients)+2)
-		respChan           = make(chan *relaygrpc.PreFetchGetPayloadResponse, len(s.clients)+2)
+		errChan            = make(chan *ErrorResp, len(s.dialerClients.clients)+2)
+		respChan           = make(chan *relaygrpc.PreFetchGetPayloadResponse, len(s.dialerClients.clients)+2)
 		payloadCacheKey    = common.GetKeyForCachingPayload(slot, parentHash, blockHash, pubKey)
 		wg                 sync.WaitGroup
 		prefetchedRequests = 0
@@ -931,7 +964,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, clientIP, authHeader s
 		errChan <- toErrorResp(http.StatusBadRequest, "local payload not found", logMetric.GetFields()...)
 	}()
 
-	clients := s.clients
+	clients := s.dialerClients.CopyClients()
 	if bidClient != nil {
 		clients = append(clients, bidClient)
 	}
@@ -1177,8 +1210,8 @@ func (s *Service) GetPayload(ctx context.Context, receivedAt time.Time, payload 
 	span.SetAttributes(logMetric.GetAttributes()...)
 
 	var errResp ErrorRespWithPayload
-	errChan := make(chan ErrorRespWithPayload, len(s.clients)+prefetchAttempts)
-	respChan := make(chan *common.VersionedPayloadInfo, len(s.clients)+prefetchAttempts)
+	errChan := make(chan ErrorRespWithPayload, len(s.dialerClients.clients)+prefetchAttempts)
+	respChan := make(chan *common.VersionedPayloadInfo, len(s.dialerClients.clients)+prefetchAttempts)
 	attempts := make([]struct{}, prefetchAttempts)
 	metricCopy := logMetric.Copy()
 	var wg sync.WaitGroup
@@ -1226,7 +1259,10 @@ func (s *Service) GetPayload(ctx context.Context, receivedAt time.Time, payload 
 	}
 
 	ctx, payloadResponseSpan := s.tracer.Start(ctx, "getPayload-payloadResponseFromRelay")
-	for _, client := range s.clients {
+	s.dialerClients.mu.RLock()
+	defer s.dialerClients.mu.RUnlock()
+
+	for _, client := range s.dialerClients.clients {
 		wg.Add(1)
 		go func(c *common.Client) {
 			defer wg.Done()
@@ -1247,7 +1283,7 @@ func (s *Service) GetPayload(ctx context.Context, receivedAt time.Time, payload 
 		close(respChan)
 	}()
 
-	for i := 0; i < len(s.clients)+totalPrefetchResponses; i++ {
+	for i := 0; i < len(s.dialerClients.clients)+totalPrefetchResponses; i++ {
 		select {
 		case <-ctx.Done():
 			logMetricCopy := logMetric.Copy()
@@ -1651,7 +1687,9 @@ func (s *Service) EmitSlotStats(ctx context.Context) {
 }
 
 func (s *Service) StartStreamBlocks(ctx context.Context, wg *sync.WaitGroup) {
-	for _, client := range s.streamingBlockClients {
+	s.dialerClients.mu.RLock()
+	defer s.dialerClients.mu.RUnlock()
+	for _, client := range s.dialerClients.streamingBlockClients {
 		wg.Add(1)
 		go func(_ctx context.Context, c *common.Client) {
 			defer wg.Done()
@@ -2083,7 +2121,10 @@ func isVouch(userAgent string) bool {
 }
 
 func (s *Service) StartStreamBuilderInfo(ctx context.Context, wg *sync.WaitGroup) {
-	for _, client := range s.streamingBlockClients {
+	s.dialerClients.mu.RLock()
+	defer s.dialerClients.mu.RUnlock()
+
+	for _, client := range s.dialerClients.streamingBlockClients {
 		wg.Add(1)
 		go func(_ctx context.Context, c *common.Client) {
 			defer wg.Done()
@@ -2092,6 +2133,7 @@ func (s *Service) StartStreamBuilderInfo(ctx context.Context, wg *sync.WaitGroup
 	}
 	wg.Wait()
 }
+
 func (s *Service) handleBuilderInfoStream(ctx context.Context, client *common.Client) {
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
