@@ -31,6 +31,7 @@ type IDataService interface {
 	SetDelayForValidator(id string, delay, maxDelay int64)
 	SetDelayForValidators(settings map[string]DelaySettings)
 	DelayGetHeader(ctx context.Context, receivedAt time.Time, getHeaderStartTimeUnixMS, slot, accountID, cluster, userAgent, clientIP, slotWithParentHash, commitBoostSendTimeUnixMS string) (DelayGetHeaderResponse, error)
+	GetSlotDuty(slot uint64) (*common.MiniValidatorLatency, error)
 }
 
 type DataService struct {
@@ -52,6 +53,7 @@ type DataService struct {
 	ipCacheStore           *cache.Cache     // list of ip to verify delay eligibility
 	accountsLists          *AccountsLists
 	delayerPlugin          func(accountID string, msIntoSlot int64, cluster, userAgent string, latency int64, clientIP string, logger *zap.Logger, getHeaderTimeout map[string]int64) (int64, int64, error)
+	miniProposerSlotMap    *SyncMap[uint64, *common.MiniValidatorLatency]
 }
 
 func NewDataService(opts ...DataServiceOption) *DataService {
@@ -254,4 +256,12 @@ func (s *DataService) dynamicFuncWrapper(accountID string, msIntoSlot int64, clu
 	}
 
 	return 0, 0, nil
+}
+
+func (s *DataService) GetSlotDuty(slot uint64) (*common.MiniValidatorLatency, error) {
+	if s.miniProposerSlotMap == nil {
+		return nil, common.ErrNoProposerSlotMap
+	}
+	v, _ := s.miniProposerSlotMap.Load(slot)
+	return v, nil
 }

@@ -13,6 +13,7 @@ import (
 
 	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
 
+	builderApiV1 "github.com/attestantio/go-builder-client/api/v1"
 	eth2Api "github.com/attestantio/go-eth2-client/api"
 	eth2ApiV1Deneb "github.com/attestantio/go-eth2-client/api/v1/deneb"
 	eth2ApiV1Electra "github.com/attestantio/go-eth2-client/api/v1/electra"
@@ -26,11 +27,12 @@ import (
 )
 
 var (
-	ErrUnknownNetwork = errors.New("unknown network")
-	ErrInvalidVersion = errors.New("invalid version")
-	ErrDataMissing    = errors.New("data missing")
-	ErrLateHeader     = errors.New("getHeader request too late")
-	ErrEmptyPayload   = errors.New("empty payload")
+	ErrUnknownNetwork    = errors.New("unknown network")
+	ErrInvalidVersion    = errors.New("invalid version")
+	ErrDataMissing       = errors.New("data missing")
+	ErrLateHeader        = errors.New("getHeader request too late")
+	ErrEmptyPayload      = errors.New("empty payload")
+	ErrNoProposerSlotMap = errors.New("no proposer slot map")
 
 	EthNetworkHolesky = "holesky"
 	EthNetworkSepolia = "sepolia"
@@ -401,4 +403,12 @@ type BuilderInfo struct {
 	BuilderAccountIDSkipSimulationThreshold *big.Int         `json:"builder_account_id_skip_simulation_threshold"`
 	TrustedExternalBuilder                  bool             `json:"trusted_external_builder"`
 	IsOptedIn                               bool             `json:"is_opted_in"`
+}
+
+type MiniValidatorLatency struct {
+	Registration   *builderApiV1.SignedValidatorRegistration `json:"registration"`
+	LastRegistered int64                                     `json:"last_registered"`
+	ReceivedAt     time.Time                                 `json:"-"`
+
+	IsOptedIn bool `json:"is_opted_in"`
 }

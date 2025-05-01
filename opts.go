@@ -376,3 +376,9 @@ func WithPlugin(customDelayer func(accountID string, msIntoSlot int64, cluster s
 		s.delayerPlugin = customDelayer
 	}
 }
+
+func WithMiniProposerSlotMap(miniProposerSlotMap *SyncMap[uint64, *common.MiniValidatorLatency]) DataServiceOption {
+	return func(s *DataService) {
+		s.miniProposerSlotMap = miniProposerSlotMap
+	}
+}

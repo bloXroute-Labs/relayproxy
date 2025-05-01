@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel/trace/noop"
@@ -78,6 +79,9 @@ func (m *MockService) DelayGetHeader(ctx context.Context, receivedAt time.Time, 
 		return m.DelayGetHeaderFunc(ctx, receivedAt, getHeaderStartTimeUnixMS, slot, accountID)
 	}
 	return DelayGetHeaderResponse{}, nil
+}
+func (m *MockService) GetSlotDuty(slot uint64) (*common.MiniValidatorLatency, error) {
+	return nil, nil
 }
 
 var _ IService = (*MockService)(nil)
