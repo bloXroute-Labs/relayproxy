@@ -64,7 +64,7 @@ var (
 	streamingRelaysGRPCURL    = flag.String("streaming-relays", fmt.Sprintf("%v:%d", "127.0.0.1", 5000), "comma seperated list of relay grpc URL for streaming")
 	registrationRelaysGRPCURL = flag.String("registration-relays", fmt.Sprintf("%v:%d", "127.0.0.1", 5000), "registration relays grpc URL")
 	// fail over url
-	relayIPOpts           = flag.String("relay-ip-options", fmt.Sprintf("%v:%d", "127.0.0.1", 5010), "comma seperated list of relay grpc URL")
+	relayIPOpts           = flag.String("relay-ip-options", "", "comma seperated list of relay grpc URL")
 	getHeaderDelayInMS    = flag.Int64("get-header-delay-ms", 0, "delay for sending the getHeader request in millisecond")
 	getHeaderMaxDelayInMS = flag.Int64("get-header-max-delay-ms", 0, "max delay for sending the getHeader request in millisecond")
 	authKey               = flag.String("auth-key", "", "account authentication key")
