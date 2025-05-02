@@ -36,9 +36,9 @@ const (
 	preFetchPayload = "preFetchPayload"
 	registration    = "registration"
 
-	MEVBoostStartTimeUnixMS    = "X-MEVBoost-StartTimeUnixMS"
-	commitBoostStartTimeUnixMS = "Date-Milliseconds"
-	VouchCluster               = "setup"
+	MEVBoostStartTimeUnixMS = "X-MEVBoost-StartTimeUnixMS"
+	HeaderDateMilliseconds  = "Date-Milliseconds"
+	VouchCluster            = "setup"
 )
 
 type contextKey string
@@ -408,7 +408,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	accountID := r.Context().Value(keyAccountID).(string)
 
 	mevBoostSendTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
-	commitBoostSendTimeUnixMS := r.Header.Get(commitBoostStartTimeUnixMS)
+	commitBoostSendTimeUnixMS := r.Header.Get(HeaderDateMilliseconds)
 
 	boostSendTime, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
 	sszRequest, _ := common.ParseBuilderContentType(r)
@@ -524,7 +524,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	authHeader := r.Context().Value(keyAuthHeader).(string)
 	accountID := r.Context().Value(keyAccountID).(string)
 	mevBoostSendTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
-	commitBoostSendTimeUnixMS := r.Header.Get(commitBoostStartTimeUnixMS)
+	commitBoostSendTimeUnixMS := r.Header.Get(HeaderDateMilliseconds)
 	boostSendTime, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
 	cluster := r.Header.Get(VouchCluster)
 	userAgent := r.Header.Get("User-Agent")
@@ -634,7 +634,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	accountID := r.Context().Value(keyAccountID).(string)
 
 	mevBoostSendTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
-	commitBoostSendTimeUnixMS := r.Header.Get(commitBoostStartTimeUnixMS)
+	commitBoostSendTimeUnixMS := r.Header.Get(HeaderDateMilliseconds)
 	boostSendTime, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
 	cluster := r.Header.Get(VouchCluster)
 	userAgent := r.Header.Get("User-Agent")
