@@ -823,7 +823,16 @@ func (s *Service) GetHeader(ctx context.Context, receivedAt time.Time, getHeader
 		client:     slotBestHeader.Client,
 	}
 
-	payload, err := slotBestHeader.GetPayload(s.secretKey, &s.publicKey, s.builderSigningDomain)
+	payload, prevSigned, err := slotBestHeader.GetPayload(s.secretKey, &s.publicKey, s.builderSigningDomain)
+	if err != nil {
+		logMetric.Error(err)
+		s.logger.Info("failed to get signed header", logMetric.GetFields()...)
+	}
+	if prevSigned {
+		s.logger.Info("previously signed header", logMetric.GetFields()...)
+	} else {
+		s.logger.Info("newly signed header", logMetric.GetFields()...)
+	}
 	return json.RawMessage(payload), logMetric, nil
 }
 

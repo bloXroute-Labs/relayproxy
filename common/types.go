@@ -315,27 +315,27 @@ func NewBid(Value []byte,
 	}
 }
 
-func (b *Bid) GetPayload(sk *bls.SecretKey, pubkey *phase0.BLSPubKey, domain phase0.Domain) ([]byte, error) {
+func (b *Bid) GetPayload(sk *bls.SecretKey, pubkey *phase0.BLSPubKey, domain phase0.Domain) ([]byte, bool, error) {
 	if b.payload != nil {
-		return b.payload, nil
+		return b.payload, true, nil
 	}
 	if b.HeaderSubmissionV3 == nil {
-		return nil, errors.New("empty payload")
+		return nil, false, errors.New("empty payload")
 	}
 
 	relayProxyGetHeaderResponse, err := BuildGetHeaderResponseAndSign(b.HeaderSubmissionV3, sk, pubkey, domain)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	wrappedRelayProxyGetHeaderResponse := &VersionedSignedBuilderBid{}
 	wrappedRelayProxyGetHeaderResponse.VersionedSignedBuilderBid = *relayProxyGetHeaderResponse
 
 	payload, err := json.Marshal(wrappedRelayProxyGetHeaderResponse)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	b.payload = payload
-	return payload, nil
+	return payload, false, nil
 }
 
 type DuplicateBlock struct {
