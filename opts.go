@@ -203,33 +203,15 @@ func WithEthNetworkDetails(details *common.EthNetworkDetails) ServiceOption {
 	}
 }
 
-func WithClients(clients []*common.Client) ServiceOption {
+func WithDialerClients(clients *DialerClients) ServiceOption {
 	return func(s *Service) {
-		s.clients = clients
-	}
-}
-
-func WithStreamingClients(clients []*common.Client) ServiceOption {
-	return func(s *Service) {
-		s.streamingClients = clients
-	}
-}
-
-func WithRegistrationClients(clients []*common.Client) ServiceOption {
-	return func(s *Service) {
-		s.registrationClients = clients
+		s.dialerClients = clients
 	}
 }
 
 func WithCurrentRegistrationRelayIndex(index int) ServiceOption {
 	return func(s *Service) {
 		s.currentRegistrationRelayIndex = index
-	}
-}
-
-func WithStreamingBlockClients(clients []*common.Client) ServiceOption {
-	return func(s *Service) {
-		s.streamingBlockClients = clients
 	}
 }
 
@@ -362,6 +344,70 @@ func WithGetHeaderDelaySettings(settings map[string]DelaySettings) DataServiceOp
 func WithGetHeaderTimeout(timeout map[string]int64) DataServiceOption {
 	return func(s *DataService) {
 		s.getHeaderTimeout = timeout
+	}
+}
+
+// Dialer options
+
+type DialerOption func(*Dialer)
+
+func WithRelayURL(url string) DialerOption {
+	return func(d *Dialer) {
+		d.DialURL.RelayURL = url
+	}
+}
+
+func WithStreamingURL(url string) DialerOption {
+	return func(d *Dialer) {
+		d.DialURL.StreamingURL = url
+	}
+}
+
+func WithRegistrationURL(url string) DialerOption {
+	return func(d *Dialer) {
+		d.DialURL.RegistrationURL = url
+	}
+}
+
+func WithStreamingBlockURL(url string) DialerOption {
+	return func(d *Dialer) {
+		d.DialURL.StreamingBlockURL = url
+	}
+}
+
+// Dialer clients options
+
+type DialerClientsOption func(*DialerClients)
+
+func WithClients(clients ...*common.Client) DialerClientsOption {
+	return func(d *DialerClients) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		d.clients = append(d.clients, clients...)
+	}
+}
+
+func WithStreamingClients(clients ...*common.Client) DialerClientsOption {
+	return func(d *DialerClients) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		d.streamingClients = append(d.streamingClients, clients...)
+	}
+}
+
+func WithStreamingBlockClients(clients ...*common.Client) DialerClientsOption {
+	return func(d *DialerClients) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		d.streamingBlockClients = append(d.streamingBlockClients, clients...)
+	}
+}
+
+func WithRegistrationClients(clients ...*common.Client) DialerClientsOption {
+	return func(d *DialerClients) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		d.registrationClients = append(d.registrationClients, clients...)
 	}
 }
 
