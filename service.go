@@ -557,16 +557,23 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client) (*rel
 		}()
 		_, storeBidsSpan := s.tracer.Start(streamReceiveCtx, "StreamHeader-storeBids")
 		// store the bid for builder pubkey
-		bid := &common.Bid{
-			Value:            header.GetValue(),
-			Payload:          header.GetPayload(),
-			BlockHash:        header.GetBlockHash(),
-			BuilderPubkey:    header.GetBuilderPubkey(),
-			BuilderExtraData: header.GetBuilderExtraData(),
-			AccountID:        header.GetAccountId(),
-			Client:           client,
+		payloadURL := "grpc;" + client.URL
+		headerSubmissionV3, err := common.RelayGrpcHeaderSubmissionToVersioned(header, []byte(payloadURL))
+		if err != nil && header.GetPayload() == nil {
+			s.logger.Error("failed to convert to versioned header submission", logMetric.GetFields()...)
+			continue
 		}
-		s.setBuilderBidForProxySlot(k, header.GetBuilderPubkey(), bid, header.GetSlot())
+		bid := common.NewBid(
+			header.GetValue(),
+			header.GetPayload(),
+			headerSubmissionV3,
+			header.GetBlockHash(),
+			header.GetBuilderPubkey(),
+			header.GetBuilderExtraData(),
+			header.GetAccountId(),
+			client,
+		)
+		s.setBuilderBidForProxySlot(k, header.GetBuilderPubkey(), bid, header.GetSlot()) // run it in goroutine ?
 		storeBidsSpan.SetAttributes(lm.GetAttributes()...)
 		storeBidsSpan.End(trace.WithTimestamp(time.Now()))
 	}
@@ -816,7 +823,17 @@ func (s *Service) GetHeader(ctx context.Context, receivedAt time.Time, getHeader
 		client:     slotBestHeader.Client,
 	}
 
-	return json.RawMessage(slotBestHeader.Payload), logMetric, nil
+	payload, prevSigned, err := slotBestHeader.GetPayload(s.secretKey, &s.publicKey, s.builderSigningDomain)
+	if err != nil {
+		logMetric.Error(err)
+		s.logger.Info("failed to get signed header", logMetric.GetFields()...)
+	}
+	if prevSigned {
+		s.logger.Info("previously signed header", logMetric.GetFields()...)
+	} else {
+		s.logger.Info("newly signed header", logMetric.GetFields()...)
+	}
+	return json.RawMessage(payload), logMetric, nil
 }
 
 func (s *Service) StartPreFetcher(ctx context.Context) {
@@ -1967,7 +1984,15 @@ func (s *Service) handleStreamBlockResponse(ctx context.Context, block *relaygrp
 		attribute.String("payloadType", payloadType),
 	)
 	_, signSpan := s.tracer.Start(spanCtx, "handleStreamBlockResponse-sign")
-	relayProxyGetHeaderResponse, err := common.BuildGetHeaderResponseAndSign(submitBlockRequest, s.secretKey, &s.publicKey, s.builderSigningDomain)
+
+	headerSubmissionV3, err := common.BuildHeaderSubmissionV3(submitBlockRequest)
+	if err != nil {
+		s.logger.Error("failed to build header submission", zap.Error(err))
+		signSpan.End()
+		return
+	}
+	relayProxyGetHeaderResponse, err := common.BuildGetHeaderResponseAndSign(headerSubmissionV3, s.secretKey, &s.publicKey, s.builderSigningDomain)
+
 	if err != nil {
 		s.logger.Error("failed to sign header", zap.Error(err))
 		signSpan.End()
@@ -1994,14 +2019,16 @@ func (s *Service) handleStreamBlockResponse(ctx context.Context, block *relaygrp
 		}
 	}
 
-	bid := &common.Bid{
-		Value:            block.GetValue(),
-		Payload:          relayProxyBidBytes,
-		BlockHash:        block.GetBlockHash(),
-		BuilderPubkey:    block.GetBuilderPubkey(),
-		BuilderExtraData: extraData,
-		AccountID:        block.GetAccountId(),
-	}
+	bid := common.NewBid(
+		block.GetValue(),
+		relayProxyBidBytes,
+		headerSubmissionV3,
+		block.GetBlockHash(),
+		block.GetBuilderPubkey(),
+		extraData,
+		block.GetAccountId(),
+		nil,
+	)
 
 	// update block hash map if not seen already
 	s.builderExistingBlockHash.Set(block.GetBlockHash(), common.DuplicateBlock{

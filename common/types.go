@@ -21,6 +21,7 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/ssz"
 	boostTypes "github.com/flashbots/go-boost-utils/types"
 )
@@ -284,13 +285,57 @@ type Client struct {
 }
 
 type Bid struct {
-	Value            []byte // block value
-	Payload          []byte // blinded block
-	BlockHash        string
-	BuilderPubkey    string
-	BuilderExtraData string
-	AccountID        string
-	Client           *Client
+	Value              []byte // block value
+	payload            []byte // blinded block
+	HeaderSubmissionV3 *HeaderSubmissionV3
+	BlockHash          string
+	BuilderPubkey      string
+	BuilderExtraData   string
+	AccountID          string
+	Client             *Client
+}
+
+func NewBid(Value []byte,
+	payload []byte,
+	HeaderSubmissionV3 *HeaderSubmissionV3,
+	BlockHash string,
+	BuilderPubkey string,
+	BuilderExtraData string,
+	AccountID string,
+	Client *Client) *Bid {
+	return &Bid{
+		Value:              Value,
+		payload:            payload,
+		HeaderSubmissionV3: HeaderSubmissionV3,
+		BlockHash:          BlockHash,
+		BuilderPubkey:      BuilderPubkey,
+		BuilderExtraData:   BuilderExtraData,
+		AccountID:          AccountID,
+		Client:             Client,
+	}
+}
+
+func (b *Bid) GetPayload(sk *bls.SecretKey, pubkey *phase0.BLSPubKey, domain phase0.Domain) ([]byte, bool, error) {
+	if b.payload != nil {
+		return b.payload, true, nil
+	}
+	if b.HeaderSubmissionV3 == nil {
+		return nil, false, errors.New("empty payload")
+	}
+
+	relayProxyGetHeaderResponse, err := BuildGetHeaderResponseAndSign(b.HeaderSubmissionV3, sk, pubkey, domain)
+	if err != nil {
+		return nil, false, err
+	}
+	wrappedRelayProxyGetHeaderResponse := &VersionedSignedBuilderBid{}
+	wrappedRelayProxyGetHeaderResponse.VersionedSignedBuilderBid = *relayProxyGetHeaderResponse
+
+	payload, err := json.Marshal(wrappedRelayProxyGetHeaderResponse)
+	if err != nil {
+		return nil, false, err
+	}
+	b.payload = payload
+	return payload, false, nil
 }
 
 type DuplicateBlock struct {
