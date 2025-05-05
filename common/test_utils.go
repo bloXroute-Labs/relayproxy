@@ -120,7 +120,7 @@ func NewElectraBuilderSubmitBlockRequest(slot uint64, proposerPubKey, builderPub
 		},
 		ExecutionRequests: &electraspec.ExecutionRequests{
 			Deposits: []*electraspec.DepositRequest{
-				&electraspec.DepositRequest{
+				{
 					Pubkey:                phase0.BLSPubKey{},
 					WithdrawalCredentials: credentials[:],
 					Amount:                12,
@@ -129,14 +129,14 @@ func NewElectraBuilderSubmitBlockRequest(slot uint64, proposerPubKey, builderPub
 				},
 			},
 			Withdrawals: []*electraspec.WithdrawalRequest{
-				&electraspec.WithdrawalRequest{
+				{
 					SourceAddress:   bellatrix.ExecutionAddress{15},
 					ValidatorPubkey: phase0.BLSPubKey{16},
 					Amount:          17,
 				},
 			},
 			Consolidations: []*electraspec.ConsolidationRequest{
-				&electraspec.ConsolidationRequest{
+				{
 					SourceAddress: bellatrix.ExecutionAddress{18},
 					SourcePubkey:  phase0.BLSPubKey{19},
 					TargetPubkey:  phase0.BLSPubKey{20},
