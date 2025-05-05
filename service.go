@@ -1644,13 +1644,12 @@ func (s *Service) EmitSlotStats(ctx context.Context) {
 				defer timer.Stop()
 				select {
 				case <-timer.C:
-					isVouch := isVouch(event.UserAgent)
 					v, ok := s.slotStatsEvent.Get(event.SlotKey)
 					if ok { //Populated when getPayloadOnly is called
 						record, success := v.(SlotStatsRecord)
 						if success {
 							s.logRecord(record, event.SlotKey, event.UserAgent)
-						} else if isVouch {
+						} else {
 							slotStats, found := s.slotStats.Get(event.SlotKey)
 							if found {
 								if records, slotStatsSuccess := slotStats.([]SlotStatsRecord); slotStatsSuccess {
@@ -1659,7 +1658,7 @@ func (s *Service) EmitSlotStats(ctx context.Context) {
 								}
 							}
 						}
-					} else if isVouch {
+					} else {
 						slotStats, found := s.slotStats.Get(event.SlotKey)
 						if found {
 							if records, slotStatsSuccess := slotStats.([]SlotStatsRecord); slotStatsSuccess {
