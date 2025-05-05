@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/go-chi/chi/v5"
@@ -21,16 +20,16 @@ import (
 
 type MockService struct {
 	logger                    *zap.Logger
-	RegisterValidatorFunc     func(ctx context.Context, payload []byte, clientIP, authKey, validatorID string) (interface{}, *LogMetric, error)
-	GetHeaderFunc             func(ctx context.Context, clientIP, slot, parentHash, pubKey, authHeader, validatorID string) (any, *LogMetric, error)
-	GetPayloadFunc            func(ctx context.Context, payload []byte, clientIP, authHeader, validatorID string) (any, *LogMetric, error)
+	RegisterValidatorFunc     func(ctx context.Context, outgoingctx context.Context, in *RegistrationParams) (any, *LogMetric, error)
+	GetHeaderFunc             func(ctx context.Context, in *HeaderRequestParams) (any, *LogMetric, error)
+	GetPayloadFunc            func(ctx context.Context, in *PayloadRequestParams) (any, *LogMetric, error)
 	GetAccountsFunc           func(ctx context.Context) map[string]interface{}
 	SetAccountsFunc           func(ctx context.Context)
 	SendAccountFunc           func(accountID, validatorID string)
 	GetDelaySettingsFunc      func(ctx context.Context) map[string]DelaySettings
 	SetDelayForValidatorFunc  func(id string, delay, maxDelay int64)
 	SetDelayForValidatorsFunc func(settings map[string]DelaySettings)
-	DelayGetHeaderFunc        func(ctx context.Context, receivedAt time.Time, getHeaderStartTimeUnixMS, slot, validatorID string) (DelayGetHeaderResponse, error)
+	DelayGetHeaderFunc        func(ctx context.Context, params DelayGetHeaderParams) (DelayGetHeaderResponse, error)
 }
 
 func (m *MockService) GetAccounts(ctx context.Context) map[string]any {
@@ -74,9 +73,19 @@ func (m *MockService) SetDelayForValidators(settings map[string]DelaySettings) {
 	}
 }
 
-func (m *MockService) DelayGetHeader(ctx context.Context, receivedAt time.Time, getHeaderStartTimeUnixMS, slot, accountID, cluster, userAgent, clientIP, slotWithParentHash, commitBoostSendTimeUnixMS string) (DelayGetHeaderResponse, error) {
+func (m *MockService) DelayGetHeader(ctx context.Context, in DelayGetHeaderParams) (DelayGetHeaderResponse, error) {
 	if m.DelayGetHeaderFunc != nil {
-		return m.DelayGetHeaderFunc(ctx, receivedAt, getHeaderStartTimeUnixMS, slot, accountID)
+		return m.DelayGetHeaderFunc(ctx, DelayGetHeaderParams{
+			ReceivedAt:          in.ReceivedAt,
+			Slot:                in.Slot,
+			AccountID:           in.AccountID,
+			Cluster:             in.Cluster,
+			UserAgent:           in.UserAgent,
+			ClientIP:            in.ClientIP,
+			SlotWithParentHash:  in.SlotWithParentHash,
+			BoostSendTimeUnixMS: in.BoostSendTimeUnixMS,
+			Latency:             in.Latency,
+		})
 	}
 	return DelayGetHeaderResponse{}, nil
 }
@@ -86,22 +95,22 @@ func (m *MockService) GetSlotDuty(slot uint64) (*common.MiniValidatorLatency, er
 
 var _ IService = (*MockService)(nil)
 
-func (m *MockService) RegisterValidator(ctx context.Context, outgoingCtx context.Context, receivedAt time.Time, payload []byte, clientIP, authHeader, validatorID, accountID, complianceList string, proposerMevProtect bool, skipOptimism bool) (any, *LogMetric, error) {
+func (m *MockService) RegisterValidator(ctx context.Context, outgoingCtx context.Context, in *RegistrationParams) (any, *LogMetric, error) {
 	if m.RegisterValidatorFunc != nil {
-		return m.RegisterValidatorFunc(ctx, payload, clientIP, authHeader, validatorID)
+		return m.RegisterValidatorFunc(ctx, outgoingCtx, in)
 	}
 	return nil, new(LogMetric), nil
 }
-func (m *MockService) GetHeader(ctx context.Context, receivedAt time.Time, getHeaderStartTimeUnixMS, clientIP, slot, parentHash, pubKey, authHeader, validatorID, accountID, cluster, userAgent, commitBoostSendTimeUnixMS string) (any, *LogMetric, error) {
+func (m *MockService) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, *LogMetric, error) {
 	if m.GetHeaderFunc != nil {
-		return m.GetHeaderFunc(ctx, clientIP, slot, parentHash, pubKey, authHeader, validatorID)
+		return m.GetHeaderFunc(ctx, in)
 	}
 	return nil, new(LogMetric), nil
 }
 
-func (m *MockService) GetPayload(ctx context.Context, receivedAt time.Time, payload []byte, clientIP, authHeader, validatorID, accountID, getPayloadStartTimeUnixMS, cluster, userAgent, commitBoostSendTimeUnixMS string) (any, *LogMetric, error) {
+func (m *MockService) GetPayload(ctx context.Context, in *PayloadRequestParams) (any, *LogMetric, error) {
 	if m.GetPayloadFunc != nil {
-		return m.GetPayloadFunc(ctx, payload, clientIP, authHeader, validatorID)
+		return m.GetPayloadFunc(ctx, in)
 	}
 	return nil, new(LogMetric), nil
 }
@@ -118,7 +127,7 @@ func TestServer_HandleRegistration(t *testing.T) {
 			url:         "/eth/v1/builder/validators?id=VG&auth=" + TestAuthHeader,
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				RegisterValidatorFunc: func(ctx context.Context, payload []byte, clientIP, authKey, validatorID string) (interface{}, *LogMetric, error) {
+				RegisterValidatorFunc: func(ctx context.Context, outgoingctx context.Context, in *RegistrationParams) (interface{}, *LogMetric, error) {
 					return nil, nil, nil
 
 				},
@@ -130,7 +139,7 @@ func TestServer_HandleRegistration(t *testing.T) {
 			url:         "/eth/v1/builder/validators?id=VG%26auth=" + TestAuthHeader + "%26sleep=600%26max_sleep=1200",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				RegisterValidatorFunc: func(ctx context.Context, payload []byte, clientIP, authKey, validatorID string) (interface{}, *LogMetric, error) {
+				RegisterValidatorFunc: func(ctx context.Context, outgoingctx context.Context, in *RegistrationParams) (interface{}, *LogMetric, error) {
 					return nil, nil, nil
 
 				},
@@ -142,7 +151,7 @@ func TestServer_HandleRegistration(t *testing.T) {
 			url:         "/eth/v1/builder/validators",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				RegisterValidatorFunc: func(ctx context.Context, payload []byte, clientIP, authKey, validatorID string) (interface{}, *LogMetric, error) {
+				RegisterValidatorFunc: func(ctx context.Context, outgoingctx context.Context, in *RegistrationParams) (interface{}, *LogMetric, error) {
 					return nil, nil, toErrorResp(http.StatusInternalServerError, "")
 				},
 			},
@@ -183,7 +192,7 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk123",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, clientIP, slot, parentHash, pubKey, authHeader, validatorID string) (interface{}, *LogMetric, error) {
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (interface{}, *LogMetric, error) {
 
 					return "getHeader", nil, nil
 				},
@@ -198,7 +207,7 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk456",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, clientIP, slot, parentHash, pubKey, authHeader, validatorID string) (interface{}, *LogMetric, error) {
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (interface{}, *LogMetric, error) {
 					return nil, nil, &ErrorResp{Code: http.StatusNoContent}
 				},
 			},
@@ -212,7 +221,7 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk456",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, clientIP, slot, parentHash, pubKey, authHeader, validatorID string) (interface{}, *LogMetric, error) {
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (interface{}, *LogMetric, error) {
 					return nil, nil, &ErrorResp{Code: http.StatusNoContent, Message: "header value is not present for the requested key slot"}
 				},
 			},
@@ -226,7 +235,7 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk456b",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, clientIP, slot, parentHash, pubKey, authHeader, validatorID string) (interface{}, *LogMetric, error) {
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (interface{}, *LogMetric, error) {
 					return nil, nil, &ErrorResp{Code: http.StatusTooManyRequests, Message: "only one getheader request allowed per slot per validator"}
 				},
 			},
@@ -278,7 +287,7 @@ func TestServer_HandleGetPayload(t *testing.T) {
 			requestBody: []byte(`{"key": "value"}`),
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetPayloadFunc: func(ctx context.Context, payload []byte, clientIP, authHeader, validatorID string) (any, *LogMetric, error) {
+				GetPayloadFunc: func(ctx context.Context, params *PayloadRequestParams) (any, *LogMetric, error) {
 					return nil, nil, nil
 				},
 			},
@@ -289,7 +298,7 @@ func TestServer_HandleGetPayload(t *testing.T) {
 			requestBody: []byte(`{"key": "value"}`),
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetPayloadFunc: func(ctx context.Context, payload []byte, clientIP, authHeader, validatorID string) (any, *LogMetric, error) {
+				GetPayloadFunc: func(ctx context.Context, params *PayloadRequestParams) (any, *LogMetric, error) {
 					return nil, nil, toErrorResp(http.StatusInternalServerError, "failed to getPayload")
 				},
 			},
