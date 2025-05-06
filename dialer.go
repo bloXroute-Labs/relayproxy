@@ -24,6 +24,7 @@ type Dialer struct {
 	DialerClients     *DialerClients
 	DialerConnections *DialerConnections
 	DialURL           *DialURL
+	IPConverter       map[string]common.URLOpts
 }
 
 type DialerClients struct {
@@ -121,6 +122,7 @@ func (d *Dialer) SetDialer(l *zap.Logger) {
 			clients = append(clients, &common.Client{
 				URL:         relayURL,
 				RelayClient: relaygrpc.NewRelayClient(conn),
+				IPOpts:      d.IPConverter[relayURL],
 			})
 		}
 

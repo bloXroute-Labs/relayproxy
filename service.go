@@ -382,23 +382,23 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client) (*rel
 	streamHeaderCtx, span := s.tracer.Start(ctx, "streamHeader-start")
 	defer span.End(trace.WithTimestamp(time.Now().UTC()))
 	id := uuid.NewString()
-	client.NodeID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
+	client.ConnectionID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
 	stream, err := client.StreamHeader(ctx, &relaygrpc.StreamHeaderRequest{
 		ReqId:       id,
-		NodeId:      client.NodeID,
+		NodeId:      client.ConnectionID,
 		Version:     s.version,
 		SecretToken: s.secretToken,
 	})
 	logMetric := NewLogMetric(
 		[]zap.Field{
 			zap.String("method", method),
-			zap.String("nodeID", client.NodeID),
+			zap.String("connectionID", client.ConnectionID),
 			zap.String("reqID", id),
 			zap.String("url", client.URL),
 		},
 		[]attribute.KeyValue{
 			attribute.String("method", method),
-			attribute.String("nodeID", client.NodeID),
+			attribute.String("connectionID", client.ConnectionID),
 			attribute.String("url", client.URL),
 			attribute.String("reqID", id),
 		},
@@ -1753,23 +1753,24 @@ func (s *Service) StreamBlock(ctx context.Context, client *common.Client) (*rela
 	streamBlockCtx, span := s.tracer.Start(ctx, "streamBlock-start")
 	defer span.End(trace.WithTimestamp(time.Now().UTC()))
 	id := uuid.NewString()
-	client.NodeID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
+
+	client.ConnectionID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
 	stream, err := client.StreamBlock(ctx, &relaygrpc.StreamBlockRequest{
 		ReqId:       id,
-		NodeId:      client.NodeID,
+		NodeId:      client.ConnectionID,
 		Version:     s.version,
 		SecretToken: s.secretToken,
 	})
 	logMetric := NewLogMetric(
 		[]zap.Field{
 			zap.String("method", method),
-			zap.String("nodeID", client.NodeID),
+			zap.String("connectionID", client.ConnectionID),
 			zap.String("reqID", id),
 			zap.String("url", client.URL),
 		},
 		[]attribute.KeyValue{
 			attribute.String("method", method),
-			attribute.String("nodeID", client.NodeID),
+			attribute.String("connectionID", client.ConnectionID),
 			attribute.String("url", client.URL),
 			attribute.String("reqID", id),
 		},
@@ -2123,7 +2124,6 @@ func isVouch(userAgent string) bool {
 func (s *Service) StartStreamBuilderInfo(ctx context.Context, wg *sync.WaitGroup) {
 	s.dialerClients.mu.RLock()
 	defer s.dialerClients.mu.RUnlock()
-
 	for _, client := range s.dialerClients.streamingBlockClients {
 		wg.Add(1)
 		go func(_ctx context.Context, c *common.Client) {
@@ -2177,23 +2177,24 @@ func (s *Service) StreamBuilderInfo(ctx context.Context, client *common.Client) 
 	streamBuilderInfoCtx, span := s.tracer.Start(ctx, "streamBuilderInfo-start")
 	defer span.End(trace.WithTimestamp(time.Now().UTC()))
 	id := uuid.NewString()
-	client.NodeID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
+	clientURL := strings.Replace(client.URL, client.IPOpts.Primary, client.IPOpts.Backup, 1)
+	client.ConnectionID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, clientURL, id, time.Now().UTC().Format("15:04:05.999999999"))
 	stream, err := client.StreamBuilder(ctx, &relaygrpc.StreamBuilderRequest{
 		ReqId:   id,
-		NodeId:  client.NodeID,
+		NodeId:  client.ConnectionID,
 		Version: s.version,
 	})
 	logMetric := NewLogMetric(
 		[]zap.Field{
 			zap.String("method", method),
-			zap.String("nodeID", client.NodeID),
+			zap.String("connectionID", client.ConnectionID),
 			zap.String("reqID", id),
-			zap.String("url", client.URL),
+			zap.String("url", clientURL),
 		},
 		[]attribute.KeyValue{
 			attribute.String("method", method),
-			attribute.String("nodeID", client.NodeID),
-			attribute.String("url", client.URL),
+			attribute.String("connectionID", client.ConnectionID),
+			attribute.String("url", clientURL),
 			attribute.String("reqID", id),
 		},
 	)
@@ -2229,7 +2230,7 @@ func (s *Service) StreamBuilderInfo(ctx context.Context, client *common.Client) 
 	}(logMetricCopy)
 
 	_, streamReceiveSpan := s.tracer.Start(streamBuilderInfoCtx, "StreamBuilderInfo-streamReceived")
-	clientIP := GetHost(client.URL)
+	clientIP := GetHost(clientURL)
 	for {
 		select {
 		case <-done:

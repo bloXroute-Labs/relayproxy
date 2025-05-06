@@ -277,12 +277,16 @@ func (r *VersionedSignedBlindedBeaconBlock) ExecutionParentHash() (phase0.Hash32
 }
 
 type Client struct {
-	URL    string
-	NodeID string
-	Conn   *grpc.ClientConn
+	URL          string
+	ConnectionID string
+	Conn         *grpc.ClientConn
+	IPOpts       URLOpts
 	relaygrpc.RelayClient
 }
-
+type URLOpts struct {
+	Primary string
+	Backup  string
+}
 type Bid struct {
 	Value            []byte // block value
 	Payload          []byte // blinded block

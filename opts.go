@@ -375,6 +375,12 @@ func WithStreamingBlockURL(url string) DialerOption {
 	}
 }
 
+func WithIPConverter(ipConverter map[string]common.URLOpts) DialerOption {
+	return func(d *Dialer) {
+		d.IPConverter = ipConverter
+	}
+}
+
 // Dialer clients options
 
 type DialerClientsOption func(*DialerClients)
