@@ -152,7 +152,7 @@ func fastParseUint(s string) (uint64, error) {
 	return n, nil
 }
 
-func getBoostSendTimeAndLatency(receivedAt time.Time, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS string) (boostSendTimeInt int64, latency int64) {
+func getBoostSendTimeAndLatency(receivedAt time.Time, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS string) (boostSendTime string, latency int64) {
 	var headerValue string
 	if mevBoostSendTimeUnixMS != "" {
 		headerValue = mevBoostSendTimeUnixMS
@@ -160,10 +160,12 @@ func getBoostSendTimeAndLatency(receivedAt time.Time, mevBoostSendTimeUnixMS, co
 	if commitBoostSendTimeUnixMS != "" {
 		headerValue = commitBoostSendTimeUnixMS
 	}
+
 	var err error
-	boostSendTimeInt, err = strconv.ParseInt(headerValue, 10, 64)
+	boostSendTimeInt, err := strconv.ParseInt(headerValue, 10, 64)
 	if err == nil {
 		latency = receivedAt.UnixMilli() - boostSendTimeInt
 	}
+	boostSendTime = headerValue
 	return
 }

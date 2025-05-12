@@ -29,7 +29,7 @@ type HeaderRequestParams struct {
 	// The time when the header request was received.
 	ReceivedAt time.Time
 	// The Unix timestamp (as string) when getHeader processing started.
-	GetHeaderStartTimeUnixMS int64
+	GetHeaderStartTimeUnixMS string
 	// Request Latency
 	Latency int64
 	// Client IP address.
@@ -66,8 +66,8 @@ type PayloadRequestParams struct {
 	ValidatorID string
 	// Account identifier.
 	AccountID string
-	// The Unix timestamp when payload processing started.
-	GetPayloadStartTimeUnixMS int64
+	// The Unix timestamp (as string) when payload processing started.
+	GetPayloadStartTimeUnixMS string
 	// The cluster identifier.
 	Cluster string
 	// User agent string.
