@@ -161,7 +161,6 @@ func getBoostSendTimeAndLatency(receivedAt time.Time, mevBoostSendTimeUnixMS, co
 		headerValue = commitBoostSendTimeUnixMS
 	}
 
-	var err error
 	boostSendTimeInt, err := strconv.ParseInt(headerValue, 10, 64)
 	if err == nil {
 		latency = receivedAt.UnixMilli() - boostSendTimeInt
