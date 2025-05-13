@@ -163,8 +163,8 @@ func getBoostSendTimeAndLatency(receivedAt time.Time, mevBoostSendTimeUnixMS, co
 
 	boostSendTimeInt, err := strconv.ParseInt(headerValue, 10, 64)
 	if err == nil {
-		boostSendTime = time.UnixMilli(boostSendTimeInt).UTC().String()
 		latency = receivedAt.UnixMilli() - boostSendTimeInt
 	}
+	boostSendTime = headerValue
 	return
 }
