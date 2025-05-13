@@ -274,6 +274,18 @@ func WithAccountList(accountsLists *AccountsLists) ServiceOption {
 	}
 }
 
+func WithWalletAccounts(signers *map[string]*common.WalletAccount) ServiceOption {
+	return func(s *Service) {
+		s.walletAccounts = signers
+	}
+}
+
+func WithMiniProposerSlotMapSvc(miniProposerSlotMap *SyncMap[uint64, *common.MiniValidatorLatency]) ServiceOption {
+	return func(s *Service) {
+		s.miniProposerSlotMap = miniProposerSlotMap
+	}
+}
+
 func WithDataService(ds *DataService) ServiceOption {
 	return func(s *Service) {
 		s.IDataService = ds

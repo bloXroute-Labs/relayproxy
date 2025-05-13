@@ -64,6 +64,60 @@ func BuildGetHeaderResponse(payload *VersionedSubmitBlockRequest) (*builderSpec.
 	}
 }
 
+func BuilderBlockRequestToSignedBuilderBidOld(payload *VersionedSubmitBlockRequest, header *builderApi.VersionedExecutionPayloadHeader, sk *bls.SecretKey, pubkey *phase0.BLSPubKey, domain phase0.Domain) (*builderSpec.VersionedSignedBuilderBid, error) {
+	value, err := payload.Value()
+	if err != nil {
+		return nil, err
+	}
+
+	switch payload.Version { //nolint:exhaustive
+	case spec.DataVersionElectra:
+		builderBid := builderApiElectra.BuilderBid{
+			Header:             header.Electra,
+			BlobKZGCommitments: payload.Electra.BlobsBundle.Commitments,
+			ExecutionRequests:  payload.Electra.ExecutionRequests,
+			Value:              value,
+			Pubkey:             *pubkey,
+		}
+
+		sig, err := ssz.SignMessage(&builderBid, domain, sk)
+		if err != nil {
+			return nil, err
+		}
+
+		return &builderSpec.VersionedSignedBuilderBid{
+			Version: spec.DataVersionElectra,
+			Electra: &builderApiElectra.SignedBuilderBid{
+				Message:   &builderBid,
+				Signature: sig,
+			},
+		}, nil
+
+	case spec.DataVersionDeneb:
+		builderBid := builderApiDeneb.BuilderBid{
+			Header:             header.Deneb,
+			BlobKZGCommitments: payload.Deneb.BlobsBundle.Commitments,
+			Value:              value,
+			Pubkey:             *pubkey,
+		}
+
+		sig, err := ssz.SignMessage(&builderBid, domain, sk)
+		if err != nil {
+			return nil, err
+		}
+
+		return &builderSpec.VersionedSignedBuilderBid{
+			Version: spec.DataVersionDeneb,
+			Deneb: &builderApiDeneb.SignedBuilderBid{
+				Message:   &builderBid,
+				Signature: sig,
+			},
+		}, nil
+	default:
+		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", payload.Version))
+	}
+}
+
 func BuilderBlockRequestToSignedBuilderBid(payload *VersionedSubmitBlockRequest, header *builderApi.VersionedExecutionPayloadHeader) (*builderSpec.VersionedSignedBuilderBid, error) {
 	value, err := payload.Value()
 	if err != nil {

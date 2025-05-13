@@ -16,11 +16,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/attestantio/go-eth2-client/spec/bellatrix"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fastjson"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
+	gethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/utils"
 	"github.com/google/uuid"
@@ -110,7 +112,9 @@ type Service struct {
 
 	builderInfo *cache.Cache
 
-	accountsLists *AccountsLists
+	accountsLists       *AccountsLists
+	walletAccounts      *map[string]*common.WalletAccount
+	miniProposerSlotMap *SyncMap[uint64, *common.MiniValidatorLatency]
 	// data service
 	IDataService
 }
@@ -2304,6 +2308,16 @@ func (s *Service) handleStreamBuilderInfoResponse(ctx context.Context, builderIn
 		builderPubkey := phase0.BLSPubKey(builderInfos[i].BuilderPubkey)
 		builderPubkeyStr := builderPubkey.String()
 		builderInfoPubkeys[i] = builderPubkeyStr
+		grpcWalletAccounts := builderInfo.GetWalletAccounts()
+		walletAccounts := []common.WalletAccount{}
+		for _, grpcWalletAccount := range grpcWalletAccounts {
+			walletAccounts = append(walletAccounts, common.WalletAccount{
+				Pubkey:           gethcommon.Address(grpcWalletAccount.GetPubkey()),
+				Balance:          new(big.Int).SetBytes(grpcWalletAccount.GetBalance()),
+				Nonce:            new(big.Int).SetUint64(grpcWalletAccount.GetNonce()),
+				LastUpdatedBlock: grpcWalletAccount.GetLastUpdatedBlock(),
+			})
+		}
 		newBuilderInfo := &common.BuilderInfo{
 			BuilderPubkey:                           builderPubkey,
 			IsOptimistic:                            builderInfo.IsOptimistic,
@@ -2315,12 +2329,22 @@ func (s *Service) handleStreamBuilderInfoResponse(ctx context.Context, builderIn
 			BuilderAccountIDSkipSimulationThreshold: new(big.Int).SetBytes(builderInfo.BuilderAccountIdSkipSimulationThreshold),
 			TrustedExternalBuilder:                  builderInfo.TrustedExternalBuilder,
 			IsOptedIn:                               builderInfo.IsOptedIn,
+			WalletAccounts:                          walletAccounts,
 		}
 		if builderInfo.IsDemoted {
 			demotedBuilders = append(demotedBuilders, builderPubkeyStr)
 		}
 		if builderInfo.IsOptimistic {
 			optimisticBuilders = append(optimisticBuilders, builderPubkeyStr)
+		}
+		for _, wallet := range newBuilderInfo.WalletAccounts {
+			curWallet, found := (*s.walletAccounts)[wallet.Pubkey.String()]
+			if found && curWallet != nil && curWallet.LastUpdatedBlock < wallet.LastUpdatedBlock {
+				// s.log.Info().Str("wallet", wallet.Pubkey.String()).Msg("updating wallet account")
+				(*s.walletAccounts)[wallet.Pubkey.String()].Balance = wallet.Balance
+				(*s.walletAccounts)[wallet.Pubkey.String()].LastUpdatedBlock = wallet.LastUpdatedBlock
+				(*s.walletAccounts)[wallet.Pubkey.String()].Nonce = wallet.Nonce
+			}
 		}
 		s.builderInfo.Set(builderPubkeyStr, newBuilderInfo, cache.DefaultExpiration)
 	}
@@ -2376,4 +2400,207 @@ func (s *Service) prefetchPayload(ctx context.Context, client *common.Client, re
 		return
 	}
 	errChan <- toErrorResp(http.StatusInternalServerError, "relay failed all attempt", zap.String("url", client.URL))
+}
+
+func (s *Service) StartStreamValidatorInfo(ctx context.Context, wg *sync.WaitGroup) {
+	for _, client := range s.streamingBlockClients {
+		wg.Add(1)
+		go func(_ctx context.Context, c *common.Client) {
+			defer wg.Done()
+			s.handleValidatorInfoStream(_ctx, c)
+		}(ctx, client)
+	}
+	wg.Wait()
+}
+func (s *Service) handleValidatorInfoStream(ctx context.Context, client *common.Client) {
+	parentSpan := trace.SpanFromContext(ctx)
+	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
+
+	for {
+		select {
+		case <-ctx.Done():
+			s.logger.Warn("stream block context cancelled",
+				zap.String("traceID", parentSpan.SpanContext().TraceID().String()),
+			)
+			return
+		default:
+			if _, err := s.StreamValidatorInfo(ctx, client); err != nil {
+				s.logger.Warn("failed to stream ValidatorInfo. Sleeping and then reconnecting",
+					zap.String("url", client.URL),
+					zap.String("traceID", parentSpan.SpanContext().TraceID().String()),
+					zap.Error(err))
+			} else {
+				s.logger.Warn("stream ValidatorInfo stopped.  Sleeping and then reconnecting",
+					zap.String("url", client.URL),
+					zap.String("traceID", parentSpan.SpanContext().TraceID().String()),
+				)
+			}
+			time.Sleep(reconnectTime * time.Millisecond)
+		}
+	}
+}
+
+func (s *Service) StreamValidatorInfo(ctx context.Context, client *common.Client) (*relaygrpc.StreamValidatorResponse, error) {
+	parentSpan := trace.SpanFromContext(ctx)
+	method := "streamValidatorInfo"
+	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
+	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
+	_, port, err := net.SplitHostPort(s.listenAddress)
+	if err != nil {
+		s.logger.Warn("failed to split host port", zap.Error(err))
+		return nil, err
+	}
+	ctx = metadata.AppendToOutgoingContext(ctx, "listenAddress", port)
+	ctx = metadata.AppendToOutgoingContext(ctx, "grpcListenAddress", s.GrpcListenAddress)
+	streamValidatorInfoCtx, span := s.tracer.Start(ctx, "streamValidatorInfo-start")
+	defer span.End(trace.WithTimestamp(time.Now().UTC()))
+	id := uuid.NewString()
+	client.NodeID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
+	stream, err := client.StreamValidator(ctx, &relaygrpc.StreamValidatorRequest{
+		ReqId:   id,
+		NodeId:  client.NodeID,
+		Version: s.version,
+	})
+	logMetric := NewLogMetric(
+		[]zap.Field{
+			zap.String("method", method),
+			zap.String("nodeID", client.NodeID),
+			zap.String("reqID", id),
+			zap.String("url", client.URL),
+		},
+		[]attribute.KeyValue{
+			attribute.String("method", method),
+			attribute.String("nodeID", client.NodeID),
+			attribute.String("url", client.URL),
+			attribute.String("reqID", id),
+		},
+	)
+	span.SetAttributes(logMetric.GetAttributes()...)
+
+	s.logger.Info("streaming Validator info", logMetric.GetFields()...)
+	if err != nil {
+		logMetric.Error(err)
+		s.logger.Warn("failed to stream ValidatorInfo", logMetric.GetFields()...)
+		span.SetStatus(otelcodes.Error, err.Error())
+		return nil, err
+	}
+	done := make(chan struct{})
+	var once sync.Once
+	closeDone := func() {
+		once.Do(func() {
+			s.logger.Info("calling close done once")
+			close(done)
+		})
+	}
+	logMetricCopy := logMetric.Copy()
+	go func(lm *LogMetric) {
+		select {
+		case <-stream.Context().Done():
+			lm.Error(stream.Context().Err())
+			s.logger.Warn("stream context cancelled, closing connection", lm.GetFields()...)
+			closeDone()
+		case <-ctx.Done():
+			logMetric.Error(ctx.Err())
+			s.logger.Warn("context cancelled, closing connection", lm.GetFields()...)
+			closeDone()
+		}
+	}(logMetricCopy)
+
+	_, streamReceiveSpan := s.tracer.Start(streamValidatorInfoCtx, "StreamValidatorInfo-streamReceived")
+	clientIP := GetHost(client.URL)
+	for {
+		select {
+		case <-done:
+			return nil, nil
+		default:
+		}
+		ValidatorInfoResponse, err := stream.Recv()
+		receivedAt := time.Now().UTC()
+		if err == io.EOF {
+			s.logger.With(zap.Error(err)).Warn("stream received EOF", logMetric.GetFields()...)
+			streamReceiveSpan.SetStatus(otelcodes.Error, err.Error())
+			closeDone()
+			break
+		}
+		_s, ok := status.FromError(err)
+		if !ok {
+			s.logger.With(zap.Error(err)).Warn("invalid grpc error status", logMetric.GetFields()...)
+			streamReceiveSpan.SetStatus(otelcodes.Error, "invalid grpc error status")
+			continue
+		}
+
+		if _s.Code() == codes.Canceled {
+			logMetric.Error(err)
+			s.logger.With(zap.Error(err)).Warn("received cancellation signal, shutting down", logMetric.GetFields()...)
+			// mark as canceled to stop the upstream retry loop
+			streamReceiveSpan.SetStatus(otelcodes.Error, "received cancellation signal")
+			closeDone()
+			break
+		}
+
+		if _s.Code() != codes.OK {
+			s.logger.With(zap.Error(_s.Err())).With(zap.String("code", _s.Code().String())).Warn("server unavailable,try reconnecting", logMetric.GetFields()...)
+			streamReceiveSpan.SetStatus(otelcodes.Error, "server unavailable,try reconnecting")
+			closeDone()
+			break
+		}
+		if err != nil {
+			s.logger.With(zap.Error(err)).Warn("failed to receive stream, disconnecting the stream", logMetric.GetFields()...)
+			streamReceiveSpan.SetStatus(otelcodes.Error, err.Error())
+			closeDone()
+			break
+		}
+		// Added empty streaming as a temporary workaround to maintain streaming alive
+		// TODO: this need to be handled by adding settings for keep alive params on both server and client
+		if len(ValidatorInfoResponse.GetValidatorInfo()) == 0 {
+			s.logger.Warn("received empty stream", logMetric.GetFields()...)
+			continue
+		}
+		processTime := time.Since(receivedAt).Milliseconds()
+		go s.handleStreamValidatorInfoResponse(streamValidatorInfoCtx, ValidatorInfoResponse, logMetric, receivedAt, parentSpan.SpanContext().TraceID().String(), method, clientIP, processTime)
+	}
+	<-done
+	streamReceiveSpan.SetAttributes(logMetric.GetAttributes()...)
+	streamReceiveSpan.End(trace.WithTimestamp(time.Now()))
+
+	s.logger.Warn("closing connection", logMetric.GetFields()...)
+	return nil, nil
+}
+
+func (s *Service) handleStreamValidatorInfoResponse(ctx context.Context, ValidatorInfoResponse *relaygrpc.StreamValidatorResponse, logMetric *LogMetric, receivedAt time.Time, traceId string, method string, clientIP string, processTime int64) {
+	// check if the block hash has already been received
+	lm := logMetric.Copy()
+	ValidatorInfos := ValidatorInfoResponse.GetValidatorInfo()
+	if len(ValidatorInfos) == 0 {
+		s.logger.Warn("received empty ValidatorInfo stream", lm.GetFields()...)
+		return
+	}
+	numValidatorInfos := len(ValidatorInfos)
+	for i := 0; i < numValidatorInfos; i++ {
+		ValidatorInfo := ValidatorInfos[i]
+		ValidatorPubkey := phase0.BLSPubKey(ValidatorInfo.Pubkey)
+		newValidatorInfo := &common.StreamedValidatorInfo{
+			Pubkey:           ValidatorPubkey,
+			FeeRecipient:     bellatrix.ExecutionAddress(ValidatorInfo.FeeRecipient),
+			Slot:             ValidatorInfo.Slot,
+			IsEOA:            ValidatorInfo.IsEoa,
+			LastUpdatedBlock: int64(ValidatorInfo.LastUpdatedBlock),
+		}
+		oldProposer, found := s.miniProposerSlotMap.Load(newValidatorInfo.Slot)
+		if !found || oldProposer == nil {
+			s.logger.Error("slot not found in mini proposer slot map", lm.GetFields()...)
+		} else if oldProposer.Registration.Message.Pubkey != newValidatorInfo.Pubkey {
+			s.logger.Error("slot pubkey mismatch", lm.GetFields()...)
+		} else if oldProposer.Registration.Message.FeeRecipient != newValidatorInfo.FeeRecipient {
+			s.logger.Error("slot fee recipient mismatch", lm.GetFields()...)
+		} else {
+			if oldProposer.LastUpdatedBlock < newValidatorInfo.LastUpdatedBlock {
+				oldProposer.IsEOA = newValidatorInfo.IsEOA
+				oldProposer.LastUpdatedBlock = newValidatorInfo.LastUpdatedBlock
+				s.miniProposerSlotMap.Store(newValidatorInfo.Slot, oldProposer)
+				s.logger.Info("updating mini proposer slot map", lm.GetFields()...)
+			}
+		}
+	}
+	s.logger.Info("received validatorInfo", lm.GetFields()...)
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strconv"
 	"time"
 
 	"google.golang.org/grpc"
@@ -18,6 +19,7 @@ import (
 	eth2ApiV1Deneb "github.com/attestantio/go-eth2-client/api/v1/deneb"
 	eth2ApiV1Electra "github.com/attestantio/go-eth2-client/api/v1/electra"
 	"github.com/attestantio/go-eth2-client/spec"
+	"github.com/attestantio/go-eth2-client/spec/bellatrix"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -64,9 +66,13 @@ var (
 	ElectraForkEpochHoodi     = int64(2048)
 	ElectraForkEpochMainnet   = int64(364032)
 
-	HoodiChainID = 560048
+	HoodiChainID   = "560048"
+	HoleskyChainID = "17000"
+	SepoliaChainID = "11155111"
+	MainnetChainID = "1"
 
-	IsElectra bool
+	IsElectra        bool
+	TransferGasLimit = uint64(21000)
 )
 
 type EthNetworkDetails struct {
@@ -79,6 +85,9 @@ type EthNetworkDetails struct {
 	DomainBuilder               phase0.Domain
 	DomainBeaconProposerDeneb   phase0.Domain
 	DomainBeaconProposerElectra phase0.Domain
+
+	ChainID    string
+	ChainIDInt int
 }
 
 func NewEthNetworkDetails(networkName string) (ret *EthNetworkDetails, err error) {
@@ -89,33 +98,38 @@ func NewEthNetworkDetails(networkName string) (ret *EthNetworkDetails, err error
 	var domainBuilder phase0.Domain
 	var domainBeaconProposerDeneb phase0.Domain
 	var domainBeaconProposerElectra phase0.Domain
-
+	var chainID string
 	switch networkName {
 	case EthNetworkHolesky:
 		genesisForkVersion = GenesisForkVersionHolesky
 		genesisValidatorsRoot = GenesisValidatorsRootHolesky
 		denebForkVersion = DenebForkVersionHolesky
 		electraForkVersion = ElectraForkVersionHolesky
+		chainID = HoleskyChainID
 	case EthNetworkSepolia:
 		genesisForkVersion = boostTypes.GenesisForkVersionSepolia
 		genesisValidatorsRoot = boostTypes.GenesisValidatorsRootSepolia
 		denebForkVersion = DenebForkVersionSepolia
 		electraForkVersion = ElectraForkVersionSepolia
+		chainID = SepoliaChainID
 	case EthNetworkHoodi:
 		genesisForkVersion = GenesisForkVersionHoodi
 		genesisValidatorsRoot = GenesisValidatorsRootHoodi
 		denebForkVersion = DenebForkVersionHoodi
 		electraForkVersion = ElectraForkVersionHoodi
+		chainID = HoodiChainID
 	case EthNetworkMainnet:
 		genesisForkVersion = boostTypes.GenesisForkVersionMainnet
 		genesisValidatorsRoot = boostTypes.GenesisValidatorsRootMainnet
 		denebForkVersion = DenebForkVersionMainnet
 		electraForkVersion = ElectraForkVersionMainnet
+		chainID = MainnetChainID
 	case EthNetworkCustom:
 		genesisForkVersion = os.Getenv("GENESIS_FORK_VERSION")
 		genesisValidatorsRoot = os.Getenv("GENESIS_VALIDATORS_ROOT")
 		denebForkVersion = os.Getenv("DENEB_FORK_VERSION")
 		electraForkVersion = os.Getenv("ELECTRA_FORK_VERSION")
+		chainID = os.Getenv("CHAIN_ID")
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnknownNetwork, networkName)
 	}
@@ -135,6 +149,10 @@ func NewEthNetworkDetails(networkName string) (ret *EthNetworkDetails, err error
 		return nil, err
 	}
 
+	chainIDInt, err := strconv.Atoi(chainID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid chain ID %s: %w", chainID, err)
+	}
 	return &EthNetworkDetails{
 		Name:                        networkName,
 		GenesisForkVersionHex:       genesisForkVersion,
@@ -144,6 +162,8 @@ func NewEthNetworkDetails(networkName string) (ret *EthNetworkDetails, err error
 		DomainBuilder:               domainBuilder,
 		DomainBeaconProposerDeneb:   domainBeaconProposerDeneb,
 		DomainBeaconProposerElectra: domainBeaconProposerElectra,
+		ChainID:                     chainID,
+		ChainIDInt:                  chainIDInt,
 	}, nil
 }
 
@@ -403,6 +423,7 @@ type BuilderInfo struct {
 	BuilderAccountIDSkipSimulationThreshold *big.Int         `json:"builder_account_id_skip_simulation_threshold"`
 	TrustedExternalBuilder                  bool             `json:"trusted_external_builder"`
 	IsOptedIn                               bool             `json:"is_opted_in"`
+	WalletAccounts                          []WalletAccount  `json:"wallet_accounts"`
 }
 
 type MiniValidatorLatency struct {
@@ -410,5 +431,15 @@ type MiniValidatorLatency struct {
 	LastRegistered int64                                     `json:"last_registered"`
 	ReceivedAt     time.Time                                 `json:"-"`
 
-	IsOptedIn bool `json:"is_opted_in"`
+	IsOptedIn        bool  `json:"is_opted_in"`
+	LastUpdatedBlock int64 `json:"last_updated_block"`
+	IsEOA            bool  `json:"is_eoa"`
+}
+
+type StreamedValidatorInfo struct {
+	Pubkey           phase0.BLSPubKey           `json:"pubkey"`
+	FeeRecipient     bellatrix.ExecutionAddress `json:"fee_recipient"`
+	Slot             uint64                     `json:"slot"`
+	IsEOA            bool                       `json:"is_eoa"`
+	LastUpdatedBlock int64                      `json:"last_updated_block"`
 }
