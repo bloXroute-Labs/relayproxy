@@ -2,8 +2,10 @@ package common
 
 import (
 	"encoding/hex"
+	"fmt"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -123,4 +125,38 @@ func CheckElectraEpochFork(curTime time.Time, beaconGenesisTime, secondsPerSlot,
 		Msg("electra fork time")
 
 	return IsElectra
+}
+
+func SafeSplitSemicolonSeparatedCSV(s string) ([]string, error) {
+	if s == "" {
+		return []string{}, nil
+	}
+
+	csvStrs := strings.Split(s, ",")
+	output := make([]string, 0)
+	for _, csvStrs := range csvStrs {
+		semicolonSplit := strings.Split(csvStrs, ";")
+		if len(semicolonSplit) == 0 {
+			return nil, fmt.Errorf("invalid semicolon separated CSV string %s", s)
+		} else if len(semicolonSplit) == 1 {
+			output = append(output, semicolonSplit[0])
+		} else if len(semicolonSplit) == 2 {
+			count := semicolonSplit[1]
+			if count == "" {
+				return nil, fmt.Errorf("invalid semicolon separated CSV string %s", s)
+			}
+			countInt, err := strconv.Atoi(count)
+			if err != nil {
+				return nil, fmt.Errorf("invalid semicolon separated CSV string %s", s)
+			}
+
+			str := semicolonSplit[0]
+			for i := 0; i < countInt; i++ {
+				output = append(output, str)
+			}
+		} else {
+			return nil, fmt.Errorf("invalid semicolon separated CSV string %s", s)
+		}
+	}
+	return output, nil
 }
