@@ -19,7 +19,6 @@ import (
 	eth2ApiV1Deneb "github.com/attestantio/go-eth2-client/api/v1/deneb"
 	eth2ApiV1Electra "github.com/attestantio/go-eth2-client/api/v1/electra"
 	"github.com/attestantio/go-eth2-client/spec"
-	"github.com/attestantio/go-eth2-client/spec/bellatrix"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -431,15 +430,8 @@ type MiniValidatorLatency struct {
 	LastRegistered int64                                     `json:"last_registered"`
 	ReceivedAt     time.Time                                 `json:"-"`
 
-	IsOptedIn        bool  `json:"is_opted_in"`
-	LastUpdatedBlock int64 `json:"last_updated_block"`
-	IsEOA            bool  `json:"is_eoa"`
-}
-
-type StreamedValidatorInfo struct {
-	Pubkey           phase0.BLSPubKey           `json:"pubkey"`
-	FeeRecipient     bellatrix.ExecutionAddress `json:"fee_recipient"`
-	Slot             uint64                     `json:"slot"`
-	IsEOA            bool                       `json:"is_eoa"`
-	LastUpdatedBlock int64                      `json:"last_updated_block"`
+	IsOptedIn               bool        `json:"is_opted_in"`
+	LastUpdatedBlock        uint64      `json:"last_updated_block"`
+	IsEOA                   bool        `json:"is_eoa"`
+	ExpectedParentBlockRoot phase0.Root `json:"expected_parent_block_root"`
 }

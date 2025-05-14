@@ -752,7 +752,7 @@ type mockRelayClient struct {
 	GetHeaderFunc         func(ctx context.Context, req *relaygrpc.GetHeaderRequest, opts ...grpc.CallOption) (*relaygrpc.GetHeaderResponse, error)
 	StreamBlockFunc       func(ctx context.Context, in *relaygrpc.StreamBlockRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamBlockClient, error)
 	StreamBuilderFunc     func(ctx context.Context, in *relaygrpc.StreamBuilderRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamBuilderClient, error)
-	StreamValidatorFunc   func(ctx context.Context, in *relaygrpc.StreamValidatorRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamValidatorClient, error)
+	StreamSlotInfoFunc    func(ctx context.Context, in *relaygrpc.StreamSlotRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamSlotInfoClient, error)
 
 	ForwardBlockFunc func(ctx context.Context, in *relaygrpc.StreamBlockResponse, opts ...grpc.CallOption) (*relaygrpc.SubmitBlockResponse, error)
 }
@@ -821,9 +821,9 @@ func (m *mockRelayClient) StreamBuilder(ctx context.Context, in *relaygrpc.Strea
 	}
 	return nil, nil
 }
-func (m *mockRelayClient) StreamValidator(ctx context.Context, in *relaygrpc.StreamValidatorRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamValidatorClient, error) {
-	if m.StreamValidatorFunc != nil {
-		return m.StreamValidatorFunc(ctx, in, opts...)
+func (m *mockRelayClient) StreamSlotInfo(ctx context.Context, in *relaygrpc.StreamSlotRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamSlotInfoClient, error) {
+	if m.StreamSlotInfoFunc != nil {
+		return m.StreamSlotInfoFunc(ctx, in, opts...)
 	}
 	return nil, nil
 }
@@ -883,7 +883,7 @@ func (m *MockClient) StreamBuilder(ctx context.Context, in *relaygrpc.StreamBuil
 	panic("implement me")
 }
 
-func (m *MockClient) StreamValidator(ctx context.Context, in *relaygrpc.StreamValidatorRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamValidatorClient, error) {
+func (m *MockClient) StreamSlotInfo(ctx context.Context, in *relaygrpc.StreamSlotRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamSlotInfoClient, error) {
 	//TODO implement me
 	panic("implement me")
 }

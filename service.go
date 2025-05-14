@@ -2402,17 +2402,17 @@ func (s *Service) prefetchPayload(ctx context.Context, client *common.Client, re
 	errChan <- toErrorResp(http.StatusInternalServerError, "relay failed all attempt", zap.String("url", client.URL))
 }
 
-func (s *Service) StartStreamValidatorInfo(ctx context.Context, wg *sync.WaitGroup) {
+func (s *Service) StartStreamSlotInfo(ctx context.Context, wg *sync.WaitGroup) {
 	for _, client := range s.streamingBlockClients {
 		wg.Add(1)
 		go func(_ctx context.Context, c *common.Client) {
 			defer wg.Done()
-			s.handleValidatorInfoStream(_ctx, c)
+			s.handleSlotInfoStream(_ctx, c)
 		}(ctx, client)
 	}
 	wg.Wait()
 }
-func (s *Service) handleValidatorInfoStream(ctx context.Context, client *common.Client) {
+func (s *Service) handleSlotInfoStream(ctx context.Context, client *common.Client) {
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
 
@@ -2424,13 +2424,13 @@ func (s *Service) handleValidatorInfoStream(ctx context.Context, client *common.
 			)
 			return
 		default:
-			if _, err := s.StreamValidatorInfo(ctx, client); err != nil {
-				s.logger.Warn("failed to stream ValidatorInfo. Sleeping and then reconnecting",
+			if _, err := s.StreamSlotInfo(ctx, client); err != nil {
+				s.logger.Warn("failed to stream SlotInfo. Sleeping and then reconnecting",
 					zap.String("url", client.URL),
 					zap.String("traceID", parentSpan.SpanContext().TraceID().String()),
 					zap.Error(err))
 			} else {
-				s.logger.Warn("stream ValidatorInfo stopped.  Sleeping and then reconnecting",
+				s.logger.Warn("stream SlotInfo stopped.  Sleeping and then reconnecting",
 					zap.String("url", client.URL),
 					zap.String("traceID", parentSpan.SpanContext().TraceID().String()),
 				)
@@ -2440,9 +2440,9 @@ func (s *Service) handleValidatorInfoStream(ctx context.Context, client *common.
 	}
 }
 
-func (s *Service) StreamValidatorInfo(ctx context.Context, client *common.Client) (*relaygrpc.StreamValidatorResponse, error) {
+func (s *Service) StreamSlotInfo(ctx context.Context, client *common.Client) (*relaygrpc.StreamSlotResponse, error) {
 	parentSpan := trace.SpanFromContext(ctx)
-	method := "streamValidatorInfo"
+	method := "streamSlotInfo"
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
 	_, port, err := net.SplitHostPort(s.listenAddress)
@@ -2452,11 +2452,11 @@ func (s *Service) StreamValidatorInfo(ctx context.Context, client *common.Client
 	}
 	ctx = metadata.AppendToOutgoingContext(ctx, "listenAddress", port)
 	ctx = metadata.AppendToOutgoingContext(ctx, "grpcListenAddress", s.GrpcListenAddress)
-	streamValidatorInfoCtx, span := s.tracer.Start(ctx, "streamValidatorInfo-start")
+	streamSlotInfoCtx, span := s.tracer.Start(ctx, "streamSlotInfo-start")
 	defer span.End(trace.WithTimestamp(time.Now().UTC()))
 	id := uuid.NewString()
 	client.NodeID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
-	stream, err := client.StreamValidator(ctx, &relaygrpc.StreamValidatorRequest{
+	stream, err := client.StreamSlotInfo(ctx, &relaygrpc.StreamSlotRequest{
 		ReqId:   id,
 		NodeId:  client.NodeID,
 		Version: s.version,
@@ -2480,7 +2480,7 @@ func (s *Service) StreamValidatorInfo(ctx context.Context, client *common.Client
 	s.logger.Info("streaming Validator info", logMetric.GetFields()...)
 	if err != nil {
 		logMetric.Error(err)
-		s.logger.Warn("failed to stream ValidatorInfo", logMetric.GetFields()...)
+		s.logger.Warn("failed to stream SlotInfo", logMetric.GetFields()...)
 		span.SetStatus(otelcodes.Error, err.Error())
 		return nil, err
 	}
@@ -2506,7 +2506,7 @@ func (s *Service) StreamValidatorInfo(ctx context.Context, client *common.Client
 		}
 	}(logMetricCopy)
 
-	_, streamReceiveSpan := s.tracer.Start(streamValidatorInfoCtx, "StreamValidatorInfo-streamReceived")
+	_, streamReceiveSpan := s.tracer.Start(streamSlotInfoCtx, "StreamSlotInfo-streamReceived")
 	clientIP := GetHost(client.URL)
 	for {
 		select {
@@ -2514,7 +2514,7 @@ func (s *Service) StreamValidatorInfo(ctx context.Context, client *common.Client
 			return nil, nil
 		default:
 		}
-		ValidatorInfoResponse, err := stream.Recv()
+		SlotInfoResponse, err := stream.Recv()
 		receivedAt := time.Now().UTC()
 		if err == io.EOF {
 			s.logger.With(zap.Error(err)).Warn("stream received EOF", logMetric.GetFields()...)
@@ -2552,12 +2552,12 @@ func (s *Service) StreamValidatorInfo(ctx context.Context, client *common.Client
 		}
 		// Added empty streaming as a temporary workaround to maintain streaming alive
 		// TODO: this need to be handled by adding settings for keep alive params on both server and client
-		if len(ValidatorInfoResponse.GetValidatorInfo()) == 0 {
+		if SlotInfoResponse == nil || SlotInfoResponse.LastUpdatedBlock == 0 {
 			s.logger.Warn("received empty stream", logMetric.GetFields()...)
 			continue
 		}
 		processTime := time.Since(receivedAt).Milliseconds()
-		go s.handleStreamValidatorInfoResponse(streamValidatorInfoCtx, ValidatorInfoResponse, logMetric, receivedAt, parentSpan.SpanContext().TraceID().String(), method, clientIP, processTime)
+		go s.handleStreamSlotInfoResponse(streamSlotInfoCtx, SlotInfoResponse, logMetric, receivedAt, parentSpan.SpanContext().TraceID().String(), method, clientIP, processTime)
 	}
 	<-done
 	streamReceiveSpan.SetAttributes(logMetric.GetAttributes()...)
@@ -2567,40 +2567,63 @@ func (s *Service) StreamValidatorInfo(ctx context.Context, client *common.Client
 	return nil, nil
 }
 
-func (s *Service) handleStreamValidatorInfoResponse(ctx context.Context, ValidatorInfoResponse *relaygrpc.StreamValidatorResponse, logMetric *LogMetric, receivedAt time.Time, traceId string, method string, clientIP string, processTime int64) {
+func (s *Service) handleStreamSlotInfoResponse(ctx context.Context, SlotInfoResponse *relaygrpc.StreamSlotResponse, logMetric *LogMetric, receivedAt time.Time, traceId string, method string, clientIP string, processTime int64) {
 	// check if the block hash has already been received
 	lm := logMetric.Copy()
-	ValidatorInfos := ValidatorInfoResponse.GetValidatorInfo()
-	if len(ValidatorInfos) == 0 {
-		s.logger.Warn("received empty ValidatorInfo stream", lm.GetFields()...)
+	proposerPubkey := phase0.BLSPubKey(SlotInfoResponse.GetProposerPubkey())
+	proposerFeeRecipient := bellatrix.ExecutionAddress(SlotInfoResponse.GetProposerFeeRecipient())
+	isEOA := SlotInfoResponse.IsEoa
+	slot := SlotInfoResponse.GetSlot()
+	lastUpdatedBlock := SlotInfoResponse.GetLastUpdatedBlock()
+	parentBlockRoot := phase0.Root(SlotInfoResponse.GetParentBlockRoot())
+	oldProposer, found := s.miniProposerSlotMap.Load(slot)
+
+	lm.Fields(
+		zap.String("proposerPubkey", proposerPubkey.String()),
+		zap.Uint64("slot", slot),
+		zap.String("feeRecipient", proposerFeeRecipient.String()),
+		zap.Uint64("lastUpdatedBlock", lastUpdatedBlock),
+		zap.String("parentBlockRoot", parentBlockRoot.String()),
+		zap.Bool("isEOA", isEOA),
+	)
+	lm.Attributes(
+		attribute.String("proposerPubkey", proposerPubkey.String()),
+		attribute.Int64("slot", int64(slot)),
+		attribute.String("feeRecipient", proposerFeeRecipient.String()),
+		attribute.Int64("lastUpdatedBlock", int64(lastUpdatedBlock)),
+		attribute.String("parentBlockRoot", parentBlockRoot.String()),
+		attribute.Bool("isEOA", isEOA),
+	)
+
+	if !found || oldProposer == nil {
+		s.logger.Error("slot not found in mini proposer slot map", lm.GetFields()...)
 		return
 	}
-	numValidatorInfos := len(ValidatorInfos)
-	for i := 0; i < numValidatorInfos; i++ {
-		ValidatorInfo := ValidatorInfos[i]
-		ValidatorPubkey := phase0.BLSPubKey(ValidatorInfo.Pubkey)
-		newValidatorInfo := &common.StreamedValidatorInfo{
-			Pubkey:           ValidatorPubkey,
-			FeeRecipient:     bellatrix.ExecutionAddress(ValidatorInfo.FeeRecipient),
-			Slot:             ValidatorInfo.Slot,
-			IsEOA:            ValidatorInfo.IsEoa,
-			LastUpdatedBlock: int64(ValidatorInfo.LastUpdatedBlock),
-		}
-		oldProposer, found := s.miniProposerSlotMap.Load(newValidatorInfo.Slot)
-		if !found || oldProposer == nil {
-			s.logger.Error("slot not found in mini proposer slot map", lm.GetFields()...)
-		} else if oldProposer.Registration.Message.Pubkey != newValidatorInfo.Pubkey {
-			s.logger.Error("slot pubkey mismatch", lm.GetFields()...)
-		} else if oldProposer.Registration.Message.FeeRecipient != newValidatorInfo.FeeRecipient {
-			s.logger.Error("slot fee recipient mismatch", lm.GetFields()...)
-		} else {
-			if oldProposer.LastUpdatedBlock < newValidatorInfo.LastUpdatedBlock {
-				oldProposer.IsEOA = newValidatorInfo.IsEOA
-				oldProposer.LastUpdatedBlock = newValidatorInfo.LastUpdatedBlock
-				s.miniProposerSlotMap.Store(newValidatorInfo.Slot, oldProposer)
-				s.logger.Info("updating mini proposer slot map", lm.GetFields()...)
-			}
+
+	lm.Fields(
+		zap.String("oldProposerPubkey", oldProposer.Registration.Message.Pubkey.String()),
+		zap.String("oldProposerFeeRecipient", oldProposer.Registration.Message.FeeRecipient.String()),
+		zap.Int64("oldProposerLastUpdatedBlock", int64(oldProposer.LastUpdatedBlock)),
+		zap.String("oldProposerIsEOA", strconv.FormatBool(oldProposer.IsEOA)),
+	)
+	lm.Attributes(
+		attribute.String("oldProposerPubkey", oldProposer.Registration.Message.Pubkey.String()),
+		attribute.String("oldProposerFeeRecipient", oldProposer.Registration.Message.FeeRecipient.String()),
+		attribute.Int64("oldProposerLastUpdatedBlock", int64(oldProposer.LastUpdatedBlock)),
+		attribute.String("oldProposerIsEOA", strconv.FormatBool(oldProposer.IsEOA)),
+	)
+
+	if oldProposer.Registration.Message.Pubkey != proposerPubkey {
+		s.logger.Error("slot pubkey mismatch", lm.GetFields()...)
+	} else if oldProposer.Registration.Message.FeeRecipient != proposerFeeRecipient {
+		s.logger.Error("slot fee recipient mismatch", lm.GetFields()...)
+	} else {
+		if oldProposer.LastUpdatedBlock < lastUpdatedBlock {
+			oldProposer.IsEOA = isEOA
+			oldProposer.LastUpdatedBlock = lastUpdatedBlock
+			s.miniProposerSlotMap.Store(slot, oldProposer)
+			s.logger.Info("updating mini proposer slot map", lm.GetFields()...)
 		}
 	}
-	s.logger.Info("received validatorInfo", lm.GetFields()...)
+	s.logger.Info("received slot", lm.GetFields()...)
 }
