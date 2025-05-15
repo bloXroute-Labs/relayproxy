@@ -72,6 +72,7 @@ var (
 
 	IsElectra        bool
 	TransferGasLimit = uint64(21000)
+	SlotsPerEpoch    = uint64(32)
 )
 
 type EthNetworkDetails struct {
