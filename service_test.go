@@ -752,6 +752,7 @@ type mockRelayClient struct {
 	GetHeaderFunc         func(ctx context.Context, req *relaygrpc.GetHeaderRequest, opts ...grpc.CallOption) (*relaygrpc.GetHeaderResponse, error)
 	StreamBlockFunc       func(ctx context.Context, in *relaygrpc.StreamBlockRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamBlockClient, error)
 	StreamBuilderFunc     func(ctx context.Context, in *relaygrpc.StreamBuilderRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamBuilderClient, error)
+	StreamSlotInfoFunc    func(ctx context.Context, in *relaygrpc.StreamSlotRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamSlotInfoClient, error)
 
 	ForwardBlockFunc func(ctx context.Context, in *relaygrpc.StreamBlockResponse, opts ...grpc.CallOption) (*relaygrpc.SubmitBlockResponse, error)
 }
@@ -820,6 +821,12 @@ func (m *mockRelayClient) StreamBuilder(ctx context.Context, in *relaygrpc.Strea
 	}
 	return nil, nil
 }
+func (m *mockRelayClient) StreamSlotInfo(ctx context.Context, in *relaygrpc.StreamSlotRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamSlotInfoClient, error) {
+	if m.StreamSlotInfoFunc != nil {
+		return m.StreamSlotInfoFunc(ctx, in, opts...)
+	}
+	return nil, nil
+}
 
 // MockClient is a mock of Client interface
 type MockClient struct {
@@ -872,6 +879,11 @@ func (m *MockClient) StreamBlock(ctx context.Context, in *relaygrpc.StreamBlockR
 }
 
 func (m *MockClient) StreamBuilder(ctx context.Context, in *relaygrpc.StreamBuilderRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamBuilderClient, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m *MockClient) StreamSlotInfo(ctx context.Context, in *relaygrpc.StreamSlotRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamSlotInfoClient, error) {
 	//TODO implement me
 	panic("implement me")
 }
