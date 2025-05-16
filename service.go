@@ -2340,7 +2340,7 @@ func (s *Service) handleStreamBuilderInfoResponse(ctx context.Context, builderIn
 		for _, wallet := range newBuilderInfo.WalletAccounts {
 			curWallet, found := (*s.walletAccounts)[wallet.Pubkey.String()]
 			if found && curWallet != nil && curWallet.LastUpdatedBlock < wallet.LastUpdatedBlock {
-				// s.log.Info().Str("wallet", wallet.Pubkey.String()).Msg("updating wallet account")
+				s.logger.Info("updating wallet account", zap.String("pubkey", wallet.Pubkey.String()), zap.Uint64("lastUpdatedBlock", wallet.LastUpdatedBlock), zap.Uint64("balance", wallet.Balance.Uint64()), zap.Uint64("nonce", wallet.Nonce.Uint64()), zap.String("accountID", builderInfo.ExternalBuilderAccountId))
 				(*s.walletAccounts)[wallet.Pubkey.String()].Balance = wallet.Balance
 				(*s.walletAccounts)[wallet.Pubkey.String()].LastUpdatedBlock = wallet.LastUpdatedBlock
 				(*s.walletAccounts)[wallet.Pubkey.String()].Nonce = wallet.Nonce
