@@ -2447,7 +2447,7 @@ func (s *Service) prefetchPayload(ctx context.Context, client *common.Client, re
 }
 
 func (s *Service) StartStreamSlotInfo(ctx context.Context, wg *sync.WaitGroup) {
-	for _, client := range s.streamingBlockClients {
+	for _, client := range s.dialerClients.streamingBlockClients {
 		wg.Add(1)
 		go func(_ctx context.Context, c *common.Client) {
 			defer wg.Done()
@@ -2499,22 +2499,22 @@ func (s *Service) StreamSlotInfo(ctx context.Context, client *common.Client) (*r
 	streamSlotInfoCtx, span := s.tracer.Start(ctx, "streamSlotInfo-start")
 	defer span.End(trace.WithTimestamp(time.Now().UTC()))
 	id := uuid.NewString()
-	client.NodeID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
+	client.ConnectionID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
 	stream, err := client.StreamSlotInfo(ctx, &relaygrpc.StreamSlotRequest{
 		ReqId:   id,
-		NodeId:  client.NodeID,
+		NodeId:  client.ConnectionID,
 		Version: s.version,
 	})
 	logMetric := NewLogMetric(
 		[]zap.Field{
 			zap.String("method", method),
-			zap.String("nodeID", client.NodeID),
+			zap.String("connectionID", client.ConnectionID),
 			zap.String("reqID", id),
 			zap.String("url", client.URL),
 		},
 		[]attribute.KeyValue{
 			attribute.String("method", method),
-			attribute.String("nodeID", client.NodeID),
+			attribute.String("connectionID", client.ConnectionID),
 			attribute.String("url", client.URL),
 			attribute.String("reqID", id),
 		},
