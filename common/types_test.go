@@ -84,3 +84,31 @@ func TestCheckElectraEpochFork(t *testing.T) {
 	require.True(t, mockTime3.Before(mockTime4))
 	require.True(t, IsElectra)
 }
+
+func TestSafeSplitSemicolonSeparatedCSV(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected []string
+		failed   bool
+	}{
+		{"", []string{}, false},
+		{"ip1", []string{"ip1"}, false},
+		{"ip1;1", []string{"ip1"}, false},
+		{"ip1;2", []string{"ip1", "ip1"}, false},
+		{"a,b;2,c", []string{"a", "b", "b", "c"}, false},
+		{"a;1;2,b,c", nil, true},
+		{"a;,b,c", nil, true},
+		{"a;5", []string{"a", "a", "a", "a", "a"}, false},
+	}
+
+	for _, test := range tests {
+		result, err := SafeSplitSemicolonSeparatedCSV(test.input)
+		if test.failed {
+			require.Error(t, err)
+			require.Nil(t, result)
+			continue
+		}
+		require.NoError(t, err)
+		require.Equal(t, test.expected, result)
+	}
+}

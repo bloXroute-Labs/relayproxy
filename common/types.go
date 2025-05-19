@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strconv"
 	"time"
 
 	"google.golang.org/grpc"
@@ -21,6 +22,7 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/ssz"
 	boostTypes "github.com/flashbots/go-boost-utils/types"
 )
@@ -63,9 +65,14 @@ var (
 	ElectraForkEpochHoodi     = int64(2048)
 	ElectraForkEpochMainnet   = int64(364032)
 
-	HoodiChainID = 560048
+	HoodiChainID   = "560048"
+	HoleskyChainID = "17000"
+	SepoliaChainID = "11155111"
+	MainnetChainID = "1"
 
-	IsElectra bool
+	IsElectra        bool
+	TransferGasLimit = uint64(21000)
+	SlotsPerEpoch    = uint64(32)
 )
 
 type EthNetworkDetails struct {
@@ -78,6 +85,9 @@ type EthNetworkDetails struct {
 	DomainBuilder               phase0.Domain
 	DomainBeaconProposerDeneb   phase0.Domain
 	DomainBeaconProposerElectra phase0.Domain
+
+	ChainID    string
+	ChainIDInt int
 }
 
 func NewEthNetworkDetails(networkName string) (ret *EthNetworkDetails, err error) {
@@ -88,33 +98,38 @@ func NewEthNetworkDetails(networkName string) (ret *EthNetworkDetails, err error
 	var domainBuilder phase0.Domain
 	var domainBeaconProposerDeneb phase0.Domain
 	var domainBeaconProposerElectra phase0.Domain
-
+	var chainID string
 	switch networkName {
 	case EthNetworkHolesky:
 		genesisForkVersion = GenesisForkVersionHolesky
 		genesisValidatorsRoot = GenesisValidatorsRootHolesky
 		denebForkVersion = DenebForkVersionHolesky
 		electraForkVersion = ElectraForkVersionHolesky
+		chainID = HoleskyChainID
 	case EthNetworkSepolia:
 		genesisForkVersion = boostTypes.GenesisForkVersionSepolia
 		genesisValidatorsRoot = boostTypes.GenesisValidatorsRootSepolia
 		denebForkVersion = DenebForkVersionSepolia
 		electraForkVersion = ElectraForkVersionSepolia
+		chainID = SepoliaChainID
 	case EthNetworkHoodi:
 		genesisForkVersion = GenesisForkVersionHoodi
 		genesisValidatorsRoot = GenesisValidatorsRootHoodi
 		denebForkVersion = DenebForkVersionHoodi
 		electraForkVersion = ElectraForkVersionHoodi
+		chainID = HoodiChainID
 	case EthNetworkMainnet:
 		genesisForkVersion = boostTypes.GenesisForkVersionMainnet
 		genesisValidatorsRoot = boostTypes.GenesisValidatorsRootMainnet
 		denebForkVersion = DenebForkVersionMainnet
 		electraForkVersion = ElectraForkVersionMainnet
+		chainID = MainnetChainID
 	case EthNetworkCustom:
 		genesisForkVersion = os.Getenv("GENESIS_FORK_VERSION")
 		genesisValidatorsRoot = os.Getenv("GENESIS_VALIDATORS_ROOT")
 		denebForkVersion = os.Getenv("DENEB_FORK_VERSION")
 		electraForkVersion = os.Getenv("ELECTRA_FORK_VERSION")
+		chainID = os.Getenv("CHAIN_ID")
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnknownNetwork, networkName)
 	}
@@ -134,6 +149,10 @@ func NewEthNetworkDetails(networkName string) (ret *EthNetworkDetails, err error
 		return nil, err
 	}
 
+	chainIDInt, err := strconv.Atoi(chainID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid chain ID %s: %w", chainID, err)
+	}
 	return &EthNetworkDetails{
 		Name:                        networkName,
 		GenesisForkVersionHex:       genesisForkVersion,
@@ -143,6 +162,8 @@ func NewEthNetworkDetails(networkName string) (ret *EthNetworkDetails, err error
 		DomainBuilder:               domainBuilder,
 		DomainBeaconProposerDeneb:   domainBeaconProposerDeneb,
 		DomainBeaconProposerElectra: domainBeaconProposerElectra,
+		ChainID:                     chainID,
+		ChainIDInt:                  chainIDInt,
 	}, nil
 }
 
@@ -288,13 +309,57 @@ type URLOpts struct {
 	Backup  string
 }
 type Bid struct {
-	Value            []byte // block value
-	Payload          []byte // blinded block
-	BlockHash        string
-	BuilderPubkey    string
-	BuilderExtraData string
-	AccountID        string
-	Client           *Client
+	Value              []byte // block value
+	payload            []byte // blinded block
+	HeaderSubmissionV3 *HeaderSubmissionV3
+	BlockHash          string
+	BuilderPubkey      string
+	BuilderExtraData   string
+	AccountID          string
+	Client             *Client
+}
+
+func NewBid(Value []byte,
+	payload []byte,
+	HeaderSubmissionV3 *HeaderSubmissionV3,
+	BlockHash string,
+	BuilderPubkey string,
+	BuilderExtraData string,
+	AccountID string,
+	Client *Client) *Bid {
+	return &Bid{
+		Value:              Value,
+		payload:            payload,
+		HeaderSubmissionV3: HeaderSubmissionV3,
+		BlockHash:          BlockHash,
+		BuilderPubkey:      BuilderPubkey,
+		BuilderExtraData:   BuilderExtraData,
+		AccountID:          AccountID,
+		Client:             Client,
+	}
+}
+
+func (b *Bid) GetPayload(sk *bls.SecretKey, pubkey *phase0.BLSPubKey, domain phase0.Domain) ([]byte, bool, error) {
+	if b.payload != nil {
+		return b.payload, true, nil
+	}
+	if b.HeaderSubmissionV3 == nil {
+		return nil, false, errors.New("empty payload")
+	}
+
+	relayProxyGetHeaderResponse, err := BuildGetHeaderResponseAndSign(b.HeaderSubmissionV3, sk, pubkey, domain)
+	if err != nil {
+		return nil, false, err
+	}
+	wrappedRelayProxyGetHeaderResponse := &VersionedSignedBuilderBid{}
+	wrappedRelayProxyGetHeaderResponse.VersionedSignedBuilderBid = *relayProxyGetHeaderResponse
+
+	payload, err := json.Marshal(wrappedRelayProxyGetHeaderResponse)
+	if err != nil {
+		return nil, false, err
+	}
+	b.payload = payload
+	return payload, false, nil
 }
 
 type DuplicateBlock struct {
@@ -362,6 +427,7 @@ type BuilderInfo struct {
 	BuilderAccountIDSkipSimulationThreshold *big.Int         `json:"builder_account_id_skip_simulation_threshold"`
 	TrustedExternalBuilder                  bool             `json:"trusted_external_builder"`
 	IsOptedIn                               bool             `json:"is_opted_in"`
+	WalletAccounts                          []WalletAccount  `json:"wallet_accounts"`
 }
 
 type MiniValidatorLatency struct {
@@ -369,5 +435,8 @@ type MiniValidatorLatency struct {
 	LastRegistered int64                                     `json:"last_registered"`
 	ReceivedAt     time.Time                                 `json:"-"`
 
-	IsOptedIn bool `json:"is_opted_in"`
+	IsOptedIn               bool        `json:"is_opted_in"`
+	LastUpdatedBlock        uint64      `json:"last_updated_block"`
+	IsEOA                   bool        `json:"is_eoa"`
+	ExpectedParentBlockRoot phase0.Root `json:"expected_parent_block_root"`
 }
