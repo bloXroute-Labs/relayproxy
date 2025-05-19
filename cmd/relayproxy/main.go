@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
 	"github.com/bloXroute-Labs/relayproxy"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
@@ -35,21 +34,20 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	_ "google.golang.org/grpc/encoding/gzip" // to enable gzip encoding
-	"google.golang.org/grpc/keepalive"
 )
 
 // GRPC dial options
 const (
-	windowSize = 1024 * 1024 * 3 // 3 MB
-	bufferSize = 0               // to disallow batching data before writing
+	windowSize1M = 1024 * 1024
+	bufferSize   = 0 // to disallow batching data before writing
 
 	defaultBufferLimit = 32 * 1024
 	tag                = "proxy.go.log"
 	messageField       = "msg"
 	timestampFormat    = "2006-01-02T15:04:05.000Z07:00"
+
+	failOverThreshold = 5
 )
 
 var (
@@ -65,11 +63,13 @@ var (
 	relaysGRPCURL             = flag.String("relays", fmt.Sprintf("%v:%d", "127.0.0.1", 5000), "comma seperated list of relay grpc URL")
 	streamingRelaysGRPCURL    = flag.String("streaming-relays", fmt.Sprintf("%v:%d", "127.0.0.1", 5000), "comma seperated list of relay grpc URL for streaming")
 	registrationRelaysGRPCURL = flag.String("registration-relays", fmt.Sprintf("%v:%d", "127.0.0.1", 5000), "registration relays grpc URL")
-	getHeaderDelayInMS        = flag.Int64("get-header-delay-ms", 0, "delay for sending the getHeader request in millisecond")
-	getHeaderMaxDelayInMS     = flag.Int64("get-header-max-delay-ms", 0, "max delay for sending the getHeader request in millisecond")
-	authKey                   = flag.String("auth-key", "", "account authentication key")
-	nodeID                    = flag.String("node-id", fmt.Sprintf("rproxy-%v", uuid.New().String()), "unique identifier for the node")
-	uptraceDSN                = flag.String("uptrace-dsn", "", "uptrace URL")
+	// fail over url
+	relayIPOpts           = flag.String("relay-ip-options", "", "comma seperated list of relay grpc URL")
+	getHeaderDelayInMS    = flag.Int64("get-header-delay-ms", 0, "delay for sending the getHeader request in millisecond")
+	getHeaderMaxDelayInMS = flag.Int64("get-header-max-delay-ms", 0, "max delay for sending the getHeader request in millisecond")
+	authKey               = flag.String("auth-key", "", "account authentication key")
+	nodeID                = flag.String("node-id", fmt.Sprintf("rproxy-%v", uuid.New().String()), "unique identifier for the node")
+	uptraceDSN            = flag.String("uptrace-dsn", "", "uptrace URL")
 	// fluentD
 	fluentDHostFlag   = flag.String("fluentd-host", "", "fluentd host")
 	beaconGenesisTime = flag.Int64("beacon-genesis-time", 1606824023, "beacon genesis time in unix timestamp, default value set to mainnet")
@@ -126,6 +126,42 @@ func main() {
 		}))
 	}
 
+	var (
+		failOverRelaysGRPCURL             string
+		failOverStreamingRelaysGRPCURL    string
+		failOverRegistrationRelaysGRPCURL string
+	)
+	type URLOpts struct {
+		Primary string
+		Backup  string
+	}
+	urlToURLOpts := map[string]URLOpts{}
+	urlOpts := strings.Split(*relayIPOpts, ",")
+	if len(urlOpts)%2 != 0 {
+		l.Fatal("incorrect length of url options")
+	}
+	for i := 0; i < len(urlOpts); i += 2 {
+		primaryURL := urlOpts[i]
+		backupURL := urlOpts[i+1]
+		urlToURLOpts[primaryURL] = URLOpts{
+			Primary: primaryURL,
+			Backup:  backupURL,
+		}
+	}
+
+	failOverRelaysGRPCURL = *relaysGRPCURL
+	failOverStreamingRelaysGRPCURL = *streamingRelaysGRPCURL
+	failOverRegistrationRelaysGRPCURL = *registrationRelaysGRPCURL
+	for _, v := range urlToURLOpts {
+		*relaysGRPCURL = strings.ReplaceAll(*relaysGRPCURL, v.Backup, v.Primary)
+		failOverRelaysGRPCURL = strings.ReplaceAll(failOverRelaysGRPCURL, v.Primary, v.Backup)
+
+		*streamingRelaysGRPCURL = strings.ReplaceAll(*streamingRelaysGRPCURL, v.Backup, v.Primary)
+		failOverStreamingRelaysGRPCURL = strings.ReplaceAll(failOverStreamingRelaysGRPCURL, v.Primary, v.Backup)
+		*registrationRelaysGRPCURL = strings.ReplaceAll(*registrationRelaysGRPCURL, v.Backup, v.Primary)
+		failOverRegistrationRelaysGRPCURL = strings.ReplaceAll(failOverRegistrationRelaysGRPCURL, v.Primary, v.Backup)
+	}
+
 	defer func() {
 		if err := l.Sync(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error syncing log: %v\n", err)
@@ -167,47 +203,18 @@ func main() {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	keepaliveOpts := grpc.WithKeepaliveParams(keepalive.ClientParameters{
-		Time:                time.Minute,
-		Timeout:             20 * time.Second,
-		PermitWithoutStream: true,
-	})
+	var dialerOpts []relayproxy.DialerOption
 
-	// init client connection
-	var (
-		clients []*common.Client
-		conns   []*grpc.ClientConn
-
-		streamingClients []*common.Client
-		streamingConns   []*grpc.ClientConn
-
-		registrationClients []*common.Client
-		regConns            []*grpc.ClientConn
-	)
-
-	// Parse the relaysGRPCURL
-	newClients, newConns := getClientsAndConnsFromURLs(l, *relaysGRPCURL, conns, keepaliveOpts, clients)
+	dialerOpts = append(dialerOpts, relayproxy.WithRelayURL(*relaysGRPCURL))
+	dialerOpts = append(dialerOpts, relayproxy.WithStreamingURL(*streamingRelaysGRPCURL))
+	dialerOpts = append(dialerOpts, relayproxy.WithRegistrationURL(*registrationRelaysGRPCURL))
+	primaryDialer := relayproxy.NewDialer(dialerOpts...)
+	primaryDialer.SetDialer(l)
 	defer func() {
-		for _, conn := range newConns {
-			conn.Close()
-		}
+		primaryDialer.CloseConnections()
 	}()
 
-	// Parse the streamingRelaysGRPCURL
-	newStreamingClients, newStreamingConns := getClientsAndConnsFromURLs(l, *streamingRelaysGRPCURL, streamingConns, keepaliveOpts, streamingClients)
-	defer func() {
-		for _, conn := range newStreamingConns {
-			conn.Close()
-		}
-	}()
-
-	// Parse the registrationRelaysURL
-	newRegistrationClients, newRegConns := getClientsAndConnsFromURLs(l, *registrationRelaysGRPCURL, regConns, keepaliveOpts, registrationClients)
-	defer func() {
-		for _, conn := range newRegConns {
-			conn.Close()
-		}
-	}()
+	//failOverDialer * relayproxy.Dialer
 
 	// Configure OpenTelemetry with sensible defaults.
 	uptrace.ConfigureOpentelemetry(
@@ -387,9 +394,7 @@ func main() {
 	svcOpts = append(svcOpts, relayproxy.WithSvcBeaconGenesisTime(*beaconGenesisTime))
 	svcOpts = append(svcOpts, relayproxy.WithSvcSecondsPerSlot(*secondsPerSlot))
 	svcOpts = append(svcOpts, relayproxy.WithEthNetworkDetails(ethNetworks))
-	svcOpts = append(svcOpts, relayproxy.WithClients(newClients))
-	svcOpts = append(svcOpts, relayproxy.WithStreamingClients(newStreamingClients))
-	svcOpts = append(svcOpts, relayproxy.WithRegistrationClients(newRegistrationClients))
+	svcOpts = append(svcOpts, relayproxy.WithDialerClients(primaryDialer.DialerClients))
 	svcOpts = append(svcOpts, relayproxy.WithSvcTracer(tracer))
 	svcOpts = append(svcOpts, relayproxy.WithSvcFluentD(fluentLogger))
 	svcOpts = append(svcOpts, relayproxy.WithDataService(dataSvc))
@@ -433,6 +438,16 @@ func main() {
 		cancel()
 		server.Stop()
 		close(exit)
+	}()
+
+	go func() {
+		var (
+			failOverDialerOpts []relayproxy.DialerOption
+		)
+		failOverDialerOpts = append(failOverDialerOpts, relayproxy.WithRelayURL(failOverRelaysGRPCURL))
+		failOverDialerOpts = append(failOverDialerOpts, relayproxy.WithStreamingURL(failOverStreamingRelaysGRPCURL))
+		failOverDialerOpts = append(failOverDialerOpts, relayproxy.WithRegistrationURL(failOverRegistrationRelaysGRPCURL))
+		primaryDialer.MonitorDialerHealth(l, svc, failOverThreshold, failOverDialerOpts...)
 	}()
 
 	// start receiving account info
@@ -481,33 +496,4 @@ func getEnv(key string, defaultValue string) string {
 		return value
 	}
 	return defaultValue
-}
-
-func getClientsAndConnsFromURLs(l *zap.Logger, relaysGRPCURL string, conns []*grpc.ClientConn, keepaliveOpts grpc.DialOption, clients []*common.Client) ([]*common.Client, []*grpc.ClientConn) {
-	// Parse the relaysGRPCURL
-	relays := strings.Split(relaysGRPCURL, ",")
-	// Dial each relay and store the connections
-	for _, relayURL := range relays {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
-		conn, err := grpc.DialContext(
-			ctx,
-			relayURL,
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-			keepaliveOpts,
-			grpc.WithInitialConnWindowSize(windowSize),
-			grpc.WithWriteBufferSize(bufferSize),
-		)
-		cancel()
-		if err != nil {
-			// Handle error: failed to dial relay
-			l.Error("failed to dial relay", zap.Error(err), zap.String("url", relayURL))
-			continue
-		}
-		conns = append(conns, conn)
-		clients = append(clients, &common.Client{URL: relayURL, RelayClient: relaygrpc.NewRelayClient(conn)})
-	}
-	if len(conns) == 0 {
-		l.Fatal("failed to create grpc connection")
-	}
-	return clients, conns
 }
