@@ -2621,6 +2621,7 @@ func (s *Service) handleStreamSlotInfoResponse(ctx context.Context, SlotInfoResp
 		if oldProposer.LastUpdatedBlock < lastUpdatedBlock {
 			oldProposer.IsEOA = isEOA
 			oldProposer.LastUpdatedBlock = lastUpdatedBlock
+			oldProposer.ExpectedParentBlockRoot = parentBlockRoot
 			s.miniProposerSlotMap.Store(slot, oldProposer)
 			s.logger.Info("updating mini proposer slot map", lm.GetFields()...)
 		}
