@@ -95,11 +95,13 @@ func TestService_RegisterValidator(t *testing.T) {
 	for testName, tt := range tests {
 		t.Run(testName, func(t *testing.T) {
 			s := &Service{
-				logger:              zap.NewNop(),
-				clients:             []*common.Client{{URL: "", NodeID: "", Conn: nil, RelayClient: &mockRelayClient{RegisterValidatorFunc: tt.f}}},
-				registrationClients: []*common.Client{{URL: "", NodeID: "", Conn: nil, RelayClient: &mockRelayClient{RegisterValidatorFunc: tt.f}}},
-				tracer:              noop.NewTracerProvider().Tracer("test"),
-				fluentD:             fluentstats.NewStats(true, "0.0.0.0:24224"),
+				logger: zap.NewNop(),
+				dialerClients: &DialerClients{
+					clients:             []*common.Client{{URL: "", ConnectionID: "", Conn: nil, RelayClient: &mockRelayClient{RegisterValidatorFunc: tt.f}}},
+					registrationClients: []*common.Client{{URL: "", ConnectionID: "", Conn: nil, RelayClient: &mockRelayClient{RegisterValidatorFunc: tt.f}}},
+				},
+				tracer:  noop.NewTracerProvider().Tracer("test"),
+				fluentD: fluentstats.NewStats(true, "0.0.0.0:24224"),
 			}
 			got, _, err := s.RegisterValidator(context.Background(), context.Background(), &RegistrationParams{})
 			if err == nil {
@@ -177,7 +179,7 @@ func TestService_GetHeader(t *testing.T) {
 			opts := make([]ServiceOption, 0)
 			opts = append(opts, WithSvcLogger(zap.NewNop()))
 			opts = append(opts, WithDataService(dSvc))
-			opts = append(opts, WithClients([]*common.Client{{URL: "", NodeID: "", Conn: nil, RelayClient: &mockRelayClient{}}}))
+			opts = append(opts, WithDialerClients(&DialerClients{clients: []*common.Client{{URL: "", ConnectionID: "", Conn: nil, RelayClient: &mockRelayClient{}}}}))
 			opts = append(opts, WithSvcTracer(noop.NewTracerProvider().Tracer("test")))
 			opts = append(opts, WithSvcFluentD(fluentstats.NewStats(true, "0.0.0.0:24224")))
 			opts = append(opts, WithSvcBeaconGenesisTime(1606824023))
@@ -235,7 +237,7 @@ func TestService_getPayload(t *testing.T) {
 		t.Run(testName, func(t *testing.T) {
 			var svcOpts []ServiceOption
 			svcOpts = append(svcOpts, WithSvcLogger(zap.NewNop()))
-			svcOpts = append(svcOpts, WithClients([]*common.Client{{RelayClient: &mockRelayClient{GetPayloadFunc: tt.f}}}))
+			svcOpts = append(svcOpts, WithDialerClients(&DialerClients{clients: []*common.Client{{RelayClient: &mockRelayClient{GetPayloadFunc: tt.f}}}}))
 			svcOpts = append(svcOpts, WithSvcTracer(noop.NewTracerProvider().Tracer("test")))
 			svcOpts = append(svcOpts, WithSvcFluentD(fluentstats.NewStats(true, "0.0.0.0:24224")))
 
@@ -503,17 +505,26 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	relayClient := relaygrpc.NewRelayClient(conn)
 	dSvc := NewDataService(WithDataSvcLogger(zap.NewNop()))
 	svcOpts := make([]ServiceOption, 0)
-	c := &common.Client{URL: lis.Addr().String(), NodeID: "", Conn: conn, RelayClient: relayClient}
+	c := &common.Client{URL: lis.Addr().String(), ConnectionID: "", Conn: conn, RelayClient: relayClient}
 	clients := []*common.Client{c}
-	sc := &common.Client{URL: lis.Addr().String(), NodeID: "", Conn: conn, RelayClient: relayClient}
+	sc := &common.Client{URL: lis.Addr().String(), ConnectionID: "", Conn: conn, RelayClient: relayClient}
 	streamingClients := []*common.Client{sc}
-	registrationClient := &common.Client{URL: lis.Addr().String(), NodeID: "", Conn: conn, RelayClient: relayClient}
+	registrationClient := &common.Client{URL: lis.Addr().String(), ConnectionID: "", Conn: conn, RelayClient: relayClient}
 	registrationClients := []*common.Client{registrationClient}
+	dialerClientsOpts := []DialerClientsOption{
+		WithClients(clients...),
+		WithStreamingClients(streamingClients...),
+		WithRegistrationClients(registrationClients...),
+	}
+	dialer := &Dialer{
+		DialerClients: &DialerClients{},
+	}
+	for _, opts := range dialerClientsOpts {
+		opts(dialer.DialerClients)
+	}
 	tracer := noop.NewTracerProvider().Tracer("test")
 	svcOpts = append(svcOpts, WithSvcLogger(l))
-	svcOpts = append(svcOpts, WithClients(clients))
-	svcOpts = append(svcOpts, WithStreamingClients(streamingClients))
-	svcOpts = append(svcOpts, WithRegistrationClients(registrationClients))
+	svcOpts = append(svcOpts, WithDialerClients(dialer.DialerClients))
 	svcOpts = append(svcOpts, WithSvcTracer(tracer))
 	svcOpts = append(svcOpts, WithSvcFluentD(fluent))
 	svcOpts = append(svcOpts, WithDataService(dSvc))
@@ -755,6 +766,7 @@ type mockRelayClient struct {
 	StreamSlotInfoFunc    func(ctx context.Context, in *relaygrpc.StreamSlotRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamSlotInfoClient, error)
 
 	ForwardBlockFunc func(ctx context.Context, in *relaygrpc.StreamBlockResponse, opts ...grpc.CallOption) (*relaygrpc.SubmitBlockResponse, error)
+	Pingfunc         func(ctx context.Context, in *relaygrpc.PingRequest, opts ...grpc.CallOption) (*relaygrpc.PingResponse, error)
 }
 
 func (m *mockRelayClient) Ping(ctx context.Context, in *relaygrpc.PingRequest, opts ...grpc.CallOption) (*relaygrpc.PingResponse, error) {
@@ -959,10 +971,12 @@ func TestGetPayloadWithRetry(t *testing.T) {
 			mockClient.On("GetPayload", mock.Anything, mock.Anything).Return(tc.mockResp, tc.mockErr)
 			trcr := noop.NewTracerProvider().Tracer("")
 			_, span := trcr.Start(context.Background(), "")
-			client := &common.Client{URL: "", NodeID: "", Conn: nil, RelayClient: mockClient}
+			client := &common.Client{URL: "", ConnectionID: "", Conn: nil, RelayClient: mockClient}
 			service := &Service{
-				clients: []*common.Client{client},
-				tracer:  trcr,
+				dialerClients: &DialerClients{clients: []*common.Client{client}},
+				tracer:        trcr,
+				accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
+					AccountNameToInfo: make(map[AccountName]*AccountInfo)},
 			}
 			result, err := service.getPayloadWithRetry(context.Background(), client, span, tc.mockReq, 2)
 			if result != nil {
