@@ -27,6 +27,7 @@ import (
 	"github.com/flashbots/go-boost-utils/utils"
 	"github.com/google/uuid"
 	"github.com/patrickmn/go-cache"
+	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/attribute"
 	otelcodes "go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -2370,38 +2371,130 @@ func (s *Service) logRecord(record SlotStatsRecord, slotKey string, userAgent st
 func (s *Service) prefetchPayload(ctx context.Context, client *common.Client, req *relaygrpc.PreFetchGetPayloadRequest, span trace.Span, errChan chan *ErrorResp, respChan chan *relaygrpc.PreFetchGetPayloadResponse, logger *zap.Logger) {
 	clientCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
+	exitSignal := false
+	wg := &sync.WaitGroup{}
+	mu := &sync.Mutex{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 5 && !exitSignal; i++ {
+			out, err := client.PreFetchGetPayload(clientCtx, req)
+			if exitSignal {
+				return
+			}
+			if err != nil {
+				logger.Error("prefetchPayload :: error fetching payload", zap.Error(err))
+				span.SetStatus(otelcodes.Error, err.Error())
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
 
-	for i := 0; i < 5; i++ {
-		out, err := client.PreFetchGetPayload(clientCtx, req)
-		if err != nil {
-			logger.Error("prefetchPayload :: error fetching payload", zap.Error(err))
-			span.SetStatus(otelcodes.Error, err.Error())
-			time.Sleep(100 * time.Millisecond)
-			continue
+			if out == nil {
+				logger.Error("prefetchPayload :: received nil payload from relay", zap.String("url", client.URL))
+				span.SetStatus(otelcodes.Error, "nil payload")
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			if out.Code != uint32(codes.OK) {
+				logger.With(zap.Uint32("code", out.Code), zap.String("Message", out.Message)).Error("prefetchPayload :: invalid payload or failure response code", zap.String("url", client.URL))
+				span.SetStatus(otelcodes.Error, out.Message)
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			logger.Info("prefetchPayload :: preFetchGetPayload succeeded", zap.String("url", client.URL))
+			mu.Lock()
+			if !exitSignal {
+				exitSignal = true
+				respChan <- out
+				cancel()
+			}
+			mu.Unlock()
+			return
 		}
+	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 5 && !exitSignal; i++ {
+			out, err := s.PreFetchGetPayloadPlaceHTTPRequest(clientCtx, req, client.URL)
+			if exitSignal {
+				return
+			}
+			if err != nil {
+				logger.Error("prefetchPayload :: error fetching payload", zap.Error(err))
+				span.SetStatus(otelcodes.Error, err.Error())
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
 
-		if out == nil {
-			logger.Error("prefetchPayload :: received nil payload from relay", zap.String("url", client.URL))
-			span.SetStatus(otelcodes.Error, "nil payload")
-			time.Sleep(100 * time.Millisecond)
-			continue
+			if out == nil {
+				logger.Error("prefetchPayload :: received nil payload from relay", zap.String("url", client.URL))
+				span.SetStatus(otelcodes.Error, "nil payload")
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			if out.Code != uint32(codes.OK) {
+				logger.With(zap.Uint32("code", out.Code), zap.String("Message", out.Message)).Error("prefetchPayload :: invalid payload or failure response code", zap.String("url", client.URL))
+				span.SetStatus(otelcodes.Error, out.Message)
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			logger.Info("prefetchPayload :: preFetchGetPayload succeeded", zap.String("url", client.URL))
+			mu.Lock()
+			if !exitSignal {
+				exitSignal = true
+				respChan <- out
+				cancel()
+			}
+			mu.Unlock()
+			return
 		}
+	}()
 
-		if out.Code != uint32(codes.OK) {
-			logger.With(zap.Uint32("code", out.Code), zap.String("Message", out.Message)).Error("prefetchPayload :: invalid payload or failure response code", zap.String("url", client.URL))
-			span.SetStatus(otelcodes.Error, out.Message)
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-
-		logger.Info("prefetchPayload :: preFetchGetPayload succeeded", zap.String("url", client.URL))
-
-		respChan <- out
-		return
-	}
+	wg.Wait()
 	errChan <- toErrorResp(http.StatusInternalServerError, "relay failed all attempt", zap.String("url", client.URL))
 }
+func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origReq *relaygrpc.PreFetchGetPayloadRequest, url string) (*relaygrpc.PreFetchGetPayloadResponse, error) {
+	reqData := common.PreFetchGetPayloadRequestHTTP{
+		Slot:       origReq.GetSlot(),
+		ParentHash: origReq.GetParentHash(),
+		BlockHash:  origReq.GetBlockHash(),
+		Pubkey:     origReq.GetPubkey(),
+		ClientIp:   origReq.GetClientIp(),
+		ReceivedAt: origReq.GetReceivedAt(),
+	}
+	reqJSON, err := json.Marshal(reqData)
+	if err != nil {
+		return nil, err
+	}
+	log.Info().Str("url", url).Msg("making prefetch request")
+	req, err := http.NewRequest("GET", url+common.PathPrefetchBlock, bytes.NewReader(reqJSON))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
 
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var respData common.PreFetchGetPayloadResponseHTTP
+	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil && err != io.EOF {
+		return nil, err
+	}
+	return &relaygrpc.PreFetchGetPayloadResponse{
+		Code:                      respData.Code,
+		Message:                   respData.Message,
+		VersionedExecutionPayload: respData.VersionedExecutionPayload,
+	}, nil
+}
 func (s *Service) StartStreamSlotInfo(ctx context.Context, wg *sync.WaitGroup) {
 	for _, client := range s.streamingBlockClients {
 		wg.Add(1)
@@ -2621,7 +2714,6 @@ func (s *Service) handleStreamSlotInfoResponse(ctx context.Context, SlotInfoResp
 		if oldProposer.LastUpdatedBlock < lastUpdatedBlock {
 			oldProposer.IsEOA = isEOA
 			oldProposer.LastUpdatedBlock = lastUpdatedBlock
-			oldProposer.ExpectedParentBlockRoot = parentBlockRoot
 			s.miniProposerSlotMap.Store(slot, oldProposer)
 			s.logger.Info("updating mini proposer slot map", lm.GetFields()...)
 		}
