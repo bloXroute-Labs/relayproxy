@@ -2413,6 +2413,7 @@ func (s *Service) prefetchPayload(ctx context.Context, client *common.Client, re
 			return
 		}
 	}()
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -2457,7 +2458,7 @@ func (s *Service) prefetchPayload(ctx context.Context, client *common.Client, re
 	wg.Wait()
 	errChan <- toErrorResp(http.StatusInternalServerError, "relay failed all attempt", zap.String("url", client.URL))
 }
-func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origReq *relaygrpc.PreFetchGetPayloadRequest, url string) (*relaygrpc.PreFetchGetPayloadResponse, error) {
+func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origReq *relaygrpc.PreFetchGetPayloadRequest, url string, nodeID string) (*relaygrpc.PreFetchGetPayloadResponse, error) {
 	reqData := common.PreFetchGetPayloadRequestHTTP{
 		Slot:       origReq.GetSlot(),
 		ParentHash: origReq.GetParentHash(),
@@ -2471,7 +2472,19 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origRe
 		return nil, err
 	}
 	s.logger.Info("making request", zap.String("url", url))
-	req, err := http.NewRequest("GET", url+common.PathPrefetchBlock, bytes.NewReader(reqJSON))
+	if strings.Contains(url, ":") {
+		host, _, err := net.SplitHostPort(url)
+		if err != nil {
+			return nil, err
+		}
+		url = host
+	}
+	port := "18555"
+	if !strings.Contains(nodeID, "regional") {
+		port = "18550"
+	}
+
+	req, err := http.NewRequest("GET", "http://"+url+port+common.PathPrefetchBlock, bytes.NewReader(reqJSON))
 	if err != nil {
 		return nil, err
 	}
