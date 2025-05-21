@@ -2485,7 +2485,7 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origRe
 		port = ":18550"
 	}
 	finalURL := "http://" + url + port + common.PathPrefetchBlock
-	s.logger.Info("making prefetch request", zap.String("url", finalURL), zap.String("originalURL", originalURL))
+	s.logger.Info("making prefetch request", zap.String("nodeID", nodeID), zap.String("url", finalURL), zap.String("originalURL", originalURL))
 	req, err := http.NewRequest("GET", finalURL, bytes.NewReader(reqJSON))
 	if err != nil {
 		return nil, err
