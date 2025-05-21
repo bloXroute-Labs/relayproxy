@@ -2473,17 +2473,19 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origRe
 		return nil, err
 	}
 	originalURL := url
+	port := ":18555"
+
 	if strings.Contains(url, ":") {
-		host, _, err := net.SplitHostPort(url)
+		host, portNumber, err := net.SplitHostPort(url)
 		if err != nil {
 			return nil, err
 		}
 		url = host
+		if portNumber == "5015" {
+			port = ":18550"
+		}
 	}
-	port := ":18555"
-	if !strings.Contains(nodeID, "regional") {
-		port = ":18550"
-	}
+
 	finalURL := "http://" + url + port + common.PathPrefetchBlock
 	s.logger.Info("making prefetch request", zap.String("nodeID", nodeID), zap.String("url", finalURL), zap.String("originalURL", originalURL))
 	req, err := http.NewRequest("GET", finalURL, bytes.NewReader(reqJSON))
