@@ -2418,7 +2418,7 @@ func (s *Service) prefetchPayload(ctx context.Context, client *common.Client, re
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 5 && !exitSignal; i++ {
-			out, err := s.PreFetchGetPayloadPlaceHTTPRequest(clientCtx, req, client.URL)
+			out, err := s.PreFetchGetPayloadPlaceHTTPRequest(clientCtx, req, client.URL, client.NodeID)
 			if exitSignal {
 				return
 			}
@@ -2471,7 +2471,7 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origRe
 	if err != nil {
 		return nil, err
 	}
-	s.logger.Info("making request", zap.String("url", url))
+	originalURL := url
 	if strings.Contains(url, ":") {
 		host, _, err := net.SplitHostPort(url)
 		if err != nil {
@@ -2483,8 +2483,9 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origRe
 	if !strings.Contains(nodeID, "regional") {
 		port = "18550"
 	}
-
-	req, err := http.NewRequest("GET", "http://"+url+port+common.PathPrefetchBlock, bytes.NewReader(reqJSON))
+	finalURL := "http://" + url + port + common.PathPrefetchBlock
+	s.logger.Info("making prefetch request", zap.String("url", finalURL), zap.String("originalURL", originalURL))
+	req, err := http.NewRequest("GET", finalURL, bytes.NewReader(reqJSON))
 	if err != nil {
 		return nil, err
 	}
