@@ -2480,9 +2480,9 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origRe
 		}
 		url = host
 	}
-	port := "18555"
+	port := ":18555"
 	if !strings.Contains(nodeID, "regional") {
-		port = "18550"
+		port = ":18550"
 	}
 	finalURL := "http://" + url + port + common.PathPrefetchBlock
 	s.logger.Info("making prefetch request", zap.String("url", finalURL), zap.String("originalURL", originalURL))
