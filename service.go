@@ -27,7 +27,6 @@ import (
 	"github.com/flashbots/go-boost-utils/utils"
 	"github.com/google/uuid"
 	"github.com/patrickmn/go-cache"
-	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/attribute"
 	otelcodes "go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -2471,7 +2470,7 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origRe
 	if err != nil {
 		return nil, err
 	}
-	log.Info().Str("url", url).Msg("making prefetch request")
+	s.logger.Info("making request", zap.String("url", url))
 	req, err := http.NewRequest("GET", url+common.PathPrefetchBlock, bytes.NewReader(reqJSON))
 	if err != nil {
 		return nil, err
@@ -2714,6 +2713,7 @@ func (s *Service) handleStreamSlotInfoResponse(ctx context.Context, SlotInfoResp
 		if oldProposer.LastUpdatedBlock < lastUpdatedBlock {
 			oldProposer.IsEOA = isEOA
 			oldProposer.LastUpdatedBlock = lastUpdatedBlock
+			oldProposer.ExpectedParentBlockRoot = parentBlockRoot
 			s.miniProposerSlotMap.Store(slot, oldProposer)
 			s.logger.Info("updating mini proposer slot map", lm.GetFields()...)
 		}
