@@ -1,12 +1,15 @@
 package fluentstats
 
 import (
+	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"time"
 
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/fluent/fluent-logger-golang/fluent"
+	"github.com/rs/zerolog"
 )
 
 const (
@@ -99,4 +102,37 @@ func newStats(fluentdHost string) Stats {
 	return FluentdStats{
 		FluentD: fluentLogger,
 	}
+}
+
+type ConsoleWriter struct {
+	io.Writer
+	Out        io.Writer
+	TimeFormat string
+}
+type FluentWriter struct {
+	io.Writer
+	FluentEnabled bool
+	Fluentd       *fluent.Fluent
+	NodeID        string
+	TimeFormat    string
+}
+
+func (fw *FluentWriter) WriteLevel(level zerolog.Level, p []byte) (n int, err error) {
+	if fw.FluentEnabled && level > zerolog.TraceLevel {
+		err = fw.Fluentd.EncodeAndPostData("bx.go.log", time.Now(), map[string]string{"msg": string(p), "level": level.String(), "instance": fw.NodeID, "timestamp": time.Now().Format(fw.TimeFormat)})
+		if err != nil {
+			fmt.Println("Error posting to fluentd", err)
+			return 0, err
+		}
+		return len(p), nil
+	}
+
+	return len(p), nil
+}
+
+func (cw *ConsoleWriter) WriteLevel(level zerolog.Level, p []byte) (n int, err error) {
+	if level > zerolog.TraceLevel {
+		return cw.Out.Write(p)
+	}
+	return len(p), nil
 }

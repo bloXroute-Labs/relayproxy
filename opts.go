@@ -8,13 +8,13 @@ import (
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/patrickmn/go-cache"
+	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/trace"
-	"go.uber.org/zap"
 )
 
 type ServerOption func(*Server)
 
-func WithLogger(logger *zap.Logger) ServerOption {
+func WithLogger(logger zerolog.Logger) ServerOption {
 	return func(s *Server) {
 		s.logger = logger
 	}
@@ -96,7 +96,7 @@ func WithAdminAccountID(accountId string) ServerOption {
 
 type ServiceOption func(*Service)
 
-func WithSvcLogger(logger *zap.Logger) ServiceOption {
+func WithSvcLogger(logger zerolog.Logger) ServiceOption {
 	return func(s *Service) {
 		s.logger = logger
 	}
@@ -294,7 +294,7 @@ func WithDataService(ds *DataService) ServiceOption {
 
 type DataServiceOption func(s *DataService)
 
-func WithDataSvcLogger(logger *zap.Logger) DataServiceOption {
+func WithDataSvcLogger(logger zerolog.Logger) DataServiceOption {
 	return func(s *DataService) {
 		s.logger = logger
 	}
@@ -383,7 +383,7 @@ func WithAccountImportLists(accountsLists *AccountsLists) DataServiceOption {
 	}
 }
 
-func WithPlugin(customDelayer func(accountID string, msIntoSlot int64, cluster string, userAgent string, latency int64, clientIP string, logger *zap.Logger, getHeaderTimeout map[string]int64) (int64, int64, error)) DataServiceOption {
+func WithPlugin(customDelayer func(accountID string, msIntoSlot int64, cluster string, userAgent string, latency int64, clientIP string, logger zerolog.Logger, getHeaderTimeout map[string]int64) (int64, int64, error)) DataServiceOption {
 	return func(s *DataService) {
 		s.delayerPlugin = customDelayer
 	}
