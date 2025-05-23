@@ -314,25 +314,29 @@ type Bid struct {
 	BuilderExtraData   string
 	AccountID          string
 	Client             *Client
+	PayloadFetchUrl    string
 }
 
 func NewBid(Value []byte,
 	payload []byte,
-	HeaderSubmissionV3 *HeaderSubmissionV3,
-	BlockHash string,
-	BuilderPubkey string,
-	BuilderExtraData string,
-	AccountID string,
-	Client *Client) *Bid {
+	headerSubmissionV3 *HeaderSubmissionV3,
+	blockHash string,
+	builderPubkey string,
+	builderExtraData string,
+	accountID string,
+	client *Client,
+	payloadFetchUrl string,
+) *Bid {
 	return &Bid{
 		Value:              Value,
 		payload:            payload,
-		HeaderSubmissionV3: HeaderSubmissionV3,
-		BlockHash:          BlockHash,
-		BuilderPubkey:      BuilderPubkey,
-		BuilderExtraData:   BuilderExtraData,
-		AccountID:          AccountID,
-		Client:             Client,
+		HeaderSubmissionV3: headerSubmissionV3,
+		BlockHash:          blockHash,
+		BuilderPubkey:      builderPubkey,
+		BuilderExtraData:   builderExtraData,
+		AccountID:          accountID,
+		Client:             client,
+		PayloadFetchUrl:    payloadFetchUrl,
 	}
 }
 

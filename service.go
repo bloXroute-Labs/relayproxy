@@ -476,6 +476,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client) (*rel
 			zap.Time("receivedAt", receivedAt),
 			zap.Bool("paidBlxr", header.GetPaidBlxr()),
 			zap.String("accountID", header.GetAccountId()),
+			zap.String("payloadFetchUrl", header.GetPayloadFetchUrl()),
 		)
 		lm.Attributes(
 			attribute.String("keyForCachingBids", k),
@@ -490,6 +491,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client) (*rel
 			attribute.String("receivedAt", receivedAt.String()),
 			attribute.Bool("paidBlxr", header.GetPaidBlxr()),
 			attribute.String("accountID", header.GetAccountId()),
+			attribute.String("payloadFetchUrl", header.GetPayloadFetchUrl()),
 		)
 
 		if val, exist := s.builderExistingBlockHash.Get(header.GetBlockHash()); exist {
@@ -553,6 +555,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client) (*rel
 				NodeID:            s.nodeID,
 				AccountID:         header.GetAccountId(),
 				Method:            method,
+				PayloadFetchUrl:   header.GetPayloadFetchUrl(),
 			}
 			s.fluentD.LogToFluentD(fluentstats.Record{
 				//UniqueKey: "block_hash__node_id",
@@ -577,6 +580,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client) (*rel
 			header.GetBuilderExtraData(),
 			header.GetAccountId(),
 			client,
+			header.GetPayloadFetchUrl(),
 		)
 		s.setBuilderBidForProxySlot(k, header.GetBuilderPubkey(), bid, header.GetSlot()) // run it in goroutine ?
 		storeBidsSpan.SetAttributes(lm.GetAttributes()...)
@@ -2041,6 +2045,7 @@ func (s *Service) handleStreamBlockResponse(ctx context.Context, block *relaygrp
 		extraData,
 		block.GetAccountId(),
 		nil,
+		"",
 	)
 
 	// update block hash map if not seen already
@@ -2075,6 +2080,7 @@ func (s *Service) handleStreamBlockResponse(ctx context.Context, block *relaygrp
 			NodeID:            s.nodeID,
 			AccountID:         block.GetAccountId(),
 			Method:            method + "-" + payloadType,
+			PayloadFetchUrl:   "",
 		}
 		s.fluentD.LogToFluentD(fluentstats.Record{
 			//UniqueKey: "block_hash__node_id",
