@@ -2453,7 +2453,11 @@ func (s *Service) prefetchPayload(ctx context.Context, client *common.Client, re
 	}()
 
 	wg.Wait()
+	if exitSignal {
+		return
+	}
 	errChan <- toErrorResp(http.StatusInternalServerError, "relay failed all attempt", zap.String("url", client.URL))
+
 }
 
 func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origReq *relaygrpc.PreFetchGetPayloadRequest, url string, nodeID string) (*relaygrpc.PreFetchGetPayloadResponse, error) {
