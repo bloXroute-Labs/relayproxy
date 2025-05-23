@@ -971,19 +971,19 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, clientIP, authHeader s
 	prefetchedRequests += 1
 	if s.getPayloadResponseForProxySlot == nil {
 		s.logger.Error().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload :: cache is nil")
-		errChan <- toErrorResp(http.StatusInternalServerError, "cache is nil", logMetric.GetFields()...)
+		errChan <- toErrorResp(http.StatusInternalServerError, "cache is nil", logMetric.GetFields())
 	}
 
 	if cachedValue, exists := s.getPayloadResponseForProxySlot.Get(payloadCacheKey); exists && cachedValue != nil {
 		payloadResponseForProxy, ok := cachedValue.(*common.PayloadResponseForProxy)
 		if !ok {
 			s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to cast cached value to GetPayloadResponseForProxy")
-			errChan <- toErrorResp(http.StatusInternalServerError, "failed to cast cached value", logMetric.GetFields()...)
+			errChan <- toErrorResp(http.StatusInternalServerError, "failed to cast cached value", logMetric.GetFields())
 		}
 		marshaledVal, err := payloadResponseForProxy.GetMarshalledResponse()
 		if err != nil {
 			s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to marshal cached value to GetPayloadResponseForProxy")
-			errChan <- toErrorResp(http.StatusInternalServerError, "failed to marshal cached value", logMetric.GetFields()...)
+			errChan <- toErrorResp(http.StatusInternalServerError, "failed to marshal cached value", logMetric.GetFields())
 		}
 
 		resp := &relaygrpc.PreFetchGetPayloadResponse{
@@ -998,7 +998,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, clientIP, authHeader s
 		succeeds = true
 		return
 	} else {
-		errChan <- toErrorResp(http.StatusBadRequest, "local payload not found", logMetric.GetFields()...)
+		errChan <- toErrorResp(http.StatusBadRequest, "local payload not found", logMetric.GetFields())
 	}
 
 	if !succeeds {
@@ -1013,7 +1013,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, clientIP, authHeader s
 			wg.Add(1)
 			go func(client *common.Client) {
 				defer wg.Done()
-				prefetchLogger := s.logger.With(logMetric.GetFields()...)
+				prefetchLogger := s.logger.With().Fields(logMetric.GetFields()).Logger()
 				s.prefetchPayload(ctx, client, req, span, errChan, respChan, prefetchLogger)
 			}(client)
 		}
@@ -2522,9 +2522,9 @@ func (s *Service) prefetchPayload(
 			}
 			if err != nil {
 				logger.Error().
-				  Err(err).
-				  Str("url", client.URL).
-				  Msg("prefetchPayload: error fetching payload")
+					Err(err).
+					Str("url", client.URL).
+					Msg("prefetchPayload: error fetching payload")
 				span.SetStatus(otelcodes.Error, err.Error())
 				time.Sleep(100 * time.Millisecond)
 				continue
@@ -2532,8 +2532,8 @@ func (s *Service) prefetchPayload(
 
 			if out == nil {
 				logger.Error().
-				  Str("url", client.URL).
-				  Msg("prefetchPayload: received nil payload from relay")
+					Str("url", client.URL).
+					Msg("prefetchPayload: received nil payload from relay")
 				span.SetStatus(otelcodes.Error, "nil payload")
 				time.Sleep(100 * time.Millisecond)
 				continue
@@ -2541,18 +2541,18 @@ func (s *Service) prefetchPayload(
 
 			if out.Code != uint32(codes.OK) {
 				logger.Error().
-				  Uint32("code", out.Code).
-				  Str("message", out.Message).
-				  Str("url", client.URL).
-				  Msg("prefetchPayload: invalid payload or failure response code")
-        span.SetStatus(otelcodes.Error, out.Message)
+					Uint32("code", out.Code).
+					Str("message", out.Message).
+					Str("url", client.URL).
+					Msg("prefetchPayload: invalid payload or failure response code")
+				span.SetStatus(otelcodes.Error, out.Message)
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 
 			logger.Info().
-			  Str("url", client.URL).
-			  Msg("prefetchPayload: preFetchGetPayload succeeded")
+				Str("url", client.URL).
+				Msg("prefetchPayload: preFetchGetPayload succeeded")
 			mu.Lock()
 			if !exitSignal {
 				exitSignal = true
@@ -2564,7 +2564,6 @@ func (s *Service) prefetchPayload(
 		}
 	}()
 
-
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -2575,9 +2574,9 @@ func (s *Service) prefetchPayload(
 			}
 			if err != nil {
 				logger.Error().
-				  Err(err).
-				  Str("url", client.URL).
-				  Msg("prefetchPayload: error fetching payload")
+					Err(err).
+					Str("url", client.URL).
+					Msg("prefetchPayload: error fetching payload")
 				span.SetStatus(otelcodes.Error, err.Error())
 				time.Sleep(100 * time.Millisecond)
 				continue
@@ -2585,8 +2584,8 @@ func (s *Service) prefetchPayload(
 
 			if out == nil {
 				logger.Error().
-				  Str("url", client.URL).
-				  Msg("prefetchPayload: received nil payload from relay")
+					Str("url", client.URL).
+					Msg("prefetchPayload: received nil payload from relay")
 				span.SetStatus(otelcodes.Error, "nil payload")
 				time.Sleep(100 * time.Millisecond)
 				continue
@@ -2594,18 +2593,18 @@ func (s *Service) prefetchPayload(
 
 			if out.Code != uint32(codes.OK) {
 				logger.Error().
-				  Uint32("code", out.Code).
-				  Str("message", out.Message).
-				  Str("url", client.URL).
-				  Msg("prefetchPayload: invalid payload or failure response code")
-        span.SetStatus(otelcodes.Error, out.Message)
+					Uint32("code", out.Code).
+					Str("message", out.Message).
+					Str("url", client.URL).
+					Msg("prefetchPayload: invalid payload or failure response code")
+				span.SetStatus(otelcodes.Error, out.Message)
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 
 			logger.Info().
-			  Str("url", client.URL).
-			  Msg("prefetchPayload: preFetchGetPayload succeeded")
+				Str("url", client.URL).
+				Msg("prefetchPayload: preFetchGetPayload succeeded")
 			mu.Lock()
 			if !exitSignal {
 				exitSignal = true
@@ -2653,7 +2652,7 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origRe
 	}
 
 	finalURL := "http://" + url + port + common.PathPrefetchBlock
-	s.logger.Info("making prefetch request", zap.String("nodeID", nodeID), zap.String("url", finalURL), zap.String("originalURL", originalURL))
+	s.logger.Info().Str("nodeID", nodeID).Str("finalURL", finalURL).Str("originalURL", originalURL).Msg("making prefetch request")
 	req, err := http.NewRequest("GET", finalURL, bytes.NewReader(reqJSON))
 	if err != nil {
 		return nil, err
