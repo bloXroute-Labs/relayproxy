@@ -127,6 +127,13 @@ func CheckElectraEpochFork(curTime time.Time, beaconGenesisTime, secondsPerSlot,
 	return IsElectra
 }
 
+func SafeSplit(s string, sep string) []string {
+	if s == "" {
+		return []string{}
+	}
+	return strings.Split(s, sep)
+}
+
 func SafeSplitSemicolonSeparatedCSV(s string) ([]string, error) {
 	if s == "" {
 		return []string{}, nil
