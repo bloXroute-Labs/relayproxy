@@ -10,11 +10,11 @@ import (
 
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
+	"github.com/rs/zerolog"
 	"gopkg.in/yaml.v2"
 
 	"github.com/patrickmn/go-cache"
 	"go.opentelemetry.io/otel/trace"
-	"go.uber.org/zap"
 )
 
 const (
@@ -35,7 +35,7 @@ type IDataService interface {
 }
 
 type DataService struct {
-	logger                 *zap.Logger
+	logger                 zerolog.Logger
 	nodeID                 string
 	tracer                 trace.Tracer
 	fluentD                fluentstats.Stats
@@ -52,7 +52,7 @@ type DataService struct {
 	getHeaderTimeout       map[string]int64 // MEV Boost get header timeout for each validator
 	ipCacheStore           *cache.Cache     // list of ip to verify delay eligibility
 	accountsLists          *AccountsLists
-	delayerPlugin          func(accountID string, msIntoSlot int64, cluster, userAgent string, latency int64, clientIP string, logger *zap.Logger, getHeaderTimeout map[string]int64) (int64, int64, error)
+	delayerPlugin          func(accountID string, msIntoSlot int64, cluster, userAgent string, latency int64, clientIP string, logger zerolog.Logger, getHeaderTimeout map[string]int64) (int64, int64, error)
 	miniProposerSlotMap    *SyncMap[uint64, *common.MiniValidatorLatency]
 }
 
@@ -132,7 +132,7 @@ func (s *DataService) shouldRequestDelayed(ip, slotWithParentHash string) bool {
 		_ = s.ipCacheStore.Add(k, struct{}{}, delayEligibilityCacheCleanupInterval)
 		return false
 	}
-	s.logger.Warn("received empty client IP, unable to verify delay eligibility", zap.String("key", slotWithParentHash))
+	s.logger.Warn().Str("key", slotWithParentHash).Msg("received empty client IP, unable to verify delay eligibility")
 	return false
 }
 
@@ -245,7 +245,7 @@ func (s *DataService) SendAccount(accountID, validatorID string) {
 	select {
 	case s.accountCh <- account{accountID: accountID, validatorID: validatorID}:
 	default:
-		s.logger.Warn("accountCh is full, unable to send account details")
+		s.logger.Warn().Msg("accountCh is full, unable to send account details")
 	}
 }
 
