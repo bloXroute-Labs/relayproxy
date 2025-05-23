@@ -924,63 +924,60 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, clientIP, authHeader s
 		payloadCacheKey    = common.GetKeyForCachingPayload(slot, parentHash, blockHash, pubKey)
 		wg                 sync.WaitGroup
 		prefetchedRequests = 0
+		succeeds           = false
 	)
 
 	// Goroutine to handle cache
 	prefetchedRequests += 1
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if s.getPayloadResponseForProxySlot == nil {
-			s.logger.Error("PreFetchGetPayload :: cache is nil")
-			errChan <- toErrorResp(http.StatusInternalServerError, "cache is nil", logMetric.GetFields()...)
-			return
+	if s.getPayloadResponseForProxySlot == nil {
+		s.logger.Error("PreFetchGetPayload :: cache is nil")
+		errChan <- toErrorResp(http.StatusInternalServerError, "cache is nil", logMetric.GetFields()...)
+	}
+
+	if cachedValue, exists := s.getPayloadResponseForProxySlot.Get(payloadCacheKey); exists && cachedValue != nil {
+		payloadResponseForProxy, ok := cachedValue.(*common.PayloadResponseForProxy)
+		if !ok {
+			s.logger.Error("failed to cast cached value to GetPayloadResponseForProxy", logMetric.GetFields()...)
+			errChan <- toErrorResp(http.StatusInternalServerError, "failed to cast cached value", logMetric.GetFields()...)
+		}
+		marshaledVal, err := payloadResponseForProxy.GetMarshalledResponse()
+		if err != nil {
+			s.logger.Error("failed to marshal cached value to GetPayloadResponseForProxy", logMetric.GetFields()...)
+			errChan <- toErrorResp(http.StatusInternalServerError, "failed to marshal cached value", logMetric.GetFields()...)
 		}
 
-		if cachedValue, exists := s.getPayloadResponseForProxySlot.Get(payloadCacheKey); exists && cachedValue != nil {
-			payloadResponseForProxy, ok := cachedValue.(*common.PayloadResponseForProxy)
-			if !ok {
-				s.logger.Error("failed to cast cached value to GetPayloadResponseForProxy", logMetric.GetFields()...)
-				errChan <- toErrorResp(http.StatusInternalServerError, "failed to cast cached value", logMetric.GetFields()...)
-				return
-			}
-			marshaledVal, err := payloadResponseForProxy.GetMarshalledResponse()
-			if err != nil {
-				s.logger.Error("failed to marshal cached value to GetPayloadResponseForProxy", logMetric.GetFields()...)
-				errChan <- toErrorResp(http.StatusInternalServerError, "failed to marshal cached value", logMetric.GetFields()...)
-				return
-			}
-
-			resp := &relaygrpc.PreFetchGetPayloadResponse{
-				Code:                      uint32(codes.OK),
-				Message:                   "Pre fetch getPayload succeeded",
-				VersionedExecutionPayload: marshaledVal,
-			}
-
-			s.logger.Info("PreFetchGetPayload-cache hit", logMetric.GetFields()...)
-
-			respChan <- resp
-			return
+		resp := &relaygrpc.PreFetchGetPayloadResponse{
+			Code:                      uint32(codes.OK),
+			Message:                   "Pre fetch getPayload succeeded",
+			VersionedExecutionPayload: marshaledVal,
 		}
+
+		s.logger.Info("PreFetchGetPayload-cache hit", logMetric.GetFields()...)
+
+		respChan <- resp
+		succeeds = true
+		return
+	} else {
 		errChan <- toErrorResp(http.StatusBadRequest, "local payload not found", logMetric.GetFields()...)
-	}()
-
-	clients := s.clients
-	if bidClient != nil {
-		clients = append(clients, bidClient)
 	}
 
-	// Goroutines to fetch payloads
-	prefetchedRequests += len(clients)
-	for _, client := range clients {
-		wg.Add(1)
-		go func(client *common.Client) {
-			defer wg.Done()
-			prefetchLogger := s.logger.With(logMetric.GetFields()...)
-			s.prefetchPayload(ctx, client, req, span, errChan, respChan, prefetchLogger)
-		}(client)
-	}
+	if !succeeds {
+		clients := s.clients
+		if bidClient != nil {
+			clients = append(clients, bidClient)
+		}
 
+		// Goroutines to fetch payloads
+		prefetchedRequests += len(clients)
+		for _, client := range clients {
+			wg.Add(1)
+			go func(client *common.Client) {
+				defer wg.Done()
+				prefetchLogger := s.logger.With(logMetric.GetFields()...)
+				s.prefetchPayload(ctx, client, req, span, errChan, respChan, prefetchLogger)
+			}(client)
+		}
+	}
 	// Wait for all goroutines to finish
 	defer func() {
 		go func() {
