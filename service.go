@@ -126,14 +126,15 @@ type slotStatsEvent struct {
 }
 
 type preFetcherFields struct {
-	clientIP   string
-	authHeader string
-	slot       uint64
-	parentHash string
-	blockHash  string
-	pubKey     string
-	blockValue string
-	client     *common.Client
+	clientIP        string
+	authHeader      string
+	slot            uint64
+	parentHash      string
+	blockHash       string
+	pubKey          string
+	blockValue      string
+	client          *common.Client
+	payloadFetchUrl string
 }
 
 func NewService(opts ...ServiceOption) *Service {
@@ -832,17 +833,18 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, 
 
 	// send in payload to pre fetcher event
 	s.preFetchPayloadChan <- preFetcherFields{
-		clientIP:   in.ClientIP,
-		authHeader: in.AuthHeader,
-		slot:       _slot,
-		parentHash: in.ParentHash,
-		blockHash:  slotBestHeader.BlockHash,
-		pubKey:     in.PubKey,
-		blockValue: weiToEther(blockValue),
-		client:     slotBestHeader.Client,
+		clientIP:        in.ClientIP,
+		authHeader:      in.AuthHeader,
+		slot:            _slot,
+		parentHash:      in.ParentHash,
+		blockHash:       slotBestHeader.BlockHash,
+		pubKey:          in.PubKey,
+		blockValue:      weiToEther(blockValue),
+		client:          slotBestHeader.Client,
+		payloadFetchUrl: slotBestHeader.PayloadFetchUrl,
 	}
 
-	payload, prevSigned, err := slotBestHeader.GetPayload(s.secretKey, &s.publicKey, s.builderSigningDomain)
+	signedHeaderResponse, prevSigned, err := slotBestHeader.GetSignedHeaderResponse(s.secretKey, &s.publicKey, s.builderSigningDomain)
 	if err != nil {
 		logMetric.Error(err)
 		s.logger.Info("failed to get signed header", logMetric.GetFields()...)
@@ -852,7 +854,7 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, 
 	} else {
 		s.logger.Info("newly signed header", logMetric.GetFields()...)
 	}
-	return json.RawMessage(payload), logMetric, nil
+	return json.RawMessage(signedHeaderResponse), logMetric, nil
 }
 
 func (s *Service) StartPreFetcher(ctx context.Context) {

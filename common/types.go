@@ -340,7 +340,7 @@ func NewBid(Value []byte,
 	}
 }
 
-func (b *Bid) GetPayload(sk *bls.SecretKey, pubkey *phase0.BLSPubKey, domain phase0.Domain) ([]byte, bool, error) {
+func (b *Bid) GetSignedHeaderResponse(sk *bls.SecretKey, pubkey *phase0.BLSPubKey, domain phase0.Domain) ([]byte, bool, error) {
 	if b.payload != nil {
 		return b.payload, true, nil
 	}
