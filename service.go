@@ -859,15 +859,16 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, 
 
 func (s *Service) StartPreFetcher(ctx context.Context) {
 	for fields := range s.preFetchPayloadChan {
-		go func(f preFetcherFields) {
+		go func(fields preFetcherFields) {
 			_ctx, cancel := context.WithTimeout(ctx, preFetcherRequestTimeout)
 			defer cancel()
-			s.PreFetchGetPayload(_ctx, f.clientIP, f.authHeader, f.slot, f.parentHash, f.blockHash, f.pubKey, f.blockValue, f.client)
+			//s.PreFetchGetPayload(_ctx, f.clientIP, f.authHeader, f.slot, f.parentHash, f.blockHash, f.pubKey, f.blockValue, f.client, f.payloadFetchUrl)
+			s.PreFetchGetPayload(_ctx, fields)
 		}(fields)
 	}
 }
 
-func (s *Service) PreFetchGetPayload(ctx context.Context, clientIP, authHeader string, slot uint64, parentHash, blockHash, pubKey, blockValue string, bidClient *common.Client) {
+func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherFields) {
 	var clientURL string
 	startTime := time.Now().UTC()
 	id := uuid.NewString()
@@ -877,36 +878,36 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, clientIP, authHeader s
 	_, span := s.tracer.Start(ctx, "preFetchGetPayload-start")
 	defer span.End(trace.WithTimestamp(time.Now()))
 
-	if bidClient != nil {
-		clientURL = bidClient.URL
+	if fields.client != nil {
+		clientURL = fields.client.URL
 	}
 
 	logMetric := NewLogMetric(
 		[]zap.Field{
 			zap.String("method", preFetchPayload),
 			zap.Time("receivedAt", time.Now().UTC()),
-			zap.String("in.ClientIP", clientIP),
+			zap.String("in.ClientIP", fields.clientIP),
 			zap.String("clientURL", clientURL),
 			zap.String("reqID", id),
 			zap.String("traceID", parentSpan.SpanContext().TraceID().String()),
 			zap.String("secretToken", s.secretToken),
-			zap.String("authHeader", authHeader),
-			zap.String("uKey", fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", slot, blockHash, parentHash)),
-			zap.Int64("slot", int64(slot)),
-			zap.String("blockHash", blockHash),
+			zap.String("authHeader", fields.authHeader),
+			zap.String("uKey", fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", fields.slot, fields.blockHash, fields.parentHash)),
+			zap.Int64("slot", int64(fields.slot)),
+			zap.String("blockHash", fields.blockHash),
 		},
 		[]attribute.KeyValue{
 			attribute.String("method", preFetchPayload),
-			attribute.String("in.ClientIP", clientIP),
+			attribute.String("in.ClientIP", fields.clientIP),
 			attribute.String("clientURL", clientURL),
 			attribute.String("reqID", id),
 			attribute.Int64("receivedAt", time.Now().UTC().Unix()),
 			attribute.String("traceID", parentSpan.SpanContext().TraceID().String()),
-			attribute.String("authHeader", authHeader),
+			attribute.String("authHeader", fields.authHeader),
 			attribute.String("secretToken", s.secretToken),
-			attribute.String("uKey", fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", slot, blockHash, parentHash)),
-			attribute.Int64("slot", int64(slot)),
-			attribute.String("blockHash", blockHash),
+			attribute.String("uKey", fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", fields.slot, fields.blockHash, fields.parentHash)),
+			attribute.Int64("slot", int64(fields.slot)),
+			attribute.String("blockHash", fields.blockHash),
 		},
 	)
 	s.logger.Info("received preFetchGetPayload", logMetric.GetFields()...)
@@ -916,18 +917,18 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, clientIP, authHeader s
 		ReqId:       id,
 		Version:     s.version,
 		SecretToken: s.secretToken,
-		Slot:        slot,
-		ParentHash:  parentHash,
-		BlockHash:   blockHash,
-		Pubkey:      pubKey,
-		ClientIp:    clientIP,
+		Slot:        fields.slot,
+		ParentHash:  fields.parentHash,
+		BlockHash:   fields.blockHash,
+		Pubkey:      fields.pubKey,
+		ClientIp:    fields.clientIP,
 		ReceivedAt:  timestamppb.New(startTime),
 	}
 
 	var (
 		errChan            = make(chan *ErrorResp, len(s.clients)+2)
 		respChan           = make(chan *relaygrpc.PreFetchGetPayloadResponse, len(s.clients)+2)
-		payloadCacheKey    = common.GetKeyForCachingPayload(slot, parentHash, blockHash, pubKey)
+		payloadCacheKey    = common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.pubKey)
 		wg                 sync.WaitGroup
 		prefetchedRequests = 0
 		succeeds           = false
@@ -969,8 +970,8 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, clientIP, authHeader s
 
 	if !succeeds {
 		clients := s.clients
-		if bidClient != nil {
-			clients = append(clients, bidClient)
+		if fields.client != nil {
+			clients = append(clients, fields.client)
 		}
 
 		// Goroutines to fetch payloads
@@ -1001,12 +1002,12 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, clientIP, authHeader s
 		case _err := <-errChan:
 			s.logger.With(zap.Any("error", _err)).Error("PreFetchGetPayload :: Received error", logMetric.GetFields()...)
 		case out := <-respChan:
-			proxyCacheKey := common.GetKeyForCachingPayload(slot, parentHash, blockHash, pubKey)
-			s.pubKeysBySlots.Set(fmt.Sprintf("%d", slot), pubKey, cache.DefaultExpiration)
+			proxyCacheKey := common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.pubKey)
+			s.pubKeysBySlots.Set(fmt.Sprintf("%d", fields.slot), fields.pubKey, cache.DefaultExpiration)
 
 			payloadResponse := &common.PayloadResponseForProxy{
 				MarshalledPayloadResponse: out.VersionedExecutionPayload,
-				BlockValue:                blockValue,
+				BlockValue:                fields.blockValue,
 			}
 
 			if err := s.getPayloadResponseForProxySlot.Add(proxyCacheKey, payloadResponse, cache.DefaultExpiration); err != nil {
