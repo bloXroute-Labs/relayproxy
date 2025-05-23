@@ -22,11 +22,14 @@ import (
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fastjson"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
+	"github.com/bloXroute-Labs/relayproxy/httpclient"
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/flashbots/go-boost-utils/bls"
+	"github.com/flashbots/go-boost-utils/ssz"
 	"github.com/flashbots/go-boost-utils/utils"
 	"github.com/google/uuid"
 	"github.com/patrickmn/go-cache"
+	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
 	otelcodes "go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -55,6 +58,13 @@ const (
 	reconnectTime                     = 6000
 
 	prefetchAttempts = 20
+
+	optimisticV3FetchPayloadTimeout = 10 * time.Second
+	pathGetPayloadV3                = "/get_payload_v3" // to send fetch payload requests to builders
+	payloadUrlsDataExpectedLength   = 2
+	payloadUrlTypeIndex             = 0
+	payloadUrlsCSVIndex             = 1
+	payloadUrlsTypeSeparator        = ";"
 )
 
 var (
@@ -64,6 +74,13 @@ var (
 	errInvalidPubkey         = errors.New("invalid pubkey")
 	errInvalidHash           = errors.New("invalid hash")
 	errContextDeadlineString = "context deadline exceeded"
+)
+
+type PayloadUrlType string
+
+const (
+	PayloadUrlTypeGRPC PayloadUrlType = "grpc"
+	PayloadUrlTypeHTTP PayloadUrlType = "http"
 )
 
 type IService interface {
@@ -131,7 +148,8 @@ type preFetcherFields struct {
 	slot            uint64
 	parentHash      string
 	blockHash       string
-	pubKey          string
+	proposerPubKey  string
+	builderPubKey   string
 	blockValue      string
 	client          *common.Client
 	payloadFetchUrl string
@@ -838,7 +856,8 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, 
 		slot:            _slot,
 		parentHash:      in.ParentHash,
 		blockHash:       slotBestHeader.BlockHash,
-		pubKey:          in.PubKey,
+		proposerPubKey:  in.PubKey,
+		builderPubKey:   slotBestHeader.BuilderPubkey,
 		blockValue:      weiToEther(blockValue),
 		client:          slotBestHeader.Client,
 		payloadFetchUrl: slotBestHeader.PayloadFetchUrl,
@@ -913,6 +932,42 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	s.logger.Info("received preFetchGetPayload", logMetric.GetFields()...)
 	span.SetAttributes(logMetric.GetAttributes()...)
 
+	//-----------------------------------------------------------------------------------------
+
+	// If necessary, fetch the Optimistic V3 payload directly from the specified builder URL(s)
+	if fields.payloadFetchUrl != "" {
+		payloadUrlsData := common.SafeSplit(fields.payloadFetchUrl, payloadUrlsTypeSeparator)
+
+		if len(payloadUrlsData) != payloadUrlsDataExpectedLength {
+			logMetric.Fields(zap.Strings("payloadUrlsData", payloadUrlsData))
+			s.logger.Error("invalid payload URL format", logMetric.GetFields()...)
+			return
+		}
+
+		payloadUrlType := payloadUrlsData[payloadUrlTypeIndex]
+		payloadUrlsCSV := payloadUrlsData[payloadUrlsCSVIndex]
+		payloadUrls := common.SafeSplit(payloadUrlsCSV, ",")
+
+		span.SetAttributes(
+			attribute.String("payloadUrlType", payloadUrlType),
+			attribute.StringSlice("payloadUrls", payloadUrls),
+		)
+
+		switch PayloadUrlType(payloadUrlType) {
+		case PayloadUrlTypeHTTP:
+			s.clientPreFetchGetPayloadHTTP(ctx, &log, fields.slot, fields.blockHash, fields.parentHash, fields.proposerPubKey, fields.builderPubKey, payloadUrls)
+			return
+		case PayloadUrlTypeGRPC:
+			// TODO: do something else here?
+		default:
+			logMetric.Fields(zap.String("payloadUrlType", payloadUrlType), zap.Strings("payloadUrls", payloadUrls))
+			s.logger.Error("invalid payload URL type", logMetric.GetFields()...)
+			return
+		}
+	}
+
+	//-----------------------------------------------------------------------------------------
+
 	req := &relaygrpc.PreFetchGetPayloadRequest{
 		ReqId:       id,
 		Version:     s.version,
@@ -920,7 +975,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		Slot:        fields.slot,
 		ParentHash:  fields.parentHash,
 		BlockHash:   fields.blockHash,
-		Pubkey:      fields.pubKey,
+		Pubkey:      fields.proposerPubKey,
 		ClientIp:    fields.clientIP,
 		ReceivedAt:  timestamppb.New(startTime),
 	}
@@ -928,7 +983,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	var (
 		errChan            = make(chan *ErrorResp, len(s.clients)+2)
 		respChan           = make(chan *relaygrpc.PreFetchGetPayloadResponse, len(s.clients)+2)
-		payloadCacheKey    = common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.pubKey)
+		payloadCacheKey    = common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey)
 		wg                 sync.WaitGroup
 		prefetchedRequests = 0
 		succeeds           = false
@@ -1002,8 +1057,8 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		case _err := <-errChan:
 			s.logger.With(zap.Any("error", _err)).Error("PreFetchGetPayload :: Received error", logMetric.GetFields()...)
 		case out := <-respChan:
-			proxyCacheKey := common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.pubKey)
-			s.pubKeysBySlots.Set(fmt.Sprintf("%d", fields.slot), fields.pubKey, cache.DefaultExpiration)
+			proxyCacheKey := common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey)
+			s.pubKeysBySlots.Set(fmt.Sprintf("%d", fields.slot), fields.proposerPubKey, cache.DefaultExpiration)
 
 			payloadResponse := &common.PayloadResponseForProxy{
 				MarshalledPayloadResponse: out.VersionedExecutionPayload,
@@ -1016,6 +1071,115 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 			}
 			s.logger.Info("PreFetchGetPayload :: respChan :: preFetchGetPayload succeeded", logMetric.GetFields()...)
 			return
+		}
+	}
+}
+
+func (s *Service) clientPreFetchGetPayloadHTTP(
+	ctx context.Context,
+	log *zerolog.Logger,
+	slot uint64,
+	blockHash phase0.Hash32,
+	parentHash string,
+	proposerPubkey string,
+	builderPubkey phase0.BLSPubKey,
+	payloadUrls []string,
+) bool {
+	_, fetchSpan := s.tracer.Start(ctx, "clientPreFetchGetPayloadHTTP")
+	defer fetchSpan.End()
+
+	fetchSpan.SetAttributes(
+		attribute.Int64("slot", int64(slot)),
+		attribute.String("blockHash", blockHash.String()),
+		attribute.String("parentHash", parentHash),
+		attribute.String("proposerPubkey", proposerPubkey),
+		attribute.String("builderPubkey", builderPubkey.String()),
+	)
+
+	payload, err := s.prepareGetPayloadV3Request(blockHash)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to prepare HTTP get_payload_v3 request")
+		return false
+	}
+
+	responseChan := make(chan *common.VersionedSubmitBlockRequest, len(payloadUrls))
+
+	// Send request to all builders
+	for _, payloadUrl := range payloadUrls {
+		url := payloadUrl + pathGetPayloadV3
+
+		go func() {
+			result := new(common.VersionedSubmitBlockRequest)
+			code, durationMS, err := httpclient.FetchSSZ(http.MethodPost, url, payload, result, nil, true)
+
+			// TODO: should we try with JSON if ssz fails?
+			if err != nil {
+				log.Error().
+					Err(err).Str("url", url).
+					Int("code", code).
+					Int64("durationMS", durationMS).
+					Msg("failed to prefetch payload with HTTP")
+				return
+			}
+
+			// Send to response channel
+			responseChan <- result
+		}()
+	}
+
+	// Process first positive response from builder (or timeout)
+	return s.processGetPayloadV3Responses(ctx, responseChan, slot, log)
+}
+
+func (s *Service) prepareGetPayloadV3Request(blockHash phase0.Hash32) (*common.SignedGetPayloadV3, error) {
+	getPayloadV3 := &common.GetPayloadV3{
+		BlockHash:      blockHash,
+		RequestTs:      uint64(time.Now().UnixMilli()),
+		RelayPublicKey: s.publicKey,
+	}
+
+	signature, err := ssz.SignMessage(getPayloadV3, s.builderSigningDomain, s.secretKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &common.SignedGetPayloadV3{
+		Message:   getPayloadV3,
+		Signature: signature,
+	}, nil
+}
+
+func (s *Service) processGetPayloadV3Responses(
+	ctx context.Context,
+	responseChan chan *common.VersionedSubmitBlockRequest,
+	slot uint64,
+	log *zerolog.Logger,
+) bool {
+	for {
+		select {
+		case <-ctx.Done():
+			log.Error().Msg("context cancelled")
+			return false
+		case response := <-responseChan:
+			if response == nil {
+				log.Error().Msg("failed to prefetch payload with HTTP, received nil payload from builder")
+				continue
+			}
+
+			getPayloadResponseSpec, err := common.BuildGetPayloadResponse(response)
+			if err != nil {
+				log.Fatal().Err(err)
+			}
+
+			getPayloadResponse := &common.VersionedSubmitBlindedBlockResponse{VersionedSubmitBlindedBlockResponse: *getPayloadResponseSpec}
+
+			// TODO: convert to proxy payload response
+
+			log.Info().Msg("prefetchPayload succeeded")
+			return true
+		case <-time.After(optimisticV3FetchPayloadTimeout):
+			log.Error().Msg("timeout waiting for prefetch payload HTTP response")
+			return false
 		}
 	}
 }
