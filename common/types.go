@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
 
@@ -435,4 +436,19 @@ type MiniValidatorLatency struct {
 	LastUpdatedBlock        uint64      `json:"last_updated_block"`
 	IsEOA                   bool        `json:"is_eoa"`
 	ExpectedParentBlockRoot phase0.Root `json:"expected_parent_block_root"`
+}
+
+type PreFetchGetPayloadResponseHTTP struct {
+	Code                      uint32
+	Message                   string
+	VersionedExecutionPayload []byte
+}
+
+type PreFetchGetPayloadRequestHTTP struct {
+	Slot       uint64
+	ParentHash string
+	BlockHash  string
+	Pubkey     string
+	ClientIp   string
+	ReceivedAt *timestamppb.Timestamp
 }

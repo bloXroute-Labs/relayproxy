@@ -964,64 +964,60 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, clientIP, authHeader s
 		payloadCacheKey    = common.GetKeyForCachingPayload(slot, parentHash, blockHash, pubKey)
 		wg                 sync.WaitGroup
 		prefetchedRequests = 0
+		succeeds           = false
 	)
 
 	// Goroutine to handle cache
-	prefetchedRequests++
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if s.getPayloadResponseForProxySlot == nil {
-			s.logger.Error().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload :: cache is nil")
-			errChan <- toErrorResp(http.StatusInternalServerError, "cache is nil", logMetric.GetFields())
-			return
-		}
-
-		if cachedValue, exists := s.getPayloadResponseForProxySlot.Get(payloadCacheKey); exists && cachedValue != nil {
-			payloadResponseForProxy, ok := cachedValue.(*common.PayloadResponseForProxy)
-			if !ok {
-				s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to cast cached value to GetPayloadResponseForProxy")
-				errChan <- toErrorResp(http.StatusInternalServerError, "failed to cast cached value", logMetric.GetFields())
-				return
-			}
-
-			marshaledVal, err := payloadResponseForProxy.GetMarshalledResponse()
-			if err != nil {
-				s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to marshal cached value to GetPayloadResponseForProxy")
-				errChan <- toErrorResp(http.StatusInternalServerError, "failed to marshal cached value", logMetric.GetFields())
-				return
-			}
-
-			resp := &relaygrpc.PreFetchGetPayloadResponse{
-				Code:                      uint32(codes.OK),
-				Message:                   "Pre fetch getPayload succeeded",
-				VersionedExecutionPayload: marshaledVal,
-			}
-
-			s.logger.Info().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload-cache hit")
-			respChan <- resp
-			return
-		}
-
-		errChan <- toErrorResp(http.StatusBadRequest, "local payload not found", logMetric.GetFields())
-	}()
-
-	clients := s.clients
-	if bidClient != nil {
-		clients = append(clients, bidClient)
+	prefetchedRequests += 1
+	if s.getPayloadResponseForProxySlot == nil {
+		s.logger.Error().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload :: cache is nil")
+		errChan <- toErrorResp(http.StatusInternalServerError, "cache is nil", logMetric.GetFields()...)
 	}
 
-	// Goroutines to fetch payloads
-	prefetchedRequests += len(clients)
-	for _, client := range clients {
-		wg.Add(1)
-		go func(client *common.Client) {
-			defer wg.Done()
-			prefetchLogger := s.logger.With().Fields(logMetric.GetFields()).Logger()
-			s.prefetchPayload(ctx, client, req, span, errChan, respChan, prefetchLogger)
-		}(client)
+	if cachedValue, exists := s.getPayloadResponseForProxySlot.Get(payloadCacheKey); exists && cachedValue != nil {
+		payloadResponseForProxy, ok := cachedValue.(*common.PayloadResponseForProxy)
+		if !ok {
+			s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to cast cached value to GetPayloadResponseForProxy")
+			errChan <- toErrorResp(http.StatusInternalServerError, "failed to cast cached value", logMetric.GetFields()...)
+		}
+		marshaledVal, err := payloadResponseForProxy.GetMarshalledResponse()
+		if err != nil {
+			s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to marshal cached value to GetPayloadResponseForProxy")
+			errChan <- toErrorResp(http.StatusInternalServerError, "failed to marshal cached value", logMetric.GetFields()...)
+		}
+
+		resp := &relaygrpc.PreFetchGetPayloadResponse{
+			Code:                      uint32(codes.OK),
+			Message:                   "Pre fetch getPayload succeeded",
+			VersionedExecutionPayload: marshaledVal,
+		}
+
+		s.logger.Info().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload-cache hit")
+
+		respChan <- resp
+		succeeds = true
+		return
+	} else {
+		errChan <- toErrorResp(http.StatusBadRequest, "local payload not found", logMetric.GetFields()...)
 	}
 
+	if !succeeds {
+		clients := s.clients
+		if bidClient != nil {
+			clients = append(clients, bidClient)
+		}
+
+		// Goroutines to fetch payloads
+		prefetchedRequests += len(clients)
+		for _, client := range clients {
+			wg.Add(1)
+			go func(client *common.Client) {
+				defer wg.Done()
+				prefetchLogger := s.logger.With(logMetric.GetFields()...)
+				s.prefetchPayload(ctx, client, req, span, errChan, respChan, prefetchLogger)
+			}(client)
+		}
+	}
 	// Wait for all goroutines to finish
 	defer func() {
 		go func() {
@@ -2513,50 +2509,174 @@ func (s *Service) prefetchPayload(
 ) {
 	clientCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
+	exitSignal := false
+	wg := &sync.WaitGroup{}
+	mu := &sync.Mutex{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 5 && !exitSignal; i++ {
+			out, err := client.PreFetchGetPayload(clientCtx, req)
+			if exitSignal {
+				return
+			}
+			if err != nil {
+				logger.Error().
+				  Err(err).
+				  Str("url", client.URL).
+				  Msg("prefetchPayload: error fetching payload")
+				span.SetStatus(otelcodes.Error, err.Error())
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
 
-	for i := 0; i < 5; i++ {
-		out, err := client.PreFetchGetPayload(clientCtx, req)
-		if err != nil {
-			logger.Error().
-				Err(err).
-				Str("url", client.URL).
-				Msg("prefetchPayload: error fetching payload")
-			span.SetStatus(otelcodes.Error, err.Error())
-			time.Sleep(100 * time.Millisecond)
-			continue
+			if out == nil {
+				logger.Error().
+				  Str("url", client.URL).
+				  Msg("prefetchPayload: received nil payload from relay")
+				span.SetStatus(otelcodes.Error, "nil payload")
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			if out.Code != uint32(codes.OK) {
+				logger.Error().
+				  Uint32("code", out.Code).
+				  Str("message", out.Message).
+				  Str("url", client.URL).
+				  Msg("prefetchPayload: invalid payload or failure response code")
+        span.SetStatus(otelcodes.Error, out.Message)
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			logger.Info().
+			  Str("url", client.URL).
+			  Msg("prefetchPayload: preFetchGetPayload succeeded")
+			mu.Lock()
+			if !exitSignal {
+				exitSignal = true
+				respChan <- out
+				cancel()
+			}
+			mu.Unlock()
+			return
 		}
+	}()
 
-		if out == nil {
-			logger.Error().
-				Str("url", client.URL).
-				Msg("prefetchPayload: received nil payload from relay")
-			span.SetStatus(otelcodes.Error, "nil payload")
-			time.Sleep(100 * time.Millisecond)
-			continue
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 5 && !exitSignal; i++ {
+			out, err := s.PreFetchGetPayloadPlaceHTTPRequest(clientCtx, req, client.URL, client.NodeID)
+			if exitSignal {
+				return
+			}
+			if err != nil {
+				logger.Error().
+				  Err(err).
+				  Str("url", client.URL).
+				  Msg("prefetchPayload: error fetching payload")
+				span.SetStatus(otelcodes.Error, err.Error())
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			if out == nil {
+				logger.Error().
+				  Str("url", client.URL).
+				  Msg("prefetchPayload: received nil payload from relay")
+				span.SetStatus(otelcodes.Error, "nil payload")
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			if out.Code != uint32(codes.OK) {
+				logger.Error().
+				  Uint32("code", out.Code).
+				  Str("message", out.Message).
+				  Str("url", client.URL).
+				  Msg("prefetchPayload: invalid payload or failure response code")
+        span.SetStatus(otelcodes.Error, out.Message)
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			logger.Info().
+			  Str("url", client.URL).
+			  Msg("prefetchPayload: preFetchGetPayload succeeded")
+			mu.Lock()
+			if !exitSignal {
+				exitSignal = true
+				respChan <- out
+				cancel()
+			}
+			mu.Unlock()
+			return
 		}
+	}()
 
-		if out.Code != uint32(codes.OK) {
-			logger.Error().
-				Uint32("code", out.Code).
-				Str("message", out.Message).
-				Str("url", client.URL).
-				Msg("prefetchPayload: invalid payload or failure response code")
-			span.SetStatus(otelcodes.Error, out.Message)
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-
-		logger.Info().
-			Str("url", client.URL).
-			Msg("prefetchPayload: preFetchGetPayload succeeded")
-
-		respChan <- out
+	wg.Wait()
+	if exitSignal {
 		return
 	}
 
 	errChan <- toErrorResp(http.StatusInternalServerError, "relay failed all attempts", map[string]any{"url": client.URL})
 }
 
+func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origReq *relaygrpc.PreFetchGetPayloadRequest, url string, nodeID string) (*relaygrpc.PreFetchGetPayloadResponse, error) {
+	reqData := common.PreFetchGetPayloadRequestHTTP{
+		Slot:       origReq.GetSlot(),
+		ParentHash: origReq.GetParentHash(),
+		BlockHash:  origReq.GetBlockHash(),
+		Pubkey:     origReq.GetPubkey(),
+		ClientIp:   origReq.GetClientIp(),
+		ReceivedAt: origReq.GetReceivedAt(),
+	}
+	reqJSON, err := json.Marshal(reqData)
+	if err != nil {
+		return nil, err
+	}
+	originalURL := url
+	port := ":18555"
+
+	if strings.Contains(url, ":") {
+		host, portNumber, err := net.SplitHostPort(url)
+		if err != nil {
+			return nil, err
+		}
+		url = host
+		if portNumber == "5015" {
+			port = ":18550"
+		}
+	}
+
+	finalURL := "http://" + url + port + common.PathPrefetchBlock
+	s.logger.Info("making prefetch request", zap.String("nodeID", nodeID), zap.String("url", finalURL), zap.String("originalURL", originalURL))
+	req, err := http.NewRequest("GET", finalURL, bytes.NewReader(reqJSON))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var respData common.PreFetchGetPayloadResponseHTTP
+	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil && err != io.EOF {
+		return nil, err
+	}
+	return &relaygrpc.PreFetchGetPayloadResponse{
+		Code:                      respData.Code,
+		Message:                   respData.Message,
+		VersionedExecutionPayload: respData.VersionedExecutionPayload,
+	}, nil
+}
 func (s *Service) StartStreamSlotInfo(ctx context.Context, wg *sync.WaitGroup) {
 	for _, client := range s.streamingBlockClients {
 		wg.Add(1)
