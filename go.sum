@@ -8,6 +8,8 @@ github.com/bits-and-blooms/bitset v1.20.0 h1:2F+rfL86jE2d/bmw7OhqUg2Sj/1rURkBn3M
 github.com/bits-and-blooms/bitset v1.20.0/go.mod h1:7hO7Gc7Pp1vODcmWvKMRA9BNmbv6a/7QIWpPxHddWR8=
 github.com/bloXroute-Labs/relay-grpc v0.0.48 h1:LEroSKex8God+ikkz8zSRm1rf2FpTQvAs+wV/fU8Nkg=
 github.com/bloXroute-Labs/relay-grpc v0.0.48/go.mod h1:mrqCpHmBG2U6z/ImCTgYW2kT3FCrRS+vXSe1oswlj4o=
+github.com/bloXroute-Labs/relay-grpc v0.0.49 h1:rukWpn9e2NxofYH0QSUvA6tRTAHjbx8J75Xw1laq+00=
+github.com/bloXroute-Labs/relay-grpc v0.0.49/go.mod h1:mrqCpHmBG2U6z/ImCTgYW2kT3FCrRS+vXSe1oswlj4o=
 github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 h1:DDGfHa7BWjL4YnC6+E63dPcxHo2sUxDIu8g3QgEJdRY=
 github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869/go.mod h1:Ekp36dRnpXw/yCqJaO+ZrUyxD+3VXMFFr56k5XYrpB4=
 github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK343L8=
