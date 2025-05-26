@@ -956,7 +956,6 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, clientIP, authHeader s
 
 		respChan <- resp
 		succeeds = true
-		return
 	} else {
 		errChan <- toErrorResp(http.StatusBadRequest, "local payload not found", logMetric.GetFields()...)
 	}
