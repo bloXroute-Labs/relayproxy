@@ -22,6 +22,7 @@ import (
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 	"github.com/patrickmn/go-cache"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -77,25 +78,25 @@ func TestService_RegisterValidator(t *testing.T) {
 			f: func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
 				return nil, fmt.Errorf("error")
 			},
-			wantErr: toErrorResp(http.StatusInternalServerError, "relays returned error"),
+			wantErr: toErrorResp(http.StatusInternalServerError, "relays returned error", map[string]any{}),
 		},
 		"If registerValidator returns empty output": {
 			f: func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
 				return nil, nil
 			},
-			wantErr: toErrorResp(http.StatusInternalServerError, "empty response from relay"),
+			wantErr: toErrorResp(http.StatusInternalServerError, "empty response from relay", map[string]any{}),
 		},
 		"If registerValidator returns error output": {
 			f: func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
 				return &relaygrpc.RegisterValidatorResponse{Code: 2, Message: "failed"}, nil
 			},
-			wantErr: toErrorResp(http.StatusInternalServerError, "relay returned failure response code"),
+			wantErr: toErrorResp(http.StatusInternalServerError, "relay returned failure response code", map[string]any{}),
 		},
 	}
 	for testName, tt := range tests {
 		t.Run(testName, func(t *testing.T) {
 			s := &Service{
-				logger:              zap.NewNop(),
+				logger:              zerolog.Nop(),
 				clients:             []*common.Client{{URL: "", NodeID: "", Conn: nil, RelayClient: &mockRelayClient{RegisterValidatorFunc: tt.f}}},
 				registrationClients: []*common.Client{{URL: "", NodeID: "", Conn: nil, RelayClient: &mockRelayClient{RegisterValidatorFunc: tt.f}}},
 				tracer:              noop.NewTracerProvider().Tracer("test"),
@@ -170,12 +171,12 @@ func TestService_GetHeader(t *testing.T) {
 	for testName, tt := range tests {
 		t.Run(testName, func(t *testing.T) {
 			dopts := make([]DataServiceOption, 0)
-			dopts = append(dopts, WithDataSvcLogger(zap.NewNop()))
+			dopts = append(dopts, WithDataSvcLogger(zerolog.Nop()))
 			dopts = append(dopts, WithDataSvcSecondsPerSlot(12))
 			dopts = append(dopts, WithDataSvcBeaconGenesisTime(1606824023))
 			dSvc := NewDataService(dopts...)
 			opts := make([]ServiceOption, 0)
-			opts = append(opts, WithSvcLogger(zap.NewNop()))
+			opts = append(opts, WithSvcLogger(zerolog.Nop()))
 			opts = append(opts, WithDataService(dSvc))
 			opts = append(opts, WithClients([]*common.Client{{URL: "", NodeID: "", Conn: nil, RelayClient: &mockRelayClient{}}}))
 			opts = append(opts, WithSvcTracer(noop.NewTracerProvider().Tracer("test")))
@@ -222,19 +223,19 @@ func TestService_getPayload(t *testing.T) {
 			f: func(ctx context.Context, req *relaygrpc.GetPayloadRequest, opts ...grpc.CallOption) (*relaygrpc.GetPayloadResponse, error) {
 				return nil, fmt.Errorf("error")
 			},
-			wantErr: toErrorResp(http.StatusInternalServerError, "relay returned error"),
+			wantErr: toErrorResp(http.StatusInternalServerError, "relay returned error", map[string]any{}),
 		},
 		"If getPayload returns empty output": {
 			f: func(ctx context.Context, req *relaygrpc.GetPayloadRequest, opts ...grpc.CallOption) (*relaygrpc.GetPayloadResponse, error) {
 				return nil, nil
 			},
-			wantErr: toErrorResp(http.StatusInternalServerError, "empty response from relay"),
+			wantErr: toErrorResp(http.StatusInternalServerError, "empty response from relay", map[string]any{}),
 		},
 	}
 	for testName, tt := range tests {
 		t.Run(testName, func(t *testing.T) {
 			var svcOpts []ServiceOption
-			svcOpts = append(svcOpts, WithSvcLogger(zap.NewNop()))
+			svcOpts = append(svcOpts, WithSvcLogger(zerolog.Nop()))
 			svcOpts = append(svcOpts, WithClients([]*common.Client{{RelayClient: &mockRelayClient{GetPayloadFunc: tt.f}}}))
 			svcOpts = append(svcOpts, WithSvcTracer(noop.NewTracerProvider().Tracer("test")))
 			svcOpts = append(svcOpts, WithSvcFluentD(fluentstats.NewStats(true, "0.0.0.0:24224")))
@@ -253,7 +254,7 @@ func TestService_getPayload(t *testing.T) {
 }
 func TestBlockCancellation(t *testing.T) {
 	s := &Service{
-		logger:                  zap.NewNop(),
+		logger:                  zerolog.Nop(),
 		builderBidsForProxySlot: cache.New(BuilderBidsCleanupInterval, BuilderBidsCleanupInterval),
 	}
 
@@ -319,7 +320,7 @@ func TestBlockCancellation(t *testing.T) {
 
 func TestBlockCancellationForSamePubKey(t *testing.T) {
 	s := &Service{
-		logger:                  zap.NewNop(),
+		logger:                  zerolog.Nop(),
 		builderBidsForProxySlot: cache.New(BuilderBidsCleanupInterval, BuilderBidsCleanupInterval),
 	}
 
@@ -467,7 +468,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	l := zap.NewNop()
+	l := zerolog.Nop()
 	fluent := fluentstats.NewStats(true, "0.0.0.0:24224")
 	//l, _ := zap.NewDevelopment()
 	streams := []stream{
@@ -501,7 +502,7 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	}
 	defer conn.Close()
 	relayClient := relaygrpc.NewRelayClient(conn)
-	dSvc := NewDataService(WithDataSvcLogger(zap.NewNop()))
+	dSvc := NewDataService(WithDataSvcLogger(zerolog.Nop()))
 	svcOpts := make([]ServiceOption, 0)
 	c := &common.Client{URL: lis.Addr().String(), NodeID: "", Conn: conn, RelayClient: relayClient}
 	clients := []*common.Client{c}
@@ -529,7 +530,7 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 		}
 	}()
 
-	server := &Server{svc: service, logger: zap.NewNop(), listenAddress: "127.0.0.1:9090", accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
+	server := &Server{svc: service, logger: zerolog.Nop(), listenAddress: "127.0.0.1:9090", accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 		AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
 	go func() {
 		if err := server.Start(); err != nil {
@@ -654,7 +655,7 @@ func sendHTTPRequest(ctx context.Context, client http.Client, method, url string
 }
 func TestGetBuilderBidForSlot(t *testing.T) {
 	svc := &Service{
-		logger:                  zap.NewNop(),
+		logger:                  zerolog.Nop(),
 		builderBidsForProxySlot: cache.New(5*time.Minute, 10*time.Minute),
 	}
 	bid1 := &common.Bid{}
@@ -686,7 +687,7 @@ func TestGetBuilderBidForSlot(t *testing.T) {
 type mockRelayServer struct {
 	relaygrpc.UnimplementedRelayServer
 	output []stream
-	logger *zap.Logger
+	logger zerolog.Logger
 }
 
 func (m *mockRelayServer) SubmitBlock(ctx context.Context, request *relaygrpc.SubmitBlockRequest) (*relaygrpc.SubmitBlockResponse, error) {
@@ -711,13 +712,13 @@ func (m *mockRelayServer) StreamHeader(request *relaygrpc.StreamHeaderRequest, s
 	bidStream := make(chan stream, 100)
 	go func() {
 		for _, s := range m.output {
-			m.logger.Warn("sending stream")
+			m.logger.Warn().Msg("sending stream")
 			bidStream <- s
 		}
 		close(bidStream)
 	}()
 	for bid := range bidStream {
-		m.logger.Warn("sending header")
+		m.logger.Warn().Msg("sending header")
 		header := &relaygrpc.StreamHeaderResponse{
 			Slot:       bid.Slot,
 			ParentHash: bid.ParentHash,
@@ -727,7 +728,7 @@ func (m *mockRelayServer) StreamHeader(request *relaygrpc.StreamHeaderRequest, s
 			BlockHash:  bid.BlockHash,
 		}
 		if err := srv.Send(header); err != nil {
-			m.logger.Error("error sending header", zap.Error(err))
+			m.logger.Error().Err(err).Msg("error sending header")
 			continue
 		}
 	}
@@ -917,8 +918,15 @@ func TestGetPayloadWithRetry(t *testing.T) {
 			mockResp: &relaygrpc.GetPayloadResponse{Code: uint32(codes.Unavailable), Message: "could not find requested payload"},
 			mockReq:  &relaygrpc.GetPayloadRequest{},
 			expectedErr: toErrorResp(http.StatusBadRequest, "relay returned failure response code",
-				zap.String("relayError", "could not find requested payload"), zap.String("url", ""), zap.Uint64("slot", 0), zap.String("BlockHash", ""),
-				zap.String("in.ParentHash", ""), zap.String("BlockValue", ""), zap.String("uniqueKey", "slot_0_bHash__pHash_")),
+				map[string]any{
+					"relayError":    "could not find requested payload",
+					"url":           "",
+					"slot":          0,
+					"BlockHash":     "",
+					"in.ParentHash": "",
+					"BlockValue":    "",
+					"uniqueKey":     "slot_0_bHash__pHash_",
+				}),
 			expectedResult:          "could not find requested payload",
 			expectedNoOfTimesCalled: 3,
 		},
@@ -927,8 +935,15 @@ func TestGetPayloadWithRetry(t *testing.T) {
 			mockResp: &relaygrpc.GetPayloadResponse{Code: uint32(codes.Unavailable), Message: "invalid signature"},
 			mockReq:  &relaygrpc.GetPayloadRequest{},
 			expectedErr: toErrorResp(http.StatusBadRequest, "relay returned error",
-				zap.String("relayError", "invalid signature"), zap.String("url", ""), zap.Uint64("slot", 0), zap.String("BlockHash", ""),
-				zap.String("in.ParentHash", ""), zap.String("BlockValue", ""), zap.String("uniqueKey", "slot_0_bHash__pHash_")),
+				map[string]any{
+					"relayError":    "could not find requested payload",
+					"url":           "",
+					"slot":          0,
+					"BlockHash":     "",
+					"in.ParentHash": "",
+					"BlockValue":    "",
+					"uniqueKey":     "slot_0_bHash__pHash_",
+				}),
 			expectedResult:          "invalid signature",
 			expectedNoOfTimesCalled: 1,
 		},
@@ -937,7 +952,7 @@ func TestGetPayloadWithRetry(t *testing.T) {
 			mockResp:                nil,
 			mockReq:                 &relaygrpc.GetPayloadRequest{},
 			mockErr:                 fmt.Errorf("context cancelled"),
-			expectedErr:             toErrorResp(http.StatusInternalServerError, "relay returned error", zap.String("relayError", "context cancelled"), zap.String("url", "")),
+			expectedErr:             toErrorResp(http.StatusInternalServerError, "relay returned error", map[string]any{"relayError": "context cancelled", "url": ""}),
 			expectedResult:          "",
 			expectedNoOfTimesCalled: 3,
 		},
@@ -946,7 +961,7 @@ func TestGetPayloadWithRetry(t *testing.T) {
 			mockResp:                nil,
 			mockReq:                 &relaygrpc.GetPayloadRequest{},
 			mockErr:                 nil,
-			expectedErr:             toErrorResp(http.StatusInternalServerError, "empty response from relay", zap.String("url", "")),
+			expectedErr:             toErrorResp(http.StatusInternalServerError, "empty response from relay", map[string]any{"url": ""}),
 			expectedResult:          "",
 			expectedNoOfTimesCalled: 3,
 		},

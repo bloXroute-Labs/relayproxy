@@ -15,11 +15,11 @@ import (
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 	gjson "github.com/goccy/go-json"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/metadata"
 
 	"github.com/go-chi/chi/v5"
@@ -52,7 +52,7 @@ var (
 )
 
 type Server struct {
-	logger        *zap.Logger
+	logger        zerolog.Logger
 	server        *http.Server
 	svc           IService
 	listenAddress string
@@ -140,7 +140,7 @@ func (s *Server) InitHandler() *chi.Mux {
 	handler.With(s.Middleware).Post(common.PathRegisterValidator, s.HandleRegistration)
 	handler.With(s.MiddlewareGetHeader).Get(common.PathGetHeader, s.HandleGetHeader)
 	handler.With(s.Middleware).Post(common.PathGetPayload, s.HandleGetPayload)
-	s.logger.Info("Init mev-relay-proxy")
+	s.logger.Info().Msg("Init relay proxy")
 	return handler
 }
 func addCORS() func(next http.Handler) http.Handler {
@@ -179,7 +179,7 @@ func (s *Server) MiddlewareGetHeader(next http.Handler) http.Handler {
 func (s *Server) authorizeAdmin(w http.ResponseWriter, r *http.Request, next http.Handler) {
 	parsedURL, err := ParseURL(r)
 	if err != nil {
-		s.logger.Warn("url parsing failed", zap.Error(err))
+		s.logger.Warn().Err(err).Msg("url parsing failed")
 		// do not fail
 	}
 	authHeader := GetAuth(r, parsedURL)
@@ -198,7 +198,7 @@ func (s *Server) authorizeAdmin(w http.ResponseWriter, r *http.Request, next htt
 func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Handler, isGetHeader bool) {
 	parsedURL, err := ParseURL(r)
 	if err != nil {
-		s.logger.Warn("url parsing failed", zap.Error(err))
+		s.logger.Warn().Err(err).Msg("url parsing failed")
 		// do not fail
 	}
 	id := GetOrgID(r, parsedURL)
@@ -222,19 +222,38 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 	)
 	if _, allowed := s.accessFilter.IPs.AllowList[clientIP]; !allowed {
 		if _, blocked := s.accessFilter.IPs.BlockList[clientIP]; blocked {
-			s.logger.Warn("ip access denied", zap.String("ip", clientIP), zap.String("id", id), zap.String("url", parsedURL.String()), zap.Error(err))
+			s.logger.Warn().
+				Str("ip", clientIP).
+				Str("id", id).
+				Str("url", parsedURL.String()).
+				Err(err).Msg("ip access denied")
 			http.Error(w, "access denied", http.StatusUnauthorized)
 			return
 		}
 		accountID, _, err = DecodeAuth(authHeader)
 		if err != nil {
-			s.logger.Warn("failed to decode auth header", zap.String("authHeader", authHeader), zap.String("url", parsedURL.String()), zap.String("clientIP", clientIP), zap.String("id", id), zap.Error(err))
+			s.logger.Warn().
+				Str("authHeader", authHeader).
+				Str("ip", clientIP).
+				Str("id", id).
+				Str("url", parsedURL.String()).
+				Err(err).Msg("failed to decode auth header")
+			s.logger.Warn().
+				Str("ip", clientIP).
+				Str("id", id).
+				Str("url", parsedURL.String()).Err(err)
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}
-		if _, allowed = s.accessFilter.Accounts.AllowList[string(accountID)]; !allowed {
-			if _, blocked := s.accessFilter.Accounts.BlockList[string(accountID)]; blocked {
-				s.logger.Warn("account access denied", zap.String("accountID", string(accountID)), zap.String("url", parsedURL.String()), zap.String("clientIP", clientIP), zap.String("id", id), zap.Error(err))
+		if _, allowed = s.accessFilter.Accounts.AllowList[accountID]; !allowed {
+			if _, blocked := s.accessFilter.Accounts.BlockList[accountID]; blocked {
+				s.logger.Warn().
+					Str("authHeader", authHeader).
+					Str("accountID", accountID).
+					Str("ip", clientIP).
+					Str("id", id).
+					Str("url", parsedURL.String()).
+					Err(err).Msg("account access denied")
 				http.Error(w, "access denied", http.StatusUnauthorized)
 				return
 			}
@@ -248,7 +267,12 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 		accountID, _, err = DecodeAuth(authHeader)
 		if err != nil {
 			// do not fail
-			s.logger.Warn("failed to decode auth header", zap.String("authHeader", authHeader), zap.String("url", parsedURL.String()), zap.String("clientIP", clientIP), zap.Error(err))
+			s.logger.Warn().
+				Str("authHeader", authHeader).
+				Str("accountID", accountID).
+				Str("ip", clientIP).
+				Str("url", parsedURL.String()).
+				Err(err).Msg("failed to decode auth header")
 		}
 		if s.accountsLists.AccountIDToInfo[accountID] != nil {
 			if customCtx := s.accountsLists.AccountIDToInfo[accountID].CustomCtx; customCtx != "" {
@@ -266,7 +290,12 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 			slotIPRequests = make(map[string]bool)
 		} else {
 			if slotIPRequests[clientIP] {
-				s.logger.Warn("get header rate limit exceeded", zap.String("accountID", string(accountID)), zap.String("url", parsedURL.String()), zap.String("clientIP", clientIP), zap.String("id", id))
+				s.logger.Warn().
+					Str("authHeader", authHeader).
+					Str("accountID", accountID).
+					Str("ip", clientIP).
+					Str("url", parsedURL.String()).
+					Err(err).Msg("get header rate limit exceeded")
 				// Not saying IP because that encourages people to work around the rate limit
 				http.Error(w, "only one getheader request allowed per slot per validator", http.StatusTooManyRequests)
 				return
@@ -299,7 +328,7 @@ func (s *Server) HandleStatus(w http.ResponseWriter, req *http.Request) {
 	defer span.End()
 	parsedURL, err := ParseURL(req)
 	if err != nil {
-		s.logger.Warn("url parsing failed", zap.Error(err))
+		s.logger.Warn().Err(err).Msg("url parsing failed")
 		// do not fail
 	}
 	span.SetAttributes(
@@ -321,7 +350,7 @@ func (s *Server) HandleNode(w http.ResponseWriter, req *http.Request) {
 	defer span.End()
 	parsedURL, err := ParseURL(req)
 	if err != nil {
-		s.logger.Warn("url parsing failed", zap.Error(err))
+		s.logger.Warn().Err(err).Msg("url parsing failed")
 		// do not fail
 	}
 	span.SetAttributes(
@@ -342,7 +371,7 @@ func (s *Server) writeSuccessResponse(w http.ResponseWriter, resp []byte) {
 	_, _ = w.Write(resp)
 }
 func (s *Server) writeErrorResponse(w http.ResponseWriter, message string, err error, statusCode int) {
-	s.logger.Warn(message, zap.Error(err))
+	s.logger.Warn().Err(err).Msg(message)
 	http.Error(w, message, statusCode)
 }
 func (s *Server) HandleGetAccounts(w http.ResponseWriter, r *http.Request) {
@@ -367,7 +396,7 @@ func (s *Server) HandleGetDelays(w http.ResponseWriter, r *http.Request) {
 func (s *Server) HandleSetDelays(w http.ResponseWriter, r *http.Request) {
 	parsedURL, err := ParseURL(r)
 	if err != nil {
-		s.logger.Warn("failed to parse url")
+		s.logger.Warn().Err(err).Msg("url parsing failed")
 	}
 
 	delay, maxDelay, id := GetSleepParams(parsedURL, 0, 0)
@@ -419,21 +448,21 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	s.svc.SendAccount(accountID, validatorID)
 
 	logMetric := NewLogMetric(
-		[]zap.Field{
-			zap.String("reqHost", r.Host),
-			zap.String("method", r.Method),
-			zap.String("userAgent", r.Header.Get("User-Agent")),
-			zap.String("clientIP", clientIP),
-			zap.String("remoteAddr", r.RemoteAddr),
-			zap.String("requestURI", r.RequestURI),
-			zap.String("parsedURL", parsedURL.String()),
-			zap.String("validatorID", validatorID),
-			zap.String("complianceList", complianceList),
-			zap.String("skipOptimism", skipOptimismQuery),
-			zap.String("authHeader", authHeader),
-			zap.String("traceID", handleRegistrationSpan.SpanContext().TraceID().String()),
-			zap.String("boostSendTime", boostSendTime),
-			zap.Int64("latency", latency),
+		map[string]any{
+			"reqHost":        r.Host,
+			"method":         r.Method,
+			"userAgent":      r.Header.Get("User-Agent"),
+			"clientIP":       clientIP,
+			"remoteAddr":     r.RemoteAddr,
+			"requestURI":     r.RequestURI,
+			"parsedURL":      parsedURL.String(),
+			"validatorID":    validatorID,
+			"complianceList": complianceList,
+			"skipOptimism":   skipOptimismQuery,
+			"authHeader":     authHeader,
+			"traceID":        handleRegistrationSpan.SpanContext().TraceID().String(),
+			"boostSendTime":  boostSendTime,
+			"latency":        latency,
 		},
 		[]attribute.KeyValue{
 			attribute.String("reqHost", r.Host),
@@ -457,7 +486,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 		handleRegistrationSpan.SetStatus(codes.Error, err.Error())
 		logMetric.String("proxyError", err.Error())
 		logMetric.Error(errors.New("could not read proposer_mev_protect"))
-		respondError(handleRegistrationCtx, registration, w, toErrorResp(http.StatusInternalServerError, "could not parse boolean proposer_mev_protect"), s.logger, s.tracer, logMetric)
+		respondError(handleRegistrationCtx, registration, w, toErrorResp(http.StatusInternalServerError, "could not parse boolean proposer_mev_protect", logMetric.GetFields()), s.logger, s.tracer, logMetric)
 		return
 	}
 	isSkipOptimism := false
@@ -468,7 +497,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 			handleRegistrationSpan.SetStatus(codes.Error, err.Error())
 			logMetric.String("proxyError", err.Error())
 			logMetric.Error(errors.New("could not read skip_optimism"))
-			respondError(handleRegistrationCtx, registration, w, toErrorResp(http.StatusInternalServerError, "could not parse boolean skip_optimism: "+skipOptimismQuery), s.logger, s.tracer, logMetric)
+			respondError(handleRegistrationCtx, registration, w, toErrorResp(http.StatusInternalServerError, "could not parse boolean skip_optimism: "+skipOptimismQuery, logMetric.GetFields()), s.logger, s.tracer, logMetric)
 			return
 		}
 	}
@@ -480,7 +509,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 		handleRegistrationSpan.SetStatus(codes.Error, err.Error())
 		logMetric.String("proxyError", err.Error())
 		logMetric.Error(errors.New("could not read registration"))
-		respondError(handleRegistrationCtx, registration, w, toErrorResp(http.StatusInternalServerError, "could not read registration"), s.logger, s.tracer, logMetric)
+		respondError(handleRegistrationCtx, registration, w, toErrorResp(http.StatusInternalServerError, "could not read registration", logMetric.GetFields()), s.logger, s.tracer, logMetric)
 		return
 	}
 	handleRegistrationSpan.AddEvent("handleRegistration- svcRegisterValidator")
@@ -533,28 +562,27 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		headers = append(headers, k+"="+v[0])
 	}
 	_, sszResponse := common.ParseBuilderContentType(r)
+
 	logMetric := NewLogMetric(
-		[]zap.Field{
-			zap.String("reqHost", r.Host),
-			zap.String("method", r.Method),
-			zap.String("userAgent", userAgent),
-			zap.String("remoteAddr", r.RemoteAddr),
-			zap.String("requestURI", r.RequestURI),
-			zap.String("parsedURL", parsedURL.String()),
-			zap.String("clientIP", clientIP),
-			zap.String("validatorID", validatorID),
-			zap.String("accountID", accountID),
-			zap.String("authHeader", authHeader),
-			zap.String("traceID", span.SpanContext().TraceID().String()),
-			zap.String("parentHash", parentHash),
-			zap.String("pubKey", pubKey),
-			zap.String("traceID", span.SpanContext().TraceID().String()),
-			zap.String("getHeaderStartTimeUnixMS", boostSendTime),
-			zap.Int64("latency", latency),
-			zap.String("cluster", cluster),
-			zap.String("userAgent", userAgent),
-			zap.Bool("sszResponse", sszResponse),
-			zap.Strings("headers", headers),
+		map[string]any{
+			"reqHost":                  r.Host,
+			"method":                   r.Method,
+			"userAgent":                userAgent,
+			"remoteAddr":               r.RemoteAddr,
+			"requestURI":               r.RequestURI,
+			"parsedURL":                parsedURL.String(),
+			"clientIP":                 clientIP,
+			"validatorID":              validatorID,
+			"accountID":                accountID,
+			"authHeader":               authHeader,
+			"traceID":                  span.SpanContext().TraceID().String(),
+			"parentHash":               parentHash,
+			"pubKey":                   pubKey,
+			"getHeaderStartTimeUnixMS": boostSendTime,
+			"latency":                  latency,
+			"cluster":                  cluster,
+			"sszResponse":              sszResponse,
+			"headers":                  headers,
 		},
 		[]attribute.KeyValue{
 			attribute.String("reqHost", r.Host),
@@ -577,9 +605,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		},
 	)
 	span.SetAttributes(logMetric.GetAttributes()...)
-
 	span.AddEvent("handleGetHeader-svcGetHeader")
-	//svcGetHeader, handleGetHeaderSpan := s.tracer.Start(handleGetHeaderCtx, "svcGetHeader")
 	out, lm, err := s.svc.GetHeader(handleGetHeaderCtx, &HeaderRequestParams{
 		ReceivedAt:               receivedAt,
 		GetHeaderStartTimeUnixMS: boostSendTime,
@@ -594,28 +620,35 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		Cluster:                  cluster,
 		UserAgent:                userAgent,
 	})
-	logMetric.Merge(lm)
+
 	if err != nil {
+		s.logger.Error().Err(err).Msg("Error in GetHeader")
 		respondError(handleGetHeaderCtx, getHeader, w, err, s.logger, s.tracer, logMetric)
 		return
 	}
 
 	if !sszResponse {
+		s.logger.Info().Msg("Responding with JSON")
 		respondOK(handleGetHeaderCtx, getHeader, w, out, s.logger, s.tracer, logMetric)
 		return
 	}
+
 	versionedBid := new(common.VersionedSignedBuilderBid)
 	if err = versionedBid.UnmarshalJSON(out.(json.RawMessage)); err != nil {
-		respondError(handleGetHeaderCtx, getHeader, w, toErrorResp(http.StatusInternalServerError, err.Error()), s.logger, s.tracer, logMetric)
+		s.logger.Error().Err(err).Msg("Failed to unmarshal JSON")
+		respondError(handleGetHeaderCtx, getHeader, w, toErrorResp(http.StatusInternalServerError, err.Error(), lm.GetFields()), s.logger, s.tracer, logMetric)
 		return
 	}
+
 	sszMarshal, err := versionedBid.MarshalSSZ()
 	if err != nil {
-		log.Error().Err(err).Msg("failed to marshal getHeader to ssz")
-		respondOK(handleGetHeaderCtx, getHeader, w, out, s.logger, s.tracer, logMetric)
+		s.logger.Error().Err(err).Msg("Failed to marshal SSZ")
+		respondOK(handleGetHeaderCtx, getHeader, w, out, s.logger, s.tracer, nil)
 		return
 	}
+
 	w.Header().Set(common.HeaderEthConsensusVersion, versionedBid.Version.String())
+	s.logger.Info().Msg("Responding with SSZ")
 	s.respondOKWithContextSSZMarshalled(handleGetHeaderCtx, getHeader, w, sszMarshal, s.logger, s.tracer, logMetric)
 }
 
@@ -645,25 +678,24 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	}
 	sszRequest, sszResponse := common.ParseBuilderContentType(r)
 	logMetric := NewLogMetric(
-		[]zap.Field{
-			zap.String("reqHost", r.Host),
-			zap.String("method", r.Method),
-			zap.String("userAgent", r.Header.Get("User-Agent")),
-			zap.String("remoteAddr", r.RemoteAddr),
-			zap.String("requestURI", r.RequestURI),
-			zap.String("parsedURL", parsedURL.String()),
-			zap.String("validatorID", validatorID),
-			zap.String("accountID", accountID),
-			zap.String("authHeader", authHeader),
-			zap.String("clientIP", clientIP),
-			zap.String("traceID", span.SpanContext().TraceID().String()),
-			zap.String("getPayloadStartTimeUnixMS", boostSendTime),
-			zap.Int64("latency", latency),
-			zap.String("cluster", cluster),
-			zap.String("userAgent", userAgent),
-			zap.Bool("sszRequest", sszRequest),
-			zap.Bool("sszResponse", sszResponse),
-			zap.Strings("headers", headers),
+		map[string]any{
+			"reqHost":                  r.Host,
+			"method":                   r.Method,
+			"remoteAddr":               r.RemoteAddr,
+			"requestURI":               r.RequestURI,
+			"parsedURL":                parsedURL.String(),
+			"clientIP":                 clientIP,
+			"validatorID":              validatorID,
+			"accountID":                accountID,
+			"authHeader":               authHeader,
+			"traceID":                  span.SpanContext().TraceID().String(),
+			"getHeaderStartTimeUnixMS": boostSendTime,
+			"latency":                  latency,
+			"cluster":                  cluster,
+			"userAgent":                userAgent,
+			"sszRequest":               sszRequest,
+			"sszResponse":              sszResponse,
+			"headers":                  headers,
 		},
 		[]attribute.KeyValue{
 			attribute.String("reqHost", r.Host),
@@ -671,6 +703,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 			attribute.String("clientIP", clientIP),
 			attribute.String("remoteAddr", r.RemoteAddr),
 			attribute.String("requestURI", r.RequestURI),
+			attribute.String("parsedURL", parsedURL.String()),
 			attribute.String("validatorID", validatorID),
 			attribute.String("accountID", accountID),
 			attribute.String("authHeader", authHeader),
@@ -691,7 +724,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		span.SetStatus(codes.Error, err.Error())
 		logMetric.String("proxyError", err.Error())
 		logMetric.Error(errors.New("could not read registration"))
-		respondError(getPayloadCtx, getPayload, w, toErrorResp(http.StatusInternalServerError, "could not read registration"), s.logger, s.tracer, logMetric)
+		respondError(getPayloadCtx, getPayload, w, toErrorResp(http.StatusInternalServerError, "could not read registration", logMetric.GetFields()), s.logger, s.tracer, logMetric)
 		return
 	}
 	signedBlindedBeaconBlock := new(common.VersionedSignedBlindedBeaconBlock)
@@ -700,7 +733,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		err := signedBlindedBeaconBlock.UnmarshalSSZ(bodyBytes)
 		if err != nil {
 			decodeSSZSpan.End()
-			respondError(getPayloadCtx, getPayload, w, toErrorResp(http.StatusInternalServerError, "failed to decode request payload"), s.logger, s.tracer, logMetric)
+			respondError(getPayloadCtx, getPayload, w, toErrorResp(http.StatusInternalServerError, "failed to decode request payload", logMetric.GetFields()), s.logger, s.tracer, logMetric)
 			return
 		}
 		decodeSSZSpan.End()
@@ -708,7 +741,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		bodyBytes, err = signedBlindedBeaconBlock.MarshalJSON()
 		if err != nil {
 			encodeJSONSpan.End()
-			respondError(getPayloadCtx, getPayload, w, toErrorResp(http.StatusInternalServerError, "failed to marshal to json"), s.logger, s.tracer, logMetric)
+			respondError(getPayloadCtx, getPayload, w, toErrorResp(http.StatusInternalServerError, "failed to marshal to json", logMetric.GetFields()), s.logger, s.tracer, logMetric)
 			return
 		}
 		encodeJSONSpan.End()
@@ -739,7 +772,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	payloadResponse := new(common.VersionedSubmitBlindedBlockResponse)
 	if err := payloadResponse.UnmarshalJSON(out.(json.RawMessage)); err != nil {
 		span.SetStatus(codes.Error, err.Error())
-		respondError(getPayloadCtx, getPayload, w, toErrorResp(http.StatusInternalServerError, err.Error()), s.logger, s.tracer, logMetric)
+		respondError(getPayloadCtx, getPayload, w, toErrorResp(http.StatusInternalServerError, err.Error(), logMetric.GetFields()), s.logger, s.tracer, logMetric)
 		return
 	}
 	outByte, err := payloadResponse.MarshalSSZ()
@@ -753,7 +786,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
 	s.respondOKWithContextSSZMarshalled(getPayloadCtx, getPayload, w, outByte, s.logger, s.tracer, logMetric)
 }
-func respondOK(ctx context.Context, method string, w http.ResponseWriter, response any, log *zap.Logger, tracer trace.Tracer, logMetric *LogMetric) {
+func respondOK(ctx context.Context, method string, w http.ResponseWriter, response any, log zerolog.Logger, tracer trace.Tracer, logMetric *LogMetric) {
 	_, span := tracer.Start(ctx, "respondOK-"+method)
 	defer span.End()
 	logMetric.Attributes(
@@ -767,15 +800,15 @@ func respondOK(ctx context.Context, method string, w http.ResponseWriter, respon
 
 	if err := gjson.NewEncoder(w).Encode(response); err != nil {
 		span.SetStatus(codes.Error, "couldn't write OK response")
-		log.With(logMetric.GetFields()...).Error("couldn't write OK response", zap.Error(err))
+		log.Error().Fields(logMetric.GetFields()).Err(err).Msg("couldn't write OK response")
 		http.Error(w, "", http.StatusInternalServerError)
 		return
 	}
-	log.With(zap.String("method", method)).With(logMetric.GetFields()...).Info(method + " succeeded")
+	log.Info().Str("method", method).Fields(logMetric.GetFields()).Msg(method + " succeeded")
 
 }
 
-func respondError(ctx context.Context, method string, w http.ResponseWriter, err error, log *zap.Logger, tracer trace.Tracer, logMetric *LogMetric) {
+func respondError(ctx context.Context, method string, w http.ResponseWriter, err error, log zerolog.Logger, tracer trace.Tracer, logMetric *LogMetric) {
 
 	_, span := tracer.Start(ctx, "respondError-"+method)
 	defer span.End()
@@ -789,23 +822,23 @@ func respondError(ctx context.Context, method string, w http.ResponseWriter, err
 	resp, ok := err.(*ErrorResp)
 	span.SetAttributes(attribute.Int("responseCode", resp.ErrorCode()))
 	if !ok {
-		log.With(zap.String("method", method)).With(logMetric.GetFields()...).Error("failed to typecast error response")
+		log.Error().Fields(logMetric.GetFields()).Str("method", method).Err(err).Msg("failed to typecast error response")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		span.SetStatus(codes.Error, "failed to typecast error response")
 		return
 	}
 	w.WriteHeader(resp.Code)
-	log.With(zap.String("method", method)).With(logMetric.GetFields()...).Error(method + " failed")
+	log.Error().Str("method", method).Fields(logMetric.GetFields()).Msg(method + " failed")
 	if resp.Message != "" && resp.Code != http.StatusNoContent { // HTTP status "No Content" implies that no message body should be included in the response.
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			span.SetStatus(codes.Error, "couldn't write error response")
-			log.With(zap.String("method", method)).With(logMetric.GetFields()...).Error("couldn't write error response", zap.Error(err))
+			log.Error().Fields(logMetric.GetFields()).Str("method", method).Err(err).Msg("couldn't write error response")
 			_, _ = w.Write([]byte(``))
 			return
 		}
 	}
 }
-func GetProposerMevProtectQueryAny(parsedURL *url.URL, log *zap.Logger, logMetric *LogMetric) (bool, error) {
+func GetProposerMevProtectQueryAny(parsedURL *url.URL, log zerolog.Logger, logMetric *LogMetric) (bool, error) {
 	proposerMevProtectQuery := parsedURL.Query().Get("proposer_mev_protect")
 	proposerMevProtect, err := parseQuery("proposer_mev_protect", proposerMevProtectQuery, log, logMetric)
 	if err != nil {
@@ -814,24 +847,24 @@ func GetProposerMevProtectQueryAny(parsedURL *url.URL, log *zap.Logger, logMetri
 	mevProtectQuery := parsedURL.Query().Get("mev_protect")
 	mevProtect, parseErr := parseQuery("mev_protect", mevProtectQuery, log, logMetric)
 	if parseErr != nil {
-		log.Error("failed to parse mev_protect", zap.Error(err))
+		log.Error().Err(err).Msg("failed to parse mev_protect")
 		return false, err
 	}
 	mevGuardQuery := parsedURL.Query().Get("mev_guard")
 	mevGuard, parseErr := parseQuery("mev_guard", mevGuardQuery, log, logMetric)
 	if parseErr != nil {
-		log.Error("failed to parse mev_guard", zap.Error(err))
+		log.Error().Err(err).Msg("failed to parse mev_guard")
 		return false, err
 	}
 	proposerMevGuardQuery := parsedURL.Query().Get("proposer_mev_guard")
 	proposerMevGuard, parseErr := parseQuery("proposer_mev_guard", proposerMevGuardQuery, log, logMetric)
 	if parseErr != nil {
-		log.Error("failed to parse mev_guard", zap.Error(err))
+		log.Error().Err(err).Msg("failed to parse mev_guard")
 		return false, err
 	}
 	return proposerMevProtect || mevProtect || mevGuard || proposerMevGuard, nil
 }
-func parseQuery(query string, value string, log *zap.Logger, logMetric *LogMetric) (bool, error) {
+func parseQuery(query string, value string, log zerolog.Logger, logMetric *LogMetric) (bool, error) {
 	if value == "" {
 		return false, nil
 	}
@@ -841,12 +874,12 @@ func parseQuery(query string, value string, log *zap.Logger, logMetric *LogMetri
 	)
 	proposerMevProtect, err := strconv.ParseBool(value)
 	if err != nil {
-		log.With(logMetric.GetFields()...).Error("failed to parse proposer-mev-protect, setting proposer-mev-protect to false by default", zap.Error(err))
+		log.With().Fields(logMetric.GetFields()).Err(err).Str("reason", "failed to parse proposer-mev-protect, setting proposer-mev-protect to false by default")
 	}
 	return proposerMevProtect, err
 }
 
-func (m *Server) respondOKWithContextSSZMarshalled(ctx context.Context, method string, w http.ResponseWriter, resBytes []byte, log *zap.Logger, tracer trace.Tracer, logMetric *LogMetric) {
+func (m *Server) respondOKWithContextSSZMarshalled(ctx context.Context, method string, w http.ResponseWriter, resBytes []byte, log zerolog.Logger, tracer trace.Tracer, logMetric *LogMetric) {
 	_, span := tracer.Start(ctx, fmt.Sprintf("respondOKSSZ-%s", method))
 	defer span.End()
 	logMetric.Attributes(
@@ -867,8 +900,8 @@ func (m *Server) respondOKWithContextSSZMarshalled(ctx context.Context, method s
 	writeBytesSpan.End()
 	if err != nil {
 		span.SetStatus(codes.Error, "couldn't write OK response")
-		log.With(logMetric.GetFields()...).Error("couldn't write OK response", zap.Error(err))
+		log.Error().Fields(logMetric.GetFields()).Str("method", method).Err(err).Msg("couldn't write error response")
 		http.Error(w, "", http.StatusInternalServerError)
 	}
-	log.With(zap.String("method", method)).With(logMetric.GetFields()...).Info(method + " succeeded")
+	log.Info().Str("method", method).Fields(logMetric.GetFields()).Msg(method + " succeeded")
 }
