@@ -2480,7 +2480,7 @@ func (s *Service) handleStreamBuilderInfoResponse(
 		"duration":           time.Since(handleStart),
 	})
 
-	s.logger.Info().Fields(lm.GetFields()).Msg("received builderInfo")
+	s.logger.Debug().Fields(lm.GetFields()).Msg("received builderInfo")
 }
 
 func (s *Service) logRecord(record SlotStatsRecord, slotKey string, userAgent string) {
@@ -2932,5 +2932,5 @@ func (s *Service) handleStreamSlotInfoResponse(
 		}
 	}
 
-	s.logger.Info().Fields(lm.GetFields()).Msg("received slot")
+	s.logger.Debug().Fields(lm.GetFields()).Msg("received slot")
 }
