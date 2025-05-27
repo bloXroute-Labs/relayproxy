@@ -95,10 +95,7 @@ type Service struct {
 	slotStatsEventCh   chan slotStatsEvent
 	ethNetworkDetails  *common.EthNetworkDetails
 
-	clients                       []*common.Client
-	streamingClients              []*common.Client
-	streamingBlockClients         []*common.Client
-	registrationClients           []*common.Client
+	dialerClients                 *DialerClients
 	currentRegistrationRelayIndex int
 	registrationRelayMutex        sync.Mutex
 
@@ -154,10 +151,42 @@ func NewService(opts ...ServiceOption) *Service {
 	return svc
 }
 
+func (s *Service) UpdateDialer(c *DialerClients) {
+	s.dialerClients.mu.Lock()
+	defer s.dialerClients.mu.Unlock()
+
+	s.dialerClients.clients = c.clients
+	s.dialerClients.streamingClients = c.streamingClients
+	s.dialerClients.registrationClients = c.registrationClients
+	s.dialerClients.streamingBlockClients = c.streamingBlockClients
+	s.logger.Info().Msg("Service clients updated")
+}
+
+func (s *Service) HealthCheck() error {
+	s.dialerClients.mu.RLock()
+	defer s.dialerClients.mu.RUnlock()
+	var (
+		failCount     int
+		failedClients []string
+	)
+
+	for _, client := range s.dialerClients.clients {
+		_, err := client.RelayClient.Ping(context.Background(), &relaygrpc.PingRequest{})
+		if err != nil {
+			failCount++
+			failedClients = append(failedClients, client.URL)
+		}
+	}
+	if failCount > 0 {
+		return fmt.Errorf("%d client(s) failed health check: %v", failCount, failedClients)
+	}
+	return nil
+}
+
 func (s *Service) RegisterValidator(ctx context.Context, outgoingCtx context.Context, in *RegistrationParams) (any, *LogMetric, error) {
 	var (
-		errChan  = make(chan *ErrorResp, len(s.clients))
-		respChan = make(chan *relaygrpc.RegisterValidatorResponse, len(s.clients))
+		errChan  = make(chan *ErrorResp, len(s.dialerClients.clients))
+		respChan = make(chan *relaygrpc.RegisterValidatorResponse, len(s.dialerClients.clients))
 		_err     *ErrorResp
 	)
 	timer := time.NewTimer(regRequestTimeout)
@@ -255,13 +284,15 @@ func (s *Service) registerValidatorForClient(_ctx context.Context, req *relaygrp
 		out *relaygrpc.RegisterValidatorResponse
 		err error
 	)
+	s.dialerClients.mu.RLock()
+	defer s.dialerClients.mu.RUnlock()
 
-	for range s.registrationClients {
+	for range s.dialerClients.registrationClients {
 		req.NodeId = s.nodeID
 
 		s.registrationRelayMutex.Lock()
-		selectedRelay := s.registrationClients[s.currentRegistrationRelayIndex]
-		s.currentRegistrationRelayIndex = (s.currentRegistrationRelayIndex + 1) % len(s.registrationClients)
+		selectedRelay := s.dialerClients.registrationClients[s.currentRegistrationRelayIndex]
+		s.currentRegistrationRelayIndex = (s.currentRegistrationRelayIndex + 1) % len(s.dialerClients.registrationClients)
 		s.registrationRelayMutex.Unlock()
 
 		out, err = selectedRelay.RegisterValidator(_ctx, req)
@@ -309,7 +340,9 @@ func (s *Service) registerValidatorForClient(_ctx context.Context, req *relaygrp
 }
 func (s *Service) StartStreamHeaders(ctx context.Context, wg *sync.WaitGroup) {
 
-	for _, client := range s.streamingClients {
+	s.dialerClients.mu.RLock()
+	defer s.dialerClients.mu.RUnlock()
+	for _, client := range s.dialerClients.streamingClients {
 		wg.Add(1)
 		go func(_ctx context.Context, c *common.Client) {
 			defer wg.Done()
@@ -378,23 +411,23 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client) (*rel
 	streamHeaderCtx, span := s.tracer.Start(ctx, "streamHeader-start")
 	defer span.End(trace.WithTimestamp(time.Now().UTC()))
 	id := uuid.NewString()
-	client.NodeID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
+	client.ConnectionID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
 	stream, err := client.StreamHeader(ctx, &relaygrpc.StreamHeaderRequest{
 		ReqId:       id,
-		NodeId:      client.NodeID,
+		NodeId:      client.ConnectionID,
 		Version:     s.version,
 		SecretToken: s.secretToken,
 	})
 	logMetric := NewLogMetric(
 		map[string]any{
 			"method": method,
-			"nodeID": client.NodeID,
+			"nodeID": client.ConnectionID,
 			"reqID":  id,
 			"url":    client.URL,
 		},
 		[]attribute.KeyValue{
 			attribute.String("method", method),
-			attribute.String("nodeID", client.NodeID),
+			attribute.String("connectionID", client.ConnectionID),
 			attribute.String("url", client.URL),
 			attribute.String("reqID", id),
 		},
@@ -959,8 +992,8 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, clientIP, authHeader s
 	}
 
 	var (
-		errChan            = make(chan *ErrorResp, len(s.clients)+2)
-		respChan           = make(chan *relaygrpc.PreFetchGetPayloadResponse, len(s.clients)+2)
+		errChan            = make(chan *ErrorResp, len(s.dialerClients.clients)+2)
+		respChan           = make(chan *relaygrpc.PreFetchGetPayloadResponse, len(s.dialerClients.clients)+2)
 		payloadCacheKey    = common.GetKeyForCachingPayload(slot, parentHash, blockHash, pubKey)
 		wg                 sync.WaitGroup
 		prefetchedRequests = 0
@@ -1001,7 +1034,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, clientIP, authHeader s
 	}
 
 	if !succeeds {
-		clients := s.clients
+		clients := s.dialerClients.CopyClients()
 		if bidClient != nil {
 			clients = append(clients, bidClient)
 		}
@@ -1016,39 +1049,39 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, clientIP, authHeader s
 				s.prefetchPayload(ctx, client, req, span, errChan, respChan, prefetchLogger)
 			}(client)
 		}
-	}
-	// Wait for all goroutines to finish
-	defer func() {
-		go func() {
-			wg.Wait()
-			close(respChan)
-			close(errChan)
+		// Wait for all goroutines to finish
+		defer func() {
+			go func() {
+				wg.Wait()
+				close(respChan)
+				close(errChan)
+			}()
 		}()
-	}()
 
-	// Process responses
-	for i := 0; i < prefetchedRequests; i++ {
-		select {
-		case <-ctx.Done():
-			s.logger.Warn().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload :: Context canceled")
-		case _err := <-errChan:
-			s.logger.Error().Fields(logMetric.GetFields()).Interface("error", _err).Msg("PreFetchGetPayload :: Received error")
-		case out := <-respChan:
-			proxyCacheKey := common.GetKeyForCachingPayload(slot, parentHash, blockHash, pubKey)
-			s.pubKeysBySlots.Set(fmt.Sprintf("%d", slot), pubKey, cache.DefaultExpiration)
+		// Process responses
+		for i := 0; i < prefetchedRequests; i++ {
+			select {
+			case <-ctx.Done():
+				s.logger.Warn().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload :: Context canceled")
+			case _err := <-errChan:
+				s.logger.Error().Fields(logMetric.GetFields()).Interface("error", _err).Msg("PreFetchGetPayload :: Received error")
+			case out := <-respChan:
+				proxyCacheKey := common.GetKeyForCachingPayload(slot, parentHash, blockHash, pubKey)
+				s.pubKeysBySlots.Set(fmt.Sprintf("%d", slot), pubKey, cache.DefaultExpiration)
 
-			payloadResponse := &common.PayloadResponseForProxy{
-				MarshalledPayloadResponse: out.VersionedExecutionPayload,
-				BlockValue:                blockValue,
-			}
+				payloadResponse := &common.PayloadResponseForProxy{
+					MarshalledPayloadResponse: out.VersionedExecutionPayload,
+					BlockValue:                blockValue,
+				}
 
-			if err := s.getPayloadResponseForProxySlot.Add(proxyCacheKey, payloadResponse, cache.DefaultExpiration); err != nil {
-				s.logger.Warn().Fields(logMetric.GetFields()).Err(err).Msg("PreFetchGetPayload :: respChan :: cache execution payload failed")
+				if err := s.getPayloadResponseForProxySlot.Add(proxyCacheKey, payloadResponse, cache.DefaultExpiration); err != nil {
+					s.logger.Warn().Fields(logMetric.GetFields()).Err(err).Msg("PreFetchGetPayload :: respChan :: cache execution payload failed")
+					return
+				}
+
+				s.logger.Info().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload :: respChan :: preFetchGetPayload succeeded")
 				return
 			}
-
-			s.logger.Info().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload :: respChan :: preFetchGetPayload succeeded")
-			return
 		}
 	}
 }
@@ -1246,8 +1279,8 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (any
 	span.SetAttributes(logMetric.GetAttributes()...)
 
 	var errResp ErrorRespWithPayload
-	errChan := make(chan ErrorRespWithPayload, len(s.clients)+prefetchAttempts)
-	respChan := make(chan *common.VersionedPayloadInfo, len(s.clients)+prefetchAttempts)
+	errChan := make(chan ErrorRespWithPayload, len(s.dialerClients.clients)+prefetchAttempts)
+	respChan := make(chan *common.VersionedPayloadInfo, len(s.dialerClients.clients)+prefetchAttempts)
 	attempts := make([]struct{}, prefetchAttempts)
 	metricCopy := logMetric.Copy()
 	var wg sync.WaitGroup
@@ -1292,7 +1325,10 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (any
 	}
 
 	ctx, payloadResponseSpan := s.tracer.Start(ctx, "getPayload-payloadResponseFromRelay")
-	for _, client := range s.clients {
+	s.dialerClients.mu.RLock()
+	defer s.dialerClients.mu.RUnlock()
+
+	for _, client := range s.dialerClients.clients {
 		wg.Add(1)
 		go func(c *common.Client) {
 			defer wg.Done()
@@ -1313,7 +1349,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (any
 		close(respChan)
 	}()
 
-	for i := 0; i < len(s.clients)+totalPrefetchResponses; i++ {
+	for i := 0; i < len(s.dialerClients.clients)+totalPrefetchResponses; i++ {
 		select {
 		case <-ctx.Done():
 			logMetricCopy := logMetric.Copy()
@@ -1716,7 +1752,9 @@ func (s *Service) EmitSlotStats(ctx context.Context) {
 }
 
 func (s *Service) StartStreamBlocks(ctx context.Context, wg *sync.WaitGroup) {
-	for _, client := range s.streamingBlockClients {
+	s.dialerClients.mu.RLock()
+	defer s.dialerClients.mu.RUnlock()
+	for _, client := range s.dialerClients.streamingBlockClients {
 		wg.Add(1)
 		go func(_ctx context.Context, c *common.Client) {
 			defer wg.Done()
@@ -1791,23 +1829,23 @@ func (s *Service) StreamBlock(ctx context.Context, client *common.Client) (*rela
 	streamBlockCtx, span := s.tracer.Start(ctx, "streamBlock-start")
 	defer span.End(trace.WithTimestamp(time.Now().UTC()))
 	id := uuid.NewString()
-	client.NodeID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
+	client.ConnectionID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
 	stream, err := client.StreamBlock(ctx, &relaygrpc.StreamBlockRequest{
 		ReqId:       id,
-		NodeId:      client.NodeID,
+		NodeId:      client.ConnectionID,
 		Version:     s.version,
 		SecretToken: s.secretToken,
 	})
 	logMetric := NewLogMetric(
 		map[string]any{
-			"method": method,
-			"nodeID": client.NodeID,
-			"reqID":  id,
-			"url":    client.URL,
+			"method":       method,
+			"connectionID": client.ConnectionID,
+			"reqID":        id,
+			"url":          client.URL,
 		},
 		[]attribute.KeyValue{
 			attribute.String("method", method),
-			attribute.String("nodeID", client.NodeID),
+			attribute.String("connectionID", client.ConnectionID),
 			attribute.String("url", client.URL),
 			attribute.String("reqID", id),
 		},
@@ -2199,7 +2237,9 @@ func isVouch(userAgent string) bool {
 }
 
 func (s *Service) StartStreamBuilderInfo(ctx context.Context, wg *sync.WaitGroup) {
-	for _, client := range s.streamingBlockClients {
+	s.dialerClients.mu.RLock()
+	defer s.dialerClients.mu.RUnlock()
+	for _, client := range s.dialerClients.streamingBlockClients {
 		wg.Add(1)
 		go func(_ctx context.Context, c *common.Client) {
 			defer wg.Done()
@@ -2208,6 +2248,7 @@ func (s *Service) StartStreamBuilderInfo(ctx context.Context, wg *sync.WaitGroup
 	}
 	wg.Wait()
 }
+
 func (s *Service) handleBuilderInfoStream(ctx context.Context, client *common.Client) {
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
@@ -2256,25 +2297,26 @@ func (s *Service) StreamBuilderInfo(ctx context.Context, client *common.Client) 
 	defer span.End(trace.WithTimestamp(time.Now().UTC()))
 
 	id := uuid.NewString()
-	client.NodeID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
+	clientURL := strings.Replace(client.URL, client.IPOpts.Primary, client.IPOpts.Backup, 1)
+	client.ConnectionID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, clientURL, id, time.Now().UTC().Format("15:04:05.999999999"))
 
 	stream, err := client.StreamBuilder(ctx, &relaygrpc.StreamBuilderRequest{
 		ReqId:   id,
-		NodeId:  client.NodeID,
+		NodeId:  client.ConnectionID,
 		Version: s.version,
 	})
 
 	logMetric := NewLogMetric(
 		map[string]any{
-			"method": method,
-			"nodeID": client.NodeID,
-			"reqID":  id,
-			"url":    client.URL,
+			"method":       method,
+			"connectionID": client.ConnectionID,
+			"reqID":        id,
+			"url":          clientURL,
 		},
 		[]attribute.KeyValue{
 			attribute.String("method", method),
-			attribute.String("nodeID", client.NodeID),
-			attribute.String("url", client.URL),
+			attribute.String("connectionID", client.ConnectionID),
+			attribute.String("url", clientURL),
 			attribute.String("reqID", id),
 		},
 	)
@@ -2313,7 +2355,7 @@ func (s *Service) StreamBuilderInfo(ctx context.Context, client *common.Client) 
 	}(logMetricCopy)
 
 	_, streamReceiveSpan := s.tracer.Start(streamBuilderInfoCtx, "StreamBuilderInfo-streamReceived")
-	clientIP := GetHost(client.URL)
+	clientIP := GetHost(clientURL)
 
 	for {
 		select {
@@ -2567,7 +2609,7 @@ func (s *Service) prefetchPayload(
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 5 && !exitSignal; i++ {
-			out, err := s.PreFetchGetPayloadPlaceHTTPRequest(clientCtx, req, client.URL, client.NodeID)
+			out, err := s.PreFetchGetPayloadPlaceHTTPRequest(clientCtx, req, client.URL, client.ConnectionID)
 			if exitSignal {
 				return
 			}
@@ -2676,13 +2718,15 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origRe
 	}, nil
 }
 func (s *Service) StartStreamSlotInfo(ctx context.Context, wg *sync.WaitGroup) {
-	for _, client := range s.streamingBlockClients {
+	s.dialerClients.mu.Lock()
+	for _, client := range s.dialerClients.streamingBlockClients {
 		wg.Add(1)
 		go func(_ctx context.Context, c *common.Client) {
 			defer wg.Done()
 			s.handleSlotInfoStream(_ctx, c)
 		}(ctx, client)
 	}
+	s.dialerClients.mu.Unlock()
 	wg.Wait()
 }
 func (s *Service) handleSlotInfoStream(ctx context.Context, client *common.Client) {
@@ -2733,24 +2777,24 @@ func (s *Service) StreamSlotInfo(ctx context.Context, client *common.Client) (*r
 	defer span.End(trace.WithTimestamp(time.Now().UTC()))
 
 	id := uuid.NewString()
-	client.NodeID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
+	client.ConnectionID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
 
 	stream, err := client.StreamSlotInfo(ctx, &relaygrpc.StreamSlotRequest{
 		ReqId:   id,
-		NodeId:  client.NodeID,
+		NodeId:  client.ConnectionID,
 		Version: s.version,
 	})
 
 	logMetric := NewLogMetric(
 		map[string]any{
-			"method": method,
-			"nodeID": client.NodeID,
-			"reqID":  id,
-			"url":    client.URL,
+			"method":       method,
+			"connectionID": client.ConnectionID,
+			"reqID":        id,
+			"url":          client.URL,
 		},
 		[]attribute.KeyValue{
 			attribute.String("method", method),
-			attribute.String("nodeID", client.NodeID),
+			attribute.String("connectionID", client.ConnectionID),
 			attribute.String("url", client.URL),
 			attribute.String("reqID", id),
 		},
