@@ -620,7 +620,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		Cluster:                  cluster,
 		UserAgent:                userAgent,
 	})
-
+	logMetric.Merge(lm)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Error in GetHeader")
 		respondError(handleGetHeaderCtx, getHeader, w, err, s.logger, s.tracer, logMetric)

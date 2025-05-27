@@ -2480,7 +2480,7 @@ func (s *Service) handleStreamBuilderInfoResponse(
 		"duration":           time.Since(handleStart),
 	})
 
-	s.logger.Info().Fields(lm.GetFields()).Msg("received builderInfo")
+	s.logger.Debug().Fields(lm.GetFields()).Msg("received builderInfo")
 }
 
 func (s *Service) logRecord(record SlotStatsRecord, slotKey string, userAgent string) {
@@ -2757,7 +2757,7 @@ func (s *Service) StreamSlotInfo(ctx context.Context, client *common.Client) (*r
 	)
 	span.SetAttributes(logMetric.GetAttributes()...)
 
-	s.logger.Info().Fields(logMetric.GetFields()).Msg("streaming Validator info")
+	s.logger.Debug().Fields(logMetric.GetFields()).Msg("streaming Validator info")
 
 	if err != nil {
 		logMetric.Error(err)
@@ -2928,9 +2928,9 @@ func (s *Service) handleStreamSlotInfoResponse(
 			oldProposer.LastUpdatedBlock = lastUpdatedBlock
 			oldProposer.ExpectedParentBlockRoot = parentBlockRoot
 			s.miniProposerSlotMap.Store(slot, oldProposer)
-			s.logger.Info().Fields(lm.GetFields()).Msg("updating mini proposer slot map")
+			s.logger.Debug().Fields(lm.GetFields()).Msg("updating mini proposer slot map")
 		}
 	}
 
-	s.logger.Info().Fields(lm.GetFields()).Msg("received slot")
+	s.logger.Debug().Fields(lm.GetFields()).Msg("received slot")
 }
