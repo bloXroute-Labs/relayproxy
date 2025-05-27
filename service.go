@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/bellatrix"
@@ -918,7 +919,6 @@ func (s *Service) StartPreFetcher(ctx context.Context) {
 		go func(fields preFetcherFields) {
 			_ctx, cancel := context.WithTimeout(ctx, preFetcherRequestTimeout)
 			defer cancel()
-			//s.PreFetchGetPayload(_ctx, f.clientIP, f.authHeader, f.slot, f.parentHash, f.blockHash, f.pubKey, f.blockValue, f.client, f.payloadFetchUrl)
 			s.PreFetchGetPayload(_ctx, fields)
 		}(fields)
 	}
@@ -976,37 +976,8 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 
 	// If necessary, fetch the Optimistic V3 payload directly from the specified builder URL(s)
 	if fields.payloadFetchUrl != "" {
-		payloadUrlsData := common.SafeSplit(fields.payloadFetchUrl, payloadUrlsTypeSeparator)
-
-		if len(payloadUrlsData) != payloadUrlsDataExpectedLength {
-			logMetric.Fields(map[string]any{"payloadUrlsData": payloadUrlsData})
-			s.logger.Error().Err(errors.New("invalid payload URL format")).Fields(logMetric.GetFields()).Msg("Failed to fetch Optimistic V3 payload from builder")
-			return
-		}
-
-		payloadUrlType := payloadUrlsData[payloadUrlTypeIndex]
-		payloadUrlsCSV := payloadUrlsData[payloadUrlsCSVIndex]
-		payloadUrls := common.SafeSplit(payloadUrlsCSV, ",")
-
-		span.SetAttributes(
-			attribute.String("payloadUrlType", payloadUrlType),
-			attribute.StringSlice("payloadUrls", payloadUrls),
-		)
-
-		switch PayloadUrlType(payloadUrlType) {
-		case PayloadUrlTypeHTTP:
-			s.clientPreFetchGetPayloadHTTP(ctx, logMetric, &fields, payloadUrls)
-			return
-		case PayloadUrlTypeGRPC:
-			// TODO: do something else here?
-		default:
-			logMetric.Fields(map[string]any{
-				"payloadUrlsData": payloadUrlsData,
-				"payloadUrls":     payloadUrls,
-			})
-			s.logger.Error().Err(errors.New("invalid payload URL type")).Fields(logMetric.GetFields()).Msg("Failed to fetch Optimistic V3 payload from builder")
-			return
-		}
+		s.prefetchPayloadFromBuilder(ctx, &fields, logMetric)
+		return
 	}
 
 	//-----------------------------------------------------------------------------------------
@@ -1115,6 +1086,49 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 			s.logger.Info().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload :: respChan :: preFetchGetPayload succeeded")
 			return
 		}
+	}
+}
+
+func (s *Service) prefetchPayloadFromBuilder(ctx context.Context, fields *preFetcherFields, logMetric *LogMetric) {
+	_, span := s.tracer.Start(ctx, "prefetchPayloadFromBuilder")
+	var success atomic.Bool
+
+	defer func() {
+		span.SetAttributes(attribute.Bool("success", success.Load()))
+		span.End()
+	}()
+
+	payloadUrlsData := common.SafeSplit(fields.payloadFetchUrl, payloadUrlsTypeSeparator)
+
+	if len(payloadUrlsData) != payloadUrlsDataExpectedLength {
+		logMetric.Fields(map[string]any{"payloadUrlsData": payloadUrlsData})
+		s.logger.Error().Err(errors.New("invalid payload URL format")).Fields(logMetric.GetFields()).Msg("Failed to fetch Optimistic V3 payload from builder")
+		return
+	}
+
+	payloadUrlType := payloadUrlsData[payloadUrlTypeIndex]
+	payloadUrlsCSV := payloadUrlsData[payloadUrlsCSVIndex]
+	payloadUrls := common.SafeSplit(payloadUrlsCSV, ",")
+
+	logMetric.Fields(map[string]any{
+		"payloadUrlsData": payloadUrlsData,
+		"payloadUrls":     payloadUrls,
+	})
+
+	span.SetAttributes(
+		attribute.String("payloadUrlType", payloadUrlType),
+		attribute.StringSlice("payloadUrls", payloadUrls),
+	)
+
+	switch PayloadUrlType(payloadUrlType) {
+	case PayloadUrlTypeHTTP:
+		success.Store(s.clientPreFetchGetPayloadHTTP(ctx, logMetric, fields, payloadUrls))
+		return
+	case PayloadUrlTypeGRPC:
+		// TODO: do something else here?
+	default:
+		s.logger.Error().Err(errors.New("invalid payload URL type")).Fields(logMetric.GetFields()).Msg("Failed to fetch Optimistic V3 payload from builder")
+		return
 	}
 }
 
