@@ -979,8 +979,8 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		payloadUrlsData := common.SafeSplit(fields.payloadFetchUrl, payloadUrlsTypeSeparator)
 
 		if len(payloadUrlsData) != payloadUrlsDataExpectedLength {
-			logMetric.Fields(zap.Strings("payloadUrlsData", payloadUrlsData))
-			s.logger.Error("invalid payload URL format", logMetric.GetFields()...)
+			logMetric.Fields(map[string]any{"payloadUrlsData": payloadUrlsData})
+			s.logger.Error().Err(errors.New("invalid payload URL format")).Fields(logMetric.GetFields()).Msg("Failed to fetch Optimistic V3 payload from builder")
 			return
 		}
 
@@ -995,13 +995,16 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 
 		switch PayloadUrlType(payloadUrlType) {
 		case PayloadUrlTypeHTTP:
-			s.clientPreFetchGetPayloadHTTP(ctx, &log, fields.slot, fields.blockHash, fields.parentHash, fields.proposerPubKey, fields.builderPubKey, payloadUrls)
+			s.clientPreFetchGetPayloadHTTP(ctx, logMetric, fields.slot, fields.blockHash, fields.parentHash, fields.proposerPubKey, fields.builderPubKey, payloadUrls)
 			return
 		case PayloadUrlTypeGRPC:
 			// TODO: do something else here?
 		default:
-			logMetric.Fields(zap.String("payloadUrlType", payloadUrlType), zap.Strings("payloadUrls", payloadUrls))
-			s.logger.Error("invalid payload URL type", logMetric.GetFields()...)
+			logMetric.Fields(map[string]any{
+				"payloadUrlsData": payloadUrlsData,
+				"payloadUrls":     payloadUrls,
+			})
+			s.logger.Error().Err(errors.New("invalid payload URL type")).Fields(logMetric.GetFields()).Msg("Failed to fetch Optimistic V3 payload from builder")
 			return
 		}
 	}
@@ -1117,7 +1120,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 
 func (s *Service) clientPreFetchGetPayloadHTTP(
 	ctx context.Context,
-	log *zerolog.Logger,
+	logMetric *LogMetric,
 	slot uint64,
 	blockHash phase0.Hash32,
 	parentHash string,
@@ -1138,7 +1141,7 @@ func (s *Service) clientPreFetchGetPayloadHTTP(
 
 	payload, err := s.prepareGetPayloadV3Request(blockHash)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to prepare HTTP get_payload_v3 request")
+		s.logger.Error().Err(err).Fields(logMetric.GetFields()).Msg("failed to prepare HTTP get_payload_v3 request")
 		return false
 	}
 
@@ -1154,7 +1157,8 @@ func (s *Service) clientPreFetchGetPayloadHTTP(
 
 			// TODO: should we try with JSON if ssz fails?
 			if err != nil {
-				log.Error().
+				s.logger.Error().
+					Fields(logMetric.GetFields()).
 					Err(err).Str("url", url).
 					Int("code", code).
 					Int64("durationMS", durationMS).
@@ -1168,7 +1172,7 @@ func (s *Service) clientPreFetchGetPayloadHTTP(
 	}
 
 	// Process first positive response from builder (or timeout)
-	return s.processGetPayloadV3Responses(ctx, responseChan, slot, log)
+	return s.processGetPayloadV3Responses(ctx, responseChan, slot, logMetric)
 }
 
 func (s *Service) prepareGetPayloadV3Request(blockHash phase0.Hash32) (*common.SignedGetPayloadV3, error) {
@@ -1193,32 +1197,32 @@ func (s *Service) processGetPayloadV3Responses(
 	ctx context.Context,
 	responseChan chan *common.VersionedSubmitBlockRequest,
 	slot uint64,
-	log *zerolog.Logger,
+	logMetric *LogMetric,
 ) bool {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Error().Msg("context cancelled")
+			s.logger.Error().Fields(logMetric.GetFields()).Msg("context cancelled")
 			return false
 		case response := <-responseChan:
 			if response == nil {
-				log.Error().Msg("failed to prefetch payload with HTTP, received nil payload from builder")
+				s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to prefetch payload with HTTP, received nil payload from builder")
 				continue
 			}
 
 			getPayloadResponseSpec, err := common.BuildGetPayloadResponse(response)
 			if err != nil {
-				log.Fatal().Err(err)
+				s.logger.Fatal().Fields(logMetric.GetFields()).Err(err)
 			}
 
 			getPayloadResponse := &common.VersionedSubmitBlindedBlockResponse{VersionedSubmitBlindedBlockResponse: *getPayloadResponseSpec}
 
 			// TODO: convert to proxy payload response
 
-			log.Info().Msg("prefetchPayload succeeded")
+			s.logger.Info().Fields(logMetric.GetFields()).Msg("prefetchPayload succeeded")
 			return true
 		case <-time.After(optimisticV3FetchPayloadTimeout):
-			log.Error().Msg("timeout waiting for prefetch payload HTTP response")
+			s.logger.Error().Fields(logMetric.GetFields()).Msg("timeout waiting for prefetch payload HTTP response")
 			return false
 		}
 	}
