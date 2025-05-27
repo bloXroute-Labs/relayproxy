@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 
 	"net"
@@ -31,10 +32,9 @@ import (
 	"github.com/fluent/fluent-logger-golang/fluent"
 	"github.com/google/uuid"
 	"github.com/patrickmn/go-cache"
+	"github.com/rs/zerolog"
 	"github.com/uptrace/uptrace-go/uptrace"
 	"go.opentelemetry.io/otel"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	_ "google.golang.org/grpc/encoding/gzip" // to enable gzip encoding
@@ -101,47 +101,17 @@ func main() {
 	flag.Parse()
 
 	l := newLogger(_AppName, _BuildVersion)
-
-	if *fluentDHostFlag != "" {
-		host, port, err := net.SplitHostPort(*fluentDHostFlag)
-		if err != nil {
-			l.Fatal("error parsing fluentd host", zap.Error(err))
-		}
-		portInt, err := strconv.Atoi(port)
-		if err != nil {
-			l.Fatal("error parsing fluentd port", zap.Error(err))
-		}
-		fluentLogger, err := fluent.New(fluent.Config{
-			FluentHost:    host,
-			FluentPort:    portInt,
-			MarshalAsJSON: true,
-			Async:         true,
-			BufferLimit:   defaultBufferLimit,
-		})
-		if err != nil {
-			l.Fatal("failed to create fluentd logger", zap.Error(err))
-		}
-		l = l.WithOptions(zap.Hooks(func(entry zapcore.Entry) error {
-			return fluentLogger.EncodeAndPostData(tag, time.Now(), map[string]string{messageField: entry.Message, "level": entry.Level.String(), "instance": *nodeID, "timestamp": time.Now().Format(timestampFormat)})
-		}))
-	}
-
-	defer func() {
-		if err := l.Sync(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error syncing log: %v\n", err)
-		}
-	}()
 	// get header delay settings for each validator
 	var delaySettings map[string]relayproxy.DelaySettings
 	if err := json.Unmarshal([]byte(*delaySettingsJSON), &delaySettings); err != nil {
-		l.Fatal("failed to parse delay settings json field")
+		l.Fatal().Msg("failed to parse delay settings json field")
 	}
 	// get header timeout for each validator
 	var timeout map[string]int64
 	if err := json.Unmarshal([]byte(*getHeaderTimeoutJSON), &timeout); err != nil {
-		l.Fatal("failed to parse timeout settings json field", zap.String("getHeaderTimeoutJSON", *getHeaderTimeoutJSON))
+		l.Fatal().Str("getHeaderTimeoutJSON", *getHeaderTimeoutJSON).Msg("failed to parse timeout settings json field")
 	}
-	l.Info("getHeaderSettings", zap.Any("timeoutMap", timeout), zap.Any("delaySettings", delaySettings))
+	l.Info().Interface("timeoutMap", timeout).Interface("delaySettings", delaySettings).Msg("getHeaderSettings")
 
 	// create list of accounts/IPs to be allowed/blocked
 	createAccessList := func(a, b string) relayproxy.AccessList {
@@ -223,7 +193,7 @@ func main() {
 		defer cancel()
 
 		if err := uptrace.Shutdown(ctxWithTimeout); err != nil {
-			l.Error("failed to shutdown uptrace", zap.Error(err))
+			l.Error().Err(err).Msg("failed to shutdown uptrace")
 		}
 	}()
 
@@ -234,7 +204,7 @@ func main() {
 
 	ethNetworks, err := common.NewEthNetworkDetails(*network)
 	if err != nil {
-		l.Fatal("failed to create eth network", zap.Error(err))
+		l.Fatal().Err(err).Msg("failed to create eth network")
 	}
 	httpClient := &http.Client{
 		Timeout: time.Second * 2,
@@ -246,47 +216,44 @@ func main() {
 	if *secretKey == "" {
 		newPrivateKey, _, err := bls.GenerateNewKeypair()
 		if err != nil {
-			l.Fatal("could not generate secret key", zap.Error(err))
+			l.Fatal().Err(err).Msg("could not generate secret key")
 		}
 		boostSecretKey = *newPrivateKey
 
 		// If using a random secret key, ensure it's the correct one
 		blsPubkey, err := bls.PublicKeyFromSecretKey(&boostSecretKey)
 		if err != nil {
-			l.Fatal("could not generate public key", zap.Error(err))
+			l.Fatal().Err(err).Msg("could not generate public key")
 		}
 		pubKey, err = utils.BlsPublicKeyToPublicKey(blsPubkey)
 		if err != nil {
-			l.Fatal("could not generate public key", zap.Error(err))
+			l.Fatal().Err(err).Msg("could not generate public key")
 		}
 
-		l.Info("private key, " + boostSecretKey.String())
-		l.Info("public key, " + pubKey.String())
+		l.Info().Str("privateKey", boostSecretKey.String()).Msg("generated private key")
+		l.Info().Str("publicKey", pubKey.String()).Msg("generated public key")
 	} else {
 		envSkBytes, err := hexutil.Decode(*secretKey)
 		if err != nil {
-			l.Fatal("could not decode secret key")
+			l.Fatal().Msg("could not decode secret key")
 		}
 		sk, err := bls.SecretKeyFromBytes(envSkBytes)
 		if err != nil {
-			l.Fatal("could not decode secret key")
+			l.Fatal().Msg("could not decode secret key")
 		}
 		boostSecretKey = *sk
-
-		// If using a secret key, ensure it's the correct one
 		blsPubkey, err := bls.PublicKeyFromSecretKey(&boostSecretKey)
 		if err != nil {
-			l.Fatal("could not generate public key", zap.Error(err))
+			l.Fatal().Err(err).Msg("could not generate public key")
 		}
 		pubKey, err = utils.BlsPublicKeyToPublicKey(blsPubkey)
 		if err != nil {
-			l.Fatal("could not generate public key", zap.Error(err))
+			l.Fatal().Err(err).Msg("could not generate public key")
 		}
-
-		l.Info("public key, " + pubKey.String())
+		l.Info().Str("publicKey", pubKey.String()).Msg("loaded public key")
 	}
 	if pubKey.String() != *expectedPublicKey {
-		l.Fatal("mismatched public keys", zap.String("expectedPubkey", *expectedPublicKey), zap.String("pubkey", pubKey.String()))
+		l.Fatal().Str("expectedPubkey", *expectedPublicKey).Str("pubkey", pubKey.String()).Msg("mismatched public keys")
 	}
 
 	accountsLists := &relayproxy.AccountsLists{
@@ -321,36 +288,36 @@ func main() {
 		electraForkEpochStr := os.Getenv("ELECTRA_FORK_EPOCH")
 		electraForkEpoch, err = strconv.ParseInt(electraForkEpochStr, 10, 64)
 		if err != nil {
-			l.Fatal("failed to parse ELECTRA_FORK_EPOCH", zap.Error(err))
+			l.Fatal().Err(err).Msg("failed to parse ELECTRA_FORK_EPOCH")
 		}
 	default:
 		genesisForkVersion = boostTypes.GenesisForkVersionMainnet
 		electraForkEpoch = common.ElectraForkEpochMainnet
 	}
-	l.Info("electraForkEpoch", zap.Int64("electraForkEpoch", electraForkEpoch))
+	l.Info().Int64("electraForkEpoch", electraForkEpoch).Msg("electraForkEpoch")
 	builderSigningDomain, err := common.ComputeDomain(ssz.DomainTypeAppBuilder, genesisForkVersion, phase0.Root{}.String())
 	if err != nil {
-		l.Fatal("failed to compute builder signing domain", zap.Error(err))
+		l.Fatal().Err(err).Msg("failed to compute builder signing domain")
 	}
 
-	l.Info("Starting rproxy server",
-		zap.String("listenAddr", *listenAddr),
-		zap.String("uptraceDSN", *uptraceDSN),
-		zap.String("nodeID", *nodeID),
-		zap.String("authKey", *authKey),
-		zap.String("relaysGrpcURL", *relaysGRPCURL),
-		zap.String("streamingRelaysGrpcURL", *streamingRelaysGRPCURL),
-		zap.String("registrationRelaysGRPCURL", *registrationRelaysGRPCURL),
-		zap.Int64("getHeaderDelayInMS", *getHeaderDelayInMS),
-		zap.Int64("getHeaderMaxDelayInMS", *getHeaderMaxDelayInMS),
-		zap.String("fluentdHostFlag", *fluentDHostFlag),
-		zap.Int64("beaconGenesisTime", *beaconGenesisTime),
-		zap.Int64("secondsPerSlot", *secondsPerSlot),
-		zap.Bool("skipAuth", *skipAuth),
-		zap.Any("externalRelays", *externalRelayURL),
-		zap.Any("delaySettings", delaySettings),
-		zap.String("ipAllowList", *ipAllowList),
-	)
+	l.Info().
+		Str("listenAddr", *listenAddr).
+		Str("uptraceDSN", *uptraceDSN).
+		Str("nodeID", *nodeID).
+		Str("authKey", *authKey).
+		Str("relaysGrpcURL", *relaysGRPCURL).
+		Str("streamingRelaysGrpcURL", *streamingRelaysGRPCURL).
+		Str("registrationRelaysGRPCURL", *registrationRelaysGRPCURL).
+		Int64("getHeaderDelayInMS", *getHeaderDelayInMS).
+		Int64("getHeaderMaxDelayInMS", *getHeaderMaxDelayInMS).
+		Str("fluentdHostFlag", *fluentDHostFlag).
+		Int64("beaconGenesisTime", *beaconGenesisTime).
+		Int64("secondsPerSlot", *secondsPerSlot).
+		Bool("skipAuth", *skipAuth).
+		Interface("externalRelays", *externalRelayURL).
+		Interface("delaySettings", delaySettings).
+		Str("ipAllowList", *ipAllowList).
+		Msg("Starting relay proxy server")
 
 	var (
 		dataSvcOpts []relayproxy.DataServiceOption
@@ -428,7 +395,7 @@ func main() {
 		shutdown := make(chan os.Signal, 1)
 		signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 		<-shutdown
-		l.Warn("shutting down")
+		l.Warn().Msg("shutting down")
 		signal.Stop(shutdown)
 		cancel()
 		server.Stop()
@@ -448,32 +415,60 @@ func main() {
 	}(ctx)
 
 	if err := server.Start(); err != nil {
-		l.Fatal("failed to start relayproxy server", zap.Error(err))
+		l.Fatal().Err(err).Msg("failed to start relay proxy server")
 	}
 	<-exit
 }
 
-func newLogger(appName, version string) *zap.Logger {
-	logLevel := zap.DebugLevel
-	var zapCore zapcore.Core
-	level := zap.NewAtomicLevel()
-	level.SetLevel(logLevel)
-	encoderCfg := zap.NewProductionEncoderConfig()
-	encoderCfg.EncodeTime = zapcore.TimeEncoderOfLayout(time.RFC3339Nano)
+func newLogger(appName, version string) zerolog.Logger {
+	zerolog.TimeFieldFormat = "2006-01-02T15:04:05.999999"
+	zerolog.TimestampFunc = func() time.Time {
+		return time.Now().UTC()
+	}
 
-	// Use a buffered, non-blocking writer
-	logWriter := zapcore.AddSync(&zapcore.BufferedWriteSyncer{
-		WS:            zapcore.Lock(os.Stdout), // Output destination
-		Size:          256 * 1024,              // 256 KB buffer before flush
-		FlushInterval: time.Second,             // Flush every second
-	})
+	writers := []io.Writer{
+		os.Stdout, // JSON output
+	}
 
-	encoder := zapcore.NewJSONEncoder(encoderCfg)
-	zapCore = zapcore.NewCore(encoder, logWriter, level)
+	var (
+		fluentdHost string
+		fluentdPort int
+	)
 
-	logger := zap.New(zapCore, zap.AddCaller(), zap.ErrorOutput(zapcore.Lock(os.Stderr)))
-	logger = logger.With(zap.String("app", appName), zap.String("buildVersion", version))
-	return logger
+	if *fluentDHostFlag != "" {
+		var (
+			err  error
+			port string
+		)
+		fluentdHost, port, err = net.SplitHostPort(*fluentDHostFlag)
+		if err != nil {
+			panic(fmt.Sprintf("error parsing fluentd host %v", err))
+		}
+		fluentdPort, err = strconv.Atoi(port)
+		if err != nil {
+			panic(fmt.Sprintf("error parsing fluentd port %v ", err))
+		}
+		logger, err := fluent.New(fluent.Config{
+			FluentHost:    fluentdHost,
+			FluentPort:    fluentdPort,
+			MarshalAsJSON: true,
+			Async:         true,
+			BufferLimit:   defaultBufferLimit,
+		})
+		if err != nil {
+			panic(err)
+		}
+
+		fluentWriter := &fluentstats.FluentWriter{
+			FluentEnabled: true,
+			Fluentd:       logger,
+			NodeID:        *nodeID,
+			TimeFormat:    "2006-01-02T15:04:05.000Z07:00",
+		}
+		writers = append(writers, fluentWriter)
+	}
+
+	return zerolog.New(zerolog.MultiLevelWriter(writers...)).With().Timestamp().Str("app", appName).Str("buildVersion", version).Logger()
 }
 
 func getEnv(key string, defaultValue string) string {
@@ -483,7 +478,7 @@ func getEnv(key string, defaultValue string) string {
 	return defaultValue
 }
 
-func getClientsAndConnsFromURLs(l *zap.Logger, relaysGRPCURL string, conns []*grpc.ClientConn, keepaliveOpts grpc.DialOption, clients []*common.Client) ([]*common.Client, []*grpc.ClientConn) {
+func getClientsAndConnsFromURLs(l zerolog.Logger, relaysGRPCURL string, conns []*grpc.ClientConn, keepaliveOpts grpc.DialOption, clients []*common.Client) ([]*common.Client, []*grpc.ClientConn) {
 	// Parse the relaysGRPCURL
 	relays := strings.Split(relaysGRPCURL, ",")
 	// Dial each relay and store the connections
@@ -500,14 +495,14 @@ func getClientsAndConnsFromURLs(l *zap.Logger, relaysGRPCURL string, conns []*gr
 		cancel()
 		if err != nil {
 			// Handle error: failed to dial relay
-			l.Error("failed to dial relay", zap.Error(err), zap.String("url", relayURL))
+			l.Err(err).Str("url", relayURL).Msg("failed to dial relay")
 			continue
 		}
 		conns = append(conns, conn)
 		clients = append(clients, &common.Client{URL: relayURL, RelayClient: relaygrpc.NewRelayClient(conn)})
 	}
 	if len(conns) == 0 {
-		l.Fatal("failed to create grpc connection")
+		l.Fatal().Msg("failed to create grpc connection")
 	}
 	return clients, conns
 }

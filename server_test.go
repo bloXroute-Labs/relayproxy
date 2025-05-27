@@ -12,10 +12,10 @@ import (
 
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/go-chi/chi/v5"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest"
 )
 
 type MockService struct {
@@ -152,7 +152,7 @@ func TestServer_HandleRegistration(t *testing.T) {
 			mockService: &MockService{
 				logger: zap.NewNop(),
 				RegisterValidatorFunc: func(ctx context.Context, outgoingctx context.Context, in *RegistrationParams) (interface{}, *LogMetric, error) {
-					return nil, nil, toErrorResp(http.StatusInternalServerError, "")
+					return nil, nil, toErrorResp(http.StatusInternalServerError, "", nil)
 				},
 			},
 			expectedCode: http.StatusUnauthorized,
@@ -167,7 +167,7 @@ func TestServer_HandleRegistration(t *testing.T) {
 			}
 			rr := httptest.NewRecorder()
 			dataSvc := NewDataService()
-			server := &Server{svc: tc.mockService, logger: zap.NewNop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
+			server := &Server{svc: tc.mockService, logger: zerolog.Nop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
 			go dataSvc.SetAccounts(context.Background())
 			h := server.Middleware(http.HandlerFunc(server.HandleRegistration))
 			h.ServeHTTP(rr, req)
@@ -259,7 +259,7 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 			req.Header.Add("X-Forwarded-For", tc.ip)
 			rr := httptest.NewRecorder()
-			server := &Server{svc: tc.mockService, logger: zap.NewNop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
+			server := &Server{svc: tc.mockService, logger: zerolog.Nop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
 
 			h := server.Middleware(http.HandlerFunc(server.HandleGetHeader))
 			h.ServeHTTP(rr, req)
@@ -299,7 +299,7 @@ func TestServer_HandleGetPayload(t *testing.T) {
 			mockService: &MockService{
 				logger: zap.NewNop(),
 				GetPayloadFunc: func(ctx context.Context, params *PayloadRequestParams) (any, *LogMetric, error) {
-					return nil, nil, toErrorResp(http.StatusInternalServerError, "failed to getPayload")
+					return nil, nil, toErrorResp(http.StatusInternalServerError, "failed to getPayload", nil)
 				},
 			},
 			expectedCode:  http.StatusInternalServerError,
@@ -314,7 +314,7 @@ func TestServer_HandleGetPayload(t *testing.T) {
 				t.Fatal(err)
 			}
 			rr := httptest.NewRecorder()
-			server := &Server{svc: tc.mockService, logger: zap.NewNop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
+			server := &Server{svc: tc.mockService, logger: zerolog.Nop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
 			h := server.Middleware(http.HandlerFunc(server.HandleGetPayload))
 			h.ServeHTTP(rr, req)
 
@@ -399,7 +399,7 @@ func TestServer_HandleSetDelays(t *testing.T) {
 			opts := make([]ServiceOption, 0)
 			opts = append(opts, WithDataService(dSvc))
 			svc := NewService(opts...)
-			server := &Server{svc: svc, logger: zap.NewNop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
+			server := &Server{svc: svc, logger: zerolog.Nop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
 			server.HandleSetDelays(rrPost, tc.reqPostFunc())
 			assert.Equal(t, rrPost.Code, tc.expectedPostCode)
 
@@ -441,7 +441,7 @@ func TestServer_Middleware(t *testing.T) {
 							BlockList: map[string]struct{}{},
 						},
 					},
-					logger: zaptest.NewLogger(t),
+					logger: zerolog.Nop(),
 					accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 						AccountNameToInfo: make(map[AccountName]*AccountInfo)},
 				}
@@ -467,7 +467,7 @@ func TestServer_Middleware(t *testing.T) {
 							BlockList: map[string]struct{}{},
 						},
 					},
-					logger: zaptest.NewLogger(t),
+					logger: zerolog.Nop(),
 					accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 						AccountNameToInfo: make(map[AccountName]*AccountInfo)},
 				}
@@ -493,7 +493,7 @@ func TestServer_Middleware(t *testing.T) {
 							BlockList: map[string]struct{}{"192.0.2.1": {}},
 						},
 					},
-					logger: zaptest.NewLogger(t),
+					logger: zerolog.Nop(),
 					accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 						AccountNameToInfo: make(map[AccountName]*AccountInfo)},
 				}
