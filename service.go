@@ -60,7 +60,6 @@ const (
 	prefetchAttempts = 20
 
 	optimisticV3FetchPayloadTimeout = 10 * time.Second
-	pathGetPayloadV3                = "/get_payload_v3" // to send fetch payload requests to builders
 	payloadUrlsDataExpectedLength   = 2
 	payloadUrlTypeIndex             = 0
 	payloadUrlsCSVIndex             = 1
@@ -1161,7 +1160,7 @@ func (s *Service) clientPreFetchGetPayloadHTTP(
 
 	// Send request to all builders
 	for _, payloadUrl := range payloadUrls {
-		url := payloadUrl + pathGetPayloadV3
+		url := payloadUrl + common.PathGetPayloadV3
 
 		go func() {
 			result := new(common.VersionedSubmitBlockRequest)

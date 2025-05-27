@@ -1,12 +1,12 @@
 package common
 
 const (
-	//Proxy
+	// Proxy
 	PathIndex         = "/"
 	PathDelaySettings = "/relay_proxy/v1/delay_settings"
 	PathGetAccounts   = "/relay_proxy/v1/accounts"
 
-	//Relay
+	// Relay
 	PathStatus            = "/eth/v1/builder/status"
 	PathRegisterValidator = "/eth/v1/builder/validators"
 	PathGetHeaderPrefix   = "/eth/v1/builder/header"
@@ -14,4 +14,7 @@ const (
 	PathGetPayload        = "/eth/v1/builder/blinded_blocks"
 	PathNode              = "/blxr/node"
 	PathPrefetchBlock     = "/blxr/prefetch_block"
+
+	// Builder
+	PathGetPayloadV3 = "/get_payload_v3"
 )
