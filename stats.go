@@ -39,6 +39,7 @@ type HeaderStreamReceivedRecord struct {
 	NodeID            string `json:"node_id"`
 	AccountID         string `json:"account_id"`
 	Method            string `json:"method"`
+	PayloadFetchUrl   string `json:"payload_fetch_url"`
 }
 
 type BlockStreamReceivedRecord struct {
