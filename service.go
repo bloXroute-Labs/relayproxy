@@ -1125,7 +1125,9 @@ func (s *Service) prefetchPayloadFromBuilder(ctx context.Context, fields *preFet
 		success.Store(s.clientPreFetchGetPayloadHTTP(ctx, logMetric, fields, payloadUrls))
 		return
 	case PayloadUrlTypeGRPC:
-		// TODO: do something else here?
+		// We only support HTTP requests for Optimistic V3 payloads from builders for now
+		s.logger.Warn().Fields(logMetric.GetFields()).Msg("Ignoring fetch Optimistic V3 payload request with 'grpc' URL type")
+		return
 	default:
 		s.logger.Error().Err(errors.New("invalid payload URL type")).Fields(logMetric.GetFields()).Msg("Failed to fetch Optimistic V3 payload from builder")
 		return
