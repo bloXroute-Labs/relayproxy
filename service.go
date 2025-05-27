@@ -1122,10 +1122,10 @@ func (s *Service) clientPreFetchGetPayloadHTTP(
 	ctx context.Context,
 	logMetric *LogMetric,
 	slot uint64,
-	blockHash phase0.Hash32,
+	blockHash string,
 	parentHash string,
 	proposerPubkey string,
-	builderPubkey phase0.BLSPubKey,
+	builderPubkey string,
 	payloadUrls []string,
 ) bool {
 	_, fetchSpan := s.tracer.Start(ctx, "clientPreFetchGetPayloadHTTP")
@@ -1133,10 +1133,10 @@ func (s *Service) clientPreFetchGetPayloadHTTP(
 
 	fetchSpan.SetAttributes(
 		attribute.Int64("slot", int64(slot)),
-		attribute.String("blockHash", blockHash.String()),
+		attribute.String("blockHash", blockHash),
 		attribute.String("parentHash", parentHash),
 		attribute.String("proposerPubkey", proposerPubkey),
-		attribute.String("builderPubkey", builderPubkey.String()),
+		attribute.String("builderPubkey", builderPubkey),
 	)
 
 	payload, err := s.prepareGetPayloadV3Request(blockHash)
@@ -1175,9 +1175,9 @@ func (s *Service) clientPreFetchGetPayloadHTTP(
 	return s.processGetPayloadV3Responses(ctx, responseChan, slot, logMetric)
 }
 
-func (s *Service) prepareGetPayloadV3Request(blockHash phase0.Hash32) (*common.SignedGetPayloadV3, error) {
+func (s *Service) prepareGetPayloadV3Request(blockHash string) (*common.SignedGetPayloadV3, error) {
 	getPayloadV3 := &common.GetPayloadV3{
-		BlockHash:      blockHash,
+		BlockHash:      phase0.Hash32(gethcommon.HexToHash(blockHash)),
 		RequestTs:      uint64(time.Now().UnixMilli()),
 		RelayPublicKey: s.publicKey,
 	}
