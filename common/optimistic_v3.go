@@ -243,9 +243,6 @@ func RelayGrpcHeaderSubmissionToVersioned(header *relaygrpc.StreamHeaderResponse
 		return nil, errors.New("no bid trace or execution payload header")
 	}
 	if header.ExecutionRequests != nil {
-		if !IsElectra {
-			return nil, errors.New("execution requests are only supported in electra")
-		}
 		electraSubmission, err := relaygrpc.ProtoRequestToElectraHeaderSubmission(header)
 		if err != nil {
 			return nil, err
