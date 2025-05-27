@@ -1049,39 +1049,39 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, clientIP, authHeader s
 				s.prefetchPayload(ctx, client, req, span, errChan, respChan, prefetchLogger)
 			}(client)
 		}
-		// Wait for all goroutines to finish
-		defer func() {
-			go func() {
-				wg.Wait()
-				close(respChan)
-				close(errChan)
-			}()
+	}
+	// Wait for all goroutines to finish
+	defer func() {
+		go func() {
+			wg.Wait()
+			close(respChan)
+			close(errChan)
 		}()
+	}()
 
-		// Process responses
-		for i := 0; i < prefetchedRequests; i++ {
-			select {
-			case <-ctx.Done():
-				s.logger.Warn().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload :: Context canceled")
-			case _err := <-errChan:
-				s.logger.Error().Fields(logMetric.GetFields()).Interface("error", _err).Msg("PreFetchGetPayload :: Received error")
-			case out := <-respChan:
-				proxyCacheKey := common.GetKeyForCachingPayload(slot, parentHash, blockHash, pubKey)
-				s.pubKeysBySlots.Set(fmt.Sprintf("%d", slot), pubKey, cache.DefaultExpiration)
+	// Process responses
+	for i := 0; i < prefetchedRequests; i++ {
+		select {
+		case <-ctx.Done():
+			s.logger.Warn().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload :: Context canceled")
+		case _err := <-errChan:
+			s.logger.Error().Fields(logMetric.GetFields()).Interface("error", _err).Msg("PreFetchGetPayload :: Received error")
+		case out := <-respChan:
+			proxyCacheKey := common.GetKeyForCachingPayload(slot, parentHash, blockHash, pubKey)
+			s.pubKeysBySlots.Set(fmt.Sprintf("%d", slot), pubKey, cache.DefaultExpiration)
 
-				payloadResponse := &common.PayloadResponseForProxy{
-					MarshalledPayloadResponse: out.VersionedExecutionPayload,
-					BlockValue:                blockValue,
-				}
+			payloadResponse := &common.PayloadResponseForProxy{
+				MarshalledPayloadResponse: out.VersionedExecutionPayload,
+				BlockValue:                blockValue,
+			}
 
-				if err := s.getPayloadResponseForProxySlot.Add(proxyCacheKey, payloadResponse, cache.DefaultExpiration); err != nil {
-					s.logger.Warn().Fields(logMetric.GetFields()).Err(err).Msg("PreFetchGetPayload :: respChan :: cache execution payload failed")
-					return
-				}
-
-				s.logger.Info().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload :: respChan :: preFetchGetPayload succeeded")
+			if err := s.getPayloadResponseForProxySlot.Add(proxyCacheKey, payloadResponse, cache.DefaultExpiration); err != nil {
+				s.logger.Warn().Fields(logMetric.GetFields()).Err(err).Msg("PreFetchGetPayload :: respChan :: cache execution payload failed")
 				return
 			}
+
+			s.logger.Info().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload :: respChan :: preFetchGetPayload succeeded")
+			return
 		}
 	}
 }
