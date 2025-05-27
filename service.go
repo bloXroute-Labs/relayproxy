@@ -971,18 +971,25 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	s.logger.Info().Fields(logMetric.GetFields()).Msg("received preFetchGetPayload")
 	span.SetAttributes(logMetric.GetAttributes()...)
 
-	//-----------------------------------------------------------------------------------------
-
 	// If necessary, fetch the Optimistic V3 payload directly from the specified builder URL(s)
 	if fields.payloadFetchUrl != "" {
 		s.prefetchPayloadFromBuilder(ctx, &fields, logMetric)
 		return
 	}
 
-	//-----------------------------------------------------------------------------------------
+	s.prefetchPayloadGRPC(ctx, &fields, logMetric, span, id, startTime)
+}
 
+func (s *Service) prefetchPayloadGRPC(
+	ctx context.Context,
+	fields *preFetcherFields,
+	logMetric *LogMetric,
+	span trace.Span,
+	reqID string,
+	startTime time.Time,
+) {
 	req := &relaygrpc.PreFetchGetPayloadRequest{
-		ReqId:       id,
+		ReqId:       reqID,
 		Version:     s.version,
 		SecretToken: s.secretToken,
 		Slot:        fields.slot,
