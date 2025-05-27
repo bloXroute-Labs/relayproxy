@@ -127,9 +127,13 @@ func main() {
 	}
 	urlToURLOpts := map[string]URLOpts{}
 	urlOpts := strings.Split(*relayIPOpts, ",")
-	if len(urlOpts)%2 != 0 {
+	if len(urlOpts) == 1 {
+		urlOpts = []string{}
+	}
+	if len(urlOpts) > 0 && len(urlOpts)%2 != 0 {
 		l.Fatal().Msg("incorrect length of url options")
 	}
+
 	for i := 0; i < len(urlOpts); i += 2 {
 		primaryURL := urlOpts[i]
 		backupURL := urlOpts[i+1]
