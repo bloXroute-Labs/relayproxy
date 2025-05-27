@@ -995,7 +995,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 
 		switch PayloadUrlType(payloadUrlType) {
 		case PayloadUrlTypeHTTP:
-			s.clientPreFetchGetPayloadHTTP(ctx, logMetric, fields.slot, fields.blockHash, fields.parentHash, fields.proposerPubKey, fields.builderPubKey, payloadUrls)
+			s.clientPreFetchGetPayloadHTTP(ctx, logMetric, &fields, payloadUrls)
 			return
 		case PayloadUrlTypeGRPC:
 			// TODO: do something else here?
@@ -1121,25 +1121,21 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 func (s *Service) clientPreFetchGetPayloadHTTP(
 	ctx context.Context,
 	logMetric *LogMetric,
-	slot uint64,
-	blockHash string,
-	parentHash string,
-	proposerPubkey string,
-	builderPubkey string,
+	fields *preFetcherFields,
 	payloadUrls []string,
 ) bool {
 	_, fetchSpan := s.tracer.Start(ctx, "clientPreFetchGetPayloadHTTP")
 	defer fetchSpan.End()
 
 	fetchSpan.SetAttributes(
-		attribute.Int64("slot", int64(slot)),
-		attribute.String("blockHash", blockHash),
-		attribute.String("parentHash", parentHash),
-		attribute.String("proposerPubkey", proposerPubkey),
-		attribute.String("builderPubkey", builderPubkey),
+		attribute.Int64("slot", int64(fields.slot)),
+		attribute.String("blockHash", fields.blockHash),
+		attribute.String("parentHash", fields.parentHash),
+		attribute.String("proposerPubkey", fields.proposerPubKey),
+		attribute.String("builderPubkey", fields.builderPubKey),
 	)
 
-	payload, err := s.prepareGetPayloadV3Request(blockHash)
+	payload, err := s.prepareGetPayloadV3Request(fields.blockHash)
 	if err != nil {
 		s.logger.Error().Err(err).Fields(logMetric.GetFields()).Msg("failed to prepare HTTP get_payload_v3 request")
 		return false
@@ -1172,7 +1168,7 @@ func (s *Service) clientPreFetchGetPayloadHTTP(
 	}
 
 	// Process first positive response from builder (or timeout)
-	return s.processGetPayloadV3Responses(ctx, responseChan, slot, logMetric)
+	return s.processGetPayloadV3Responses(ctx, responseChan, logMetric, fields)
 }
 
 func (s *Service) prepareGetPayloadV3Request(blockHash string) (*common.SignedGetPayloadV3, error) {
@@ -1196,17 +1192,17 @@ func (s *Service) prepareGetPayloadV3Request(blockHash string) (*common.SignedGe
 func (s *Service) processGetPayloadV3Responses(
 	ctx context.Context,
 	responseChan chan *common.VersionedSubmitBlockRequest,
-	slot uint64,
 	logMetric *LogMetric,
+	fields *preFetcherFields,
 ) bool {
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Error().Fields(logMetric.GetFields()).Msg("context cancelled")
+			s.logger.Error().Fields(logMetric.GetFields()).Msg("PreFetchGetPayloadV3 :: context cancelled")
 			return false
 		case response := <-responseChan:
 			if response == nil {
-				s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to prefetch payload with HTTP, received nil payload from builder")
+				s.logger.Error().Fields(logMetric.GetFields()).Msg("PreFetchGetPayloadV3 :: failed to prefetch payload with HTTP, received nil payload from builder")
 				continue
 			}
 
@@ -1215,14 +1211,24 @@ func (s *Service) processGetPayloadV3Responses(
 				s.logger.Fatal().Fields(logMetric.GetFields()).Err(err)
 			}
 
-			getPayloadResponse := &common.VersionedSubmitBlindedBlockResponse{VersionedSubmitBlindedBlockResponse: *getPayloadResponseSpec}
+			getPayloadResponse := common.VersionedSubmitBlindedBlockResponse{VersionedSubmitBlindedBlockResponse: *getPayloadResponseSpec}
+			proxyCacheKey := common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey)
+			s.pubKeysBySlots.Set(fmt.Sprintf("%d", fields.slot), fields.proposerPubKey, cache.DefaultExpiration)
 
-			// TODO: convert to proxy payload response
+			payloadResponse := &common.PayloadResponseForProxy{
+				PayloadResponse: getPayloadResponse,
+				BlockValue:      fields.blockValue,
+			}
 
-			s.logger.Info().Fields(logMetric.GetFields()).Msg("prefetchPayload succeeded")
+			if err := s.getPayloadResponseForProxySlot.Add(proxyCacheKey, payloadResponse, cache.DefaultExpiration); err != nil {
+				s.logger.Warn().Fields(logMetric.GetFields()).Err(err).Msg("PreFetchGetPayloadV3 :: cache execution payload already exists")
+				return true
+			}
+
+			s.logger.Info().Fields(logMetric.GetFields()).Msg("PreFetchGetPayloadV3 :: preFetchGetPayload succeeded")
 			return true
 		case <-time.After(optimisticV3FetchPayloadTimeout):
-			s.logger.Error().Fields(logMetric.GetFields()).Msg("timeout waiting for prefetch payload HTTP response")
+			s.logger.Error().Fields(logMetric.GetFields()).Msg("PreFetchGetPayloadV3 :: timeout waiting for prefetch payload HTTP response")
 			return false
 		}
 	}
