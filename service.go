@@ -96,6 +96,7 @@ type Service struct {
 	ethNetworkDetails  *common.EthNetworkDetails
 
 	dialerClients                 *DialerClients
+	dialer                        *Dialer
 	currentRegistrationRelayIndex int
 	registrationRelayMutex        sync.Mutex
 
@@ -151,15 +152,19 @@ func NewService(opts ...ServiceOption) *Service {
 	return svc
 }
 
-func (s *Service) UpdateDialer(c *DialerClients) {
+func (s *Service) UpdateDialer(d *Dialer) {
 	s.dialerClients.mu.Lock()
 	defer s.dialerClients.mu.Unlock()
-
-	s.dialerClients.clients = c.clients
-	s.dialerClients.streamingClients = c.streamingClients
-	s.dialerClients.registrationClients = c.registrationClients
-	s.dialerClients.streamingBlockClients = c.streamingBlockClients
+	s.dialer = d
+	s.dialerClients.clients = d.DialerClients.clients
+	s.dialerClients.streamingClients = d.DialerClients.streamingClients
+	s.dialerClients.registrationClients = d.DialerClients.registrationClients
+	s.dialerClients.streamingBlockClients = d.DialerClients.streamingBlockClients
 	s.logger.Info().Msg("Service clients updated")
+}
+
+func (s *Service) CloseConnections() {
+	s.dialer.CloseConnections()
 }
 
 func (s *Service) HealthCheck() error {

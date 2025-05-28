@@ -2,6 +2,7 @@ package relayproxy
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -173,7 +174,7 @@ func (d *Dialer) CloseConnections() {
 	d.DialerConnections.StreamingBlockConns = nil
 }
 
-func (d *Dialer) MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThreshold int, originalDialerOpts []DialerOption, failoverDialerOpts ...DialerOption) {
+func MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThreshold int, originalDialerOpts []DialerOption, failoverDialerOpts []DialerOption) {
 	var failoverCounter int
 	currentlyOriginal := true
 	for {
@@ -183,19 +184,24 @@ func (d *Dialer) MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThr
 		} else {
 			failoverCounter = 0
 		}
-
-		if failoverCounter >= failOverThreshold {
+		switchToOriginal := false
+		if !currentlyOriginal {
+			originalDialer := NewDialer(originalDialerOpts...) // create new fail over dialer
+			originalDialer.SetDialer(l)
+			switchToOriginal = originalDialer.ExternalHealthcheck()
+		}
+		if failoverCounter >= failOverThreshold || (switchToOriginal) {
 			l.Warn().Msg("primary connections are down after multiple failed attempts, switching to fail over")
 			// close previous connections
-			d.CloseConnections()
+			svc.CloseConnections()
 			if currentlyOriginal {
 				failOverDialer := NewDialer(failoverDialerOpts...) // create new fail over dialer
 				failOverDialer.SetDialer(l)
-				svc.UpdateDialer(failOverDialer.DialerClients) // update the service dialer clients
+				svc.UpdateDialer(failOverDialer) // update the service dialer clients
 			} else {
 				originalDialer := NewDialer(originalDialerOpts...) // create new fail over dialer
 				originalDialer.SetDialer(l)
-				svc.UpdateDialer(originalDialer.DialerClients) // update the service dialer clients
+				svc.UpdateDialer(originalDialer) // update the service dialer clients
 			}
 			failoverCounter = 0
 			currentlyOriginal = !currentlyOriginal
@@ -203,4 +209,37 @@ func (d *Dialer) MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThr
 
 		time.Sleep(10 * time.Second)
 	}
+}
+
+func (d *Dialer) ExternalHealthcheck() bool {
+	url := d.DialURL.RelayURL + "," + d.DialURL.StreamingURL + "," + d.DialURL.RegistrationURL + "," + d.DialURL.StreamingBlockURL
+	relays := strings.Split(url, ",")
+	ctx := context.Background()
+	for _, relayURL := range relays {
+		// Create an HTTP client with a reasonable timeout.
+		client := &http.Client{
+			Timeout: 10 * time.Second,
+		}
+
+		// Build a new request bound to the caller’s context so it can be cancelled.
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+relayURL+common.PathNode, nil)
+		if err != nil {
+			return false
+		}
+
+		// Perform the request.
+		resp, err := client.Do(req)
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close() // always close the body!
+
+		// Any HTTP status code means the host responded.
+		if resp.StatusCode >= 100 && resp.StatusCode <= 599 {
+
+		} else {
+			return false
+		}
+	}
+	return true
 }
