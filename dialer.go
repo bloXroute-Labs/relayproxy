@@ -188,9 +188,9 @@ func (d *Dialer) MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThr
 			l.Warn().Msg("primary connections are down after multiple failed attempts, switching to fail over")
 			// close previous connections
 			d.CloseConnections()
-			failOverDialer := NewDialer(dialerOpts...)     // create new fail over dialer
+			failOverDialer := NewDialer(dialerOpts...) // create new fail over dialer
+			failOverDialer.SetDialer(l)
 			svc.UpdateDialer(failOverDialer.DialerClients) // update the service dialer clients
-
 			failoverCounter = 0
 		}
 
