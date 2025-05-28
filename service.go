@@ -878,12 +878,12 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, 
 	payload, prevSigned, err := slotBestHeader.GetPayload(s.secretKey, &s.publicKey, s.builderSigningDomain)
 	if err != nil {
 		logMetric.Error(err)
-		s.logger.Info().Fields(logMetric.GetFields()).Msg("failed to get signed header")
+		s.logger.Debug().Fields(logMetric.GetFields()).Msg("failed to get signed header")
 	}
 	if prevSigned {
-		s.logger.Info().Fields(logMetric.GetFields()).Msg("previously signed header")
+		s.logger.Debug().Fields(logMetric.GetFields()).Msg("previously signed header")
 	} else {
-		s.logger.Info().Fields(logMetric.GetFields()).Msg("newly signed header")
+		s.logger.Debug().Fields(logMetric.GetFields()).Msg("newly signed header")
 	}
 	return json.RawMessage(payload), logMetric, nil
 }
@@ -2455,7 +2455,7 @@ func (s *Service) handleStreamBuilderInfoResponse(
 		for _, wallet := range newBuilderInfo.WalletAccounts {
 			curWallet, found := (*s.walletAccounts)[wallet.Pubkey.String()]
 			if found && curWallet != nil && curWallet.LastUpdatedBlock < wallet.LastUpdatedBlock {
-				s.logger.Info().
+				s.logger.Debug().
 					Str("pubkey", wallet.Pubkey.String()).
 					Uint64("lastUpdatedBlock", wallet.LastUpdatedBlock).
 					Uint64("balance", wallet.Balance.Uint64()).
