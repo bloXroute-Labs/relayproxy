@@ -421,7 +421,7 @@ func main() {
 		failOverDialerOpts = append(failOverDialerOpts, relayproxy.WithRelayURL(failOverRelaysGRPCURL))
 		failOverDialerOpts = append(failOverDialerOpts, relayproxy.WithStreamingURL(failOverStreamingRelaysGRPCURL))
 		failOverDialerOpts = append(failOverDialerOpts, relayproxy.WithRegistrationURL(failOverRegistrationRelaysGRPCURL))
-		primaryDialer.MonitorDialerHealth(l, svc, failOverThreshold, failOverDialerOpts...)
+		primaryDialer.MonitorDialerHealth(l, svc, failOverThreshold, dialerOpts, failOverDialerOpts...)
 	}()
 
 	// start receiving account info

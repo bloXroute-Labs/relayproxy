@@ -173,9 +173,9 @@ func (d *Dialer) CloseConnections() {
 	d.DialerConnections.StreamingBlockConns = nil
 }
 
-func (d *Dialer) MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThreshold int, dialerOpts ...DialerOption) {
+func (d *Dialer) MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThreshold int, originalDialerOpts []DialerOption, failoverDialerOpts ...DialerOption) {
 	var failoverCounter int
-
+	currentlyOriginal := true
 	for {
 		if err := svc.HealthCheck(); err != nil {
 			l.Error().Err(err).Msg("primary relay health check failed,increasing counter")
@@ -188,10 +188,17 @@ func (d *Dialer) MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThr
 			l.Warn().Msg("primary connections are down after multiple failed attempts, switching to fail over")
 			// close previous connections
 			d.CloseConnections()
-			failOverDialer := NewDialer(dialerOpts...) // create new fail over dialer
-			failOverDialer.SetDialer(l)
-			svc.UpdateDialer(failOverDialer.DialerClients) // update the service dialer clients
+			if currentlyOriginal {
+				failOverDialer := NewDialer(failoverDialerOpts...) // create new fail over dialer
+				failOverDialer.SetDialer(l)
+				svc.UpdateDialer(failOverDialer.DialerClients) // update the service dialer clients
+			} else {
+				originalDialer := NewDialer(originalDialerOpts...) // create new fail over dialer
+				originalDialer.SetDialer(l)
+				svc.UpdateDialer(originalDialer.DialerClients) // update the service dialer clients
+			}
 			failoverCounter = 0
+			currentlyOriginal = !currentlyOriginal
 		}
 
 		time.Sleep(10 * time.Second)
