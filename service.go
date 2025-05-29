@@ -168,6 +168,7 @@ func (s *Service) CloseConnections() {
 }
 
 func (s *Service) HealthCheck() error {
+	s.logger.Info().Msg("starting healthcheck")
 	s.dialerClients.mu.RLock()
 	defer s.dialerClients.mu.RUnlock()
 	var (
@@ -176,6 +177,7 @@ func (s *Service) HealthCheck() error {
 	)
 
 	for _, client := range s.dialerClients.clients {
+		s.logger.Info().Msg("making healthcheck request")
 		_, err := client.RelayClient.Ping(context.Background(), &relaygrpc.PingRequest{})
 		if err != nil {
 			failCount++
@@ -344,9 +346,7 @@ func (s *Service) registerValidatorForClient(_ctx context.Context, req *relaygrp
 	})
 }
 func (s *Service) StartStreamHeaders(ctx context.Context, wg *sync.WaitGroup) {
-
 	s.dialerClients.mu.RLock()
-	defer s.dialerClients.mu.RUnlock()
 	for _, client := range s.dialerClients.streamingClients {
 		wg.Add(1)
 		go func(_ctx context.Context, c *common.Client) {
@@ -354,6 +354,7 @@ func (s *Service) StartStreamHeaders(ctx context.Context, wg *sync.WaitGroup) {
 			s.handleStream(_ctx, c)
 		}(ctx, client)
 	}
+	s.dialerClients.mu.RUnlock()
 	wg.Wait()
 }
 
@@ -1758,7 +1759,6 @@ func (s *Service) EmitSlotStats(ctx context.Context) {
 
 func (s *Service) StartStreamBlocks(ctx context.Context, wg *sync.WaitGroup) {
 	s.dialerClients.mu.RLock()
-	defer s.dialerClients.mu.RUnlock()
 	for _, client := range s.dialerClients.streamingBlockClients {
 		wg.Add(1)
 		go func(_ctx context.Context, c *common.Client) {
@@ -1766,6 +1766,7 @@ func (s *Service) StartStreamBlocks(ctx context.Context, wg *sync.WaitGroup) {
 			s.handleBlockStream(_ctx, c)
 		}(ctx, client)
 	}
+	s.dialerClients.mu.RUnlock()
 	go s.handleForwardedBlockResponse()
 	wg.Wait()
 }
@@ -2243,7 +2244,6 @@ func isVouch(userAgent string) bool {
 
 func (s *Service) StartStreamBuilderInfo(ctx context.Context, wg *sync.WaitGroup) {
 	s.dialerClients.mu.RLock()
-	defer s.dialerClients.mu.RUnlock()
 	for _, client := range s.dialerClients.streamingBlockClients {
 		wg.Add(1)
 		go func(_ctx context.Context, c *common.Client) {
@@ -2251,6 +2251,7 @@ func (s *Service) StartStreamBuilderInfo(ctx context.Context, wg *sync.WaitGroup
 			s.handleBuilderInfoStream(_ctx, c)
 		}(ctx, client)
 	}
+	s.dialerClients.mu.RUnlock()
 	wg.Wait()
 }
 

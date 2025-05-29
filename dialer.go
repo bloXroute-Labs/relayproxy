@@ -147,6 +147,9 @@ func (d *Dialer) SetDialer(l zerolog.Logger) {
 }
 
 func (d *Dialer) CloseConnections() {
+	if d.DialerConnections == nil {
+		d.DialerConnections = &DialerConnections{}
+	}
 	for _, conn := range d.DialerConnections.Conns {
 		if conn != nil {
 			conn.Close()
@@ -174,10 +177,12 @@ func (d *Dialer) CloseConnections() {
 	d.DialerConnections.StreamingBlockConns = nil
 }
 
-func MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThreshold int, originalDialerOpts []DialerOption, failoverDialerOpts []DialerOption) {
+func MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThreshold int, originalDialerOpts []DialerOption, failoverDialerOpts []DialerOption, createStreams func()) {
+	l.Info().Msg("monitoring dialer health")
 	var failoverCounter int
 	currentlyOriginal := true
 	for {
+		l.Info().Msg("performing switch check")
 		if err := svc.HealthCheck(); err != nil {
 			l.Error().Err(err).Msg("primary relay health check failed,increasing counter")
 			failoverCounter++
@@ -191,7 +196,11 @@ func MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThreshold int, 
 			switchToOriginal = originalDialer.ExternalHealthcheck()
 		}
 		if failoverCounter >= failOverThreshold || (switchToOriginal) {
-			l.Warn().Msg("primary connections are down after multiple failed attempts, switching to fail over")
+			if currentlyOriginal {
+				l.Warn().Msg("primary connections are down after multiple failed attempts, switching to fail over")
+			} else {
+				l.Info().Bool("switchToOriginal", switchToOriginal).Msg("switching back to original connections")
+			}
 			// close previous connections
 			svc.CloseConnections()
 			if currentlyOriginal {
@@ -203,11 +212,13 @@ func MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThreshold int, 
 				originalDialer.SetDialer(l)
 				svc.UpdateDialer(originalDialer) // update the service dialer clients
 			}
+
+			createStreams()
 			failoverCounter = 0
 			currentlyOriginal = !currentlyOriginal
 		}
-
 		time.Sleep(10 * time.Second)
+
 	}
 }
 

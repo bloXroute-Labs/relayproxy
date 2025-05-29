@@ -414,6 +414,13 @@ func main() {
 		close(exit)
 	}()
 
+	createStreams := func() {
+		// start streaming headers
+		go func(_ctx context.Context) {
+			wg := new(sync.WaitGroup)
+			svc.StartStreamHeaders(_ctx, wg)
+		}(ctx)
+	}
 	go func() {
 		var (
 			failOverDialerOpts []relayproxy.DialerOption
@@ -421,7 +428,7 @@ func main() {
 		failOverDialerOpts = append(failOverDialerOpts, relayproxy.WithRelayURL(failOverRelaysGRPCURL))
 		failOverDialerOpts = append(failOverDialerOpts, relayproxy.WithStreamingURL(failOverStreamingRelaysGRPCURL))
 		failOverDialerOpts = append(failOverDialerOpts, relayproxy.WithRegistrationURL(failOverRegistrationRelaysGRPCURL))
-		relayproxy.MonitorDialerHealth(l, svc, failOverThreshold, dialerOpts, failOverDialerOpts)
+		relayproxy.MonitorDialerHealth(l, svc, failOverThreshold, dialerOpts, failOverDialerOpts, createStreams)
 	}()
 
 	// start receiving account info
@@ -429,12 +436,6 @@ func main() {
 
 	// start listening for payload prefetch event
 	go svc.StartPreFetcher(ctx)
-
-	// start streaming headers
-	go func(_ctx context.Context) {
-		wg := new(sync.WaitGroup)
-		svc.StartStreamHeaders(_ctx, wg)
-	}(ctx)
 
 	if err := server.Start(); err != nil {
 		l.Fatal().Err(err).Msg("failed to start relay proxy server")
