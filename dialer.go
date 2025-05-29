@@ -177,7 +177,7 @@ func (d *Dialer) CloseConnections() {
 	d.DialerConnections.StreamingBlockConns = nil
 }
 
-func MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThreshold int, originalDialerOpts []DialerOption, failoverDialerOpts []DialerOption, createStreams func()) {
+func MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThreshold int, originalDialerOpts []DialerOption, failoverDialerOpts []DialerOption, createStreams func(context.Context), currentDialerContext context.Context, cancelFunc context.CancelFunc) {
 	l.Info().Msg("monitoring dialer health")
 	var failoverCounter int
 	currentlyOriginal := true
@@ -203,6 +203,7 @@ func MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThreshold int, 
 			}
 			// close previous connections
 			svc.CloseConnections()
+			cancelFunc()
 			if currentlyOriginal {
 				failOverDialer := NewDialer(failoverDialerOpts...) // create new fail over dialer
 				failOverDialer.SetDialer(l)
@@ -213,7 +214,8 @@ func MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThreshold int, 
 				svc.UpdateDialer(originalDialer) // update the service dialer clients
 			}
 
-			createStreams()
+			currentDialerContext, cancelFunc = context.WithCancel(context.Background())
+			createStreams(currentDialerContext)
 			failoverCounter = 0
 			currentlyOriginal = !currentlyOriginal
 		}

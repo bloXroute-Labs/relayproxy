@@ -414,13 +414,14 @@ func main() {
 		close(exit)
 	}()
 
-	createStreams := func() {
+	createStreams := func(ctx context.Context) {
 		// start streaming headers
 		go func(_ctx context.Context) {
 			wg := new(sync.WaitGroup)
 			svc.StartStreamHeaders(_ctx, wg)
 		}(ctx)
 	}
+	currentDialerContext, cancelFunc := context.WithCancel(context.Background())
 	go func() {
 		var (
 			failOverDialerOpts []relayproxy.DialerOption
@@ -428,9 +429,9 @@ func main() {
 		failOverDialerOpts = append(failOverDialerOpts, relayproxy.WithRelayURL(failOverRelaysGRPCURL))
 		failOverDialerOpts = append(failOverDialerOpts, relayproxy.WithStreamingURL(failOverStreamingRelaysGRPCURL))
 		failOverDialerOpts = append(failOverDialerOpts, relayproxy.WithRegistrationURL(failOverRegistrationRelaysGRPCURL))
-		relayproxy.MonitorDialerHealth(l, svc, failOverThreshold, dialerOpts, failOverDialerOpts, createStreams)
+		relayproxy.MonitorDialerHealth(l, svc, failOverThreshold, dialerOpts, failOverDialerOpts, createStreams, currentDialerContext, cancelFunc)
 	}()
-
+	createStreams(currentDialerContext)
 	// start receiving account info
 	go dataSvc.SetAccounts(ctx)
 
