@@ -113,3 +113,58 @@ func (r *VersionedSubmitBlockRequest) UnmarshalJSON(input []byte) error {
 	}
 	return errors.Wrap(err, "failed to unmarshal SubmitBlockRequest ")
 }
+
+// ExecutionPayloadExtraData returns the extra data of the payload.
+func (r *VersionedSubmitBlockRequest) ExecutionPayloadExtraData() ([]byte, error) {
+	if r == nil {
+		return nil, errors.New("nil struct")
+	}
+	switch r.Version {
+	case spec.DataVersionElectra:
+		if r.Electra == nil {
+			return nil, errors.New("no data")
+		}
+		if r.Electra.ExecutionPayload == nil {
+			return nil, errors.New("no data execution payload")
+		}
+		return r.Electra.ExecutionPayload.ExtraData, nil
+	case spec.DataVersionDeneb:
+		if r.Deneb == nil {
+			return nil, errors.New("no data")
+		}
+		if r.Deneb.ExecutionPayload == nil {
+			return nil, errors.New("no data execution payload")
+		}
+		return r.Deneb.ExecutionPayload.ExtraData, nil
+	default:
+		return nil, errors.New("unsupported version")
+	}
+}
+
+// ExecutionPayloadLogsBloom returns the logs bloom filter of the payload.
+func (r *VersionedSubmitBlockRequest) ExecutionPayloadLogsBloom() ([256]byte, error) {
+	if r == nil {
+		return [256]byte{}, errors.New("nil struct")
+	}
+	switch r.Version {
+	case spec.DataVersionElectra:
+		if r.Electra == nil {
+			return [256]byte{}, errors.New("no data")
+		}
+		if r.Electra.ExecutionPayload == nil {
+			return [256]byte{}, errors.New("no data execution payload")
+		}
+		return r.Electra.ExecutionPayload.LogsBloom, nil
+
+	case spec.DataVersionDeneb:
+		if r.Deneb == nil {
+			return [256]byte{}, errors.New("no data")
+		}
+		if r.Deneb.ExecutionPayload == nil {
+			return [256]byte{}, errors.New("no data execution payload")
+		}
+		return r.Deneb.ExecutionPayload.LogsBloom, nil
+	default:
+		return [256]byte{}, errors.New("unsupported version")
+	}
+}
