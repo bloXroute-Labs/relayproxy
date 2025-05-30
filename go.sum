@@ -10,6 +10,8 @@ github.com/bloXroute-Labs/relay-grpc v0.0.48 h1:LEroSKex8God+ikkz8zSRm1rf2FpTQvA
 github.com/bloXroute-Labs/relay-grpc v0.0.48/go.mod h1:mrqCpHmBG2U6z/ImCTgYW2kT3FCrRS+vXSe1oswlj4o=
 github.com/bloXroute-Labs/relay-grpc v0.0.49 h1:rukWpn9e2NxofYH0QSUvA6tRTAHjbx8J75Xw1laq+00=
 github.com/bloXroute-Labs/relay-grpc v0.0.49/go.mod h1:mrqCpHmBG2U6z/ImCTgYW2kT3FCrRS+vXSe1oswlj4o=
+github.com/bloXroute-Labs/relay-grpc v0.0.50 h1:oKyF6sxbHx/n4H7ulA+xxkZGggpYeJKKocPXdTz7Z0w=
+github.com/bloXroute-Labs/relay-grpc v0.0.50/go.mod h1:mrqCpHmBG2U6z/ImCTgYW2kT3FCrRS+vXSe1oswlj4o=
 github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 h1:DDGfHa7BWjL4YnC6+E63dPcxHo2sUxDIu8g3QgEJdRY=
 github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869/go.mod h1:Ekp36dRnpXw/yCqJaO+ZrUyxD+3VXMFFr56k5XYrpB4=
 github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK343L8=
