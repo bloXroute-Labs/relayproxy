@@ -2316,7 +2316,7 @@ func (s *Service) handleStreamBlockResponse(
 		Source: "proxy-block-" + clientIP,
 	}, cache.DefaultExpiration)
 
-	s.logger.Info().Fields(lm.GetFields()).Msg("received block")
+	s.logger.Info().Fields(lm.GetFields()).Msg("received streamed block")
 
 	_, storeBidsSpan := s.tracer.Start(spanCtx, "StreamHeader-storeBids")
 	s.setBuilderBidForProxySlot(k, block.GetBuilderPubkey(), bid, block.GetSlot())
