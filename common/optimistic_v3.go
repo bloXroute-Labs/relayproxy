@@ -10,8 +10,9 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/deneb"
 	"github.com/attestantio/go-eth2-client/spec/electra"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
 	"github.com/pkg/errors"
+
+	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
 )
 
 const (
