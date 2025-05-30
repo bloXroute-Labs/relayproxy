@@ -187,15 +187,27 @@ func MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThreshold int, 
 			l.Error().Err(err).Msg("primary relay health check failed,increasing counter")
 			failoverCounter++
 		} else {
-			failoverCounter = 0
+			failoverCounter++
+			//failoverCounter = 0
 		}
 		switchToOriginal := false
 		if !currentlyOriginal {
 			originalDialer := NewDialer(originalDialerOpts...) // create new fail over dialer
 			originalDialer.SetDialer(l)
 			switchToOriginal = originalDialer.ExternalHealthcheck()
+			if switchToOriginal {
+				svc.CloseConnections()
+				cancelFunc()
+				svc.UpdateDialer(originalDialer)
+				currentDialerContext, cancelFunc = context.WithCancel(context.Background())
+				createStreams(currentDialerContext)
+				failoverCounter = 0
+				currentlyOriginal = true
+				time.Sleep(10 * time.Second)
+				continue
+			}
 		}
-		if failoverCounter >= failOverThreshold || (switchToOriginal) {
+		if failoverCounter >= failOverThreshold {
 			if currentlyOriginal {
 				l.Warn().Msg("primary connections are down after multiple failed attempts, switching to fail over")
 			} else {
