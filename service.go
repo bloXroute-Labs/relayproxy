@@ -878,7 +878,7 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, 
 	payload, prevSigned, err := slotBestHeader.GetPayload(s.secretKey, &s.publicKey, s.builderSigningDomain)
 	if err != nil {
 		logMetric.Error(err)
-		s.logger.Debug().Fields(logMetric.GetFields()).Msg("failed to get signed header")
+		s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to get signed header")
 	}
 	if prevSigned {
 		s.logger.Debug().Fields(logMetric.GetFields()).Msg("previously signed header")
