@@ -58,28 +58,14 @@ const (
 	reconnectTime                     = 6000
 
 	prefetchAttempts = 20
-
-	optimisticV3FetchPayloadTimeout = 10 * time.Second
-	payloadUrlsDataExpectedLength   = 2
-	payloadUrlTypeIndex             = 0
-	payloadUrlsCSVIndex             = 1
-	payloadUrlsTypeSeparator        = ";"
 )
 
 var (
-
 	// errors
 	errInvalidSlot           = errors.New("invalid slot")
 	errInvalidPubkey         = errors.New("invalid pubkey")
 	errInvalidHash           = errors.New("invalid hash")
 	errContextDeadlineString = "context deadline exceeded"
-)
-
-type PayloadUrlType string
-
-const (
-	PayloadUrlTypeGRPC PayloadUrlType = "grpc"
-	PayloadUrlTypeHTTP PayloadUrlType = "http"
 )
 
 type IService interface {
@@ -1104,16 +1090,16 @@ func (s *Service) prefetchPayloadFromBuilder(ctx context.Context, fields *preFet
 		span.End()
 	}()
 
-	payloadUrlsData := common.SafeSplit(fields.payloadFetchUrl, payloadUrlsTypeSeparator)
+	payloadUrlsData := common.SafeSplit(fields.payloadFetchUrl, common.PayloadUrlsTypeSeparator)
 
-	if len(payloadUrlsData) != payloadUrlsDataExpectedLength {
+	if len(payloadUrlsData) != common.PayloadUrlsDataExpectedLength {
 		logMetric.Fields(map[string]any{"payloadUrlsData": payloadUrlsData})
 		s.logger.Error().Err(errors.New("invalid payload URL format")).Fields(logMetric.GetFields()).Msg("Failed to fetch Optimistic V3 payload from builder")
 		return
 	}
 
-	payloadUrlType := payloadUrlsData[payloadUrlTypeIndex]
-	payloadUrlsCSV := payloadUrlsData[payloadUrlsCSVIndex]
+	payloadUrlType := payloadUrlsData[common.PayloadUrlTypeIndex]
+	payloadUrlsCSV := payloadUrlsData[common.PayloadUrlsCSVIndex]
 	payloadUrls := common.SafeSplit(payloadUrlsCSV, ",")
 
 	logMetric.Fields(map[string]any{
@@ -1126,11 +1112,11 @@ func (s *Service) prefetchPayloadFromBuilder(ctx context.Context, fields *preFet
 		attribute.StringSlice("payloadUrls", payloadUrls),
 	)
 
-	switch PayloadUrlType(payloadUrlType) {
-	case PayloadUrlTypeHTTP:
+	switch common.PayloadUrlType(payloadUrlType) {
+	case common.PayloadUrlTypeHTTP:
 		success.Store(s.clientPreFetchGetPayloadHTTP(ctx, logMetric, fields, payloadUrls))
 		return
-	case PayloadUrlTypeGRPC:
+	case common.PayloadUrlTypeGRPC:
 		// We only support HTTP requests for Optimistic V3 payloads from builders for now
 		s.logger.Warn().Fields(logMetric.GetFields()).Msg("Ignoring fetch Optimistic V3 payload request with 'grpc' URL type")
 		return
@@ -1249,7 +1235,7 @@ func (s *Service) processGetPayloadV3Responses(
 
 			s.logger.Info().Fields(logMetric.GetFields()).Msg("PreFetchGetPayloadV3 :: preFetchGetPayload succeeded")
 			return true
-		case <-time.After(optimisticV3FetchPayloadTimeout):
+		case <-time.After(common.OptimisticV3FetchPayloadTimeout):
 			s.logger.Error().Fields(logMetric.GetFields()).Msg("PreFetchGetPayloadV3 :: timeout waiting for prefetch payload HTTP response")
 			return false
 		}
@@ -2330,7 +2316,7 @@ func (s *Service) handleStreamBlockResponse(
 		Source: "proxy-block-" + clientIP,
 	}, cache.DefaultExpiration)
 
-	s.logger.Info().Fields(lm.GetFields()).Msg("received block")
+	s.logger.Info().Fields(lm.GetFields()).Msg("received streamed block")
 
 	_, storeBidsSpan := s.tracer.Start(spanCtx, "StreamHeader-storeBids")
 	s.setBuilderBidForProxySlot(k, block.GetBuilderPubkey(), bid, block.GetSlot())

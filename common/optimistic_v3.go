@@ -3,14 +3,31 @@ package common
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	v1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/deneb"
 	"github.com/attestantio/go-eth2-client/spec/electra"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
 	"github.com/pkg/errors"
+
+	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
+)
+
+const (
+	OptimisticV3FetchPayloadTimeout = 10 * time.Second
+	PayloadUrlsDataExpectedLength   = 2
+	PayloadUrlTypeIndex             = 0
+	PayloadUrlsCSVIndex             = 1
+	PayloadUrlsTypeSeparator        = ";"
+)
+
+type PayloadUrlType string
+
+const (
+	PayloadUrlTypeGRPC PayloadUrlType = "grpc"
+	PayloadUrlTypeHTTP PayloadUrlType = "http"
 )
 
 type HeaderSubmissionV3 struct {
