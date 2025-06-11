@@ -187,8 +187,7 @@ func MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThreshold int, 
 			l.Error().Err(err).Msg("primary relay health check failed,increasing counter")
 			failoverCounter++
 		} else {
-			failoverCounter++
-			//failoverCounter = 0
+			failoverCounter = 0
 		}
 		if !currentlyOriginal {
 			switchToOriginal := false
