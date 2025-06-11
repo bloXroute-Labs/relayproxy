@@ -360,7 +360,7 @@ func (s *Service) StartStreamHeaders(ctx context.Context, wg *sync.WaitGroup) {
 
 func (s *Service) handleStream(ctx context.Context, client *common.Client) {
 	parentSpan := trace.SpanFromContext(ctx)
-	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
+	ctx = trace.ContextWithSpan(ctx, parentSpan)
 	_, span := s.tracer.Start(ctx, "handleStream-streamHeader")
 	defer span.End(trace.WithTimestamp(time.Now().UTC()))
 
@@ -1773,7 +1773,7 @@ func (s *Service) StartStreamBlocks(ctx context.Context, wg *sync.WaitGroup) {
 
 func (s *Service) handleBlockStream(ctx context.Context, client *common.Client) {
 	parentSpan := trace.SpanFromContext(ctx)
-	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
+	ctx = trace.ContextWithSpan(ctx, parentSpan)
 	_, span := s.tracer.Start(ctx, "handleBlockStream-streamBlock")
 	defer span.End(trace.WithTimestamp(time.Now().UTC()))
 
@@ -2257,7 +2257,7 @@ func (s *Service) StartStreamBuilderInfo(ctx context.Context, wg *sync.WaitGroup
 
 func (s *Service) handleBuilderInfoStream(ctx context.Context, client *common.Client) {
 	parentSpan := trace.SpanFromContext(ctx)
-	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
+	ctx = trace.ContextWithSpan(ctx, parentSpan)
 	traceID := parentSpan.SpanContext().TraceID().String()
 
 	for {
@@ -2737,7 +2737,7 @@ func (s *Service) StartStreamSlotInfo(ctx context.Context, wg *sync.WaitGroup) {
 }
 func (s *Service) handleSlotInfoStream(ctx context.Context, client *common.Client) {
 	parentSpan := trace.SpanFromContext(ctx)
-	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
+	ctx = trace.ContextWithSpan(ctx, parentSpan)
 	traceID := parentSpan.SpanContext().TraceID().String()
 
 	for {
