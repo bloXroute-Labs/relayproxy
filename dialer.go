@@ -190,8 +190,8 @@ func MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThreshold int, 
 			failoverCounter++
 			//failoverCounter = 0
 		}
-		switchToOriginal := false
 		if !currentlyOriginal {
+			switchToOriginal := false
 			originalDialer := NewDialer(originalDialerOpts...) // create new fail over dialer
 			originalDialer.SetDialer(l)
 			switchToOriginal = originalDialer.ExternalHealthcheck()
@@ -211,7 +211,7 @@ func MonitorDialerHealth(l zerolog.Logger, svc *Service, failOverThreshold int, 
 			if currentlyOriginal {
 				l.Warn().Msg("primary connections are down after multiple failed attempts, switching to fail over")
 			} else {
-				l.Info().Bool("switchToOriginal", switchToOriginal).Msg("switching back to original connections")
+				l.Info().Bool("currentlyOriginal", currentlyOriginal).Msg("switching back to original connections")
 			}
 			// close previous connections
 			svc.CloseConnections()
