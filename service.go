@@ -484,7 +484,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client) (*rel
 		}
 
 		if header.GetBlockHash() == "" {
-			s.logger.Warn().Fields(logMetric.GetFields()).Msg("received empty stream")
+			s.logger.Trace().Fields(logMetric.GetFields()).Msg("received empty stream")
 			continue
 		}
 
