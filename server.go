@@ -38,6 +38,7 @@ const (
 
 	MEVBoostStartTimeUnixMS = "X-MEVBoost-StartTimeUnixMS"
 	HeaderDateMilliseconds  = "Date-Milliseconds"
+	HeaderKeySlotUID        = "X-Mevboost-Slotid"
 	VouchCluster            = "setup"
 )
 
@@ -554,6 +555,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	accountID := r.Context().Value(keyAccountID).(string)
 	mevBoostSendTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
 	commitBoostSendTimeUnixMS := r.Header.Get(HeaderDateMilliseconds)
+	headerSlotUID := r.Header.Get(HeaderKeySlotUID)
 	boostSendTime, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
 	cluster := r.Header.Get(VouchCluster)
 	userAgent := r.Header.Get("User-Agent")
@@ -583,6 +585,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 			"cluster":                  cluster,
 			"sszResponse":              sszResponse,
 			"headers":                  headers,
+			"slotUID":                  headerSlotUID,
 		},
 		[]attribute.KeyValue{
 			attribute.String("reqHost", r.Host),
@@ -602,6 +605,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 			attribute.String("userAgent", userAgent),
 			attribute.Bool("sszResponse", sszResponse),
 			attribute.StringSlice("headers", headers),
+			attribute.String("slotUID", headerSlotUID),
 		},
 	)
 	span.SetAttributes(logMetric.GetAttributes()...)
@@ -619,6 +623,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		AccountID:                accountID,
 		Cluster:                  cluster,
 		UserAgent:                userAgent,
+		SlotUID:                  headerSlotUID,
 	})
 	logMetric.Merge(lm)
 	if err != nil {
@@ -668,6 +673,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 
 	mevBoostSendTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
 	commitBoostSendTimeUnixMS := r.Header.Get(HeaderDateMilliseconds)
+	headerSlotUID := r.Header.Get(HeaderKeySlotUID)
 	boostSendTime, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
 	cluster := r.Header.Get(VouchCluster)
 	userAgent := r.Header.Get("User-Agent")
@@ -696,6 +702,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 			"sszRequest":               sszRequest,
 			"sszResponse":              sszResponse,
 			"headers":                  headers,
+			"slotUID":                  headerSlotUID,
 		},
 		[]attribute.KeyValue{
 			attribute.String("reqHost", r.Host),
@@ -715,6 +722,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 			attribute.Bool("sszRequest", sszRequest),
 			attribute.Bool("sszResponse", sszResponse),
 			attribute.StringSlice("headers", headers),
+			attribute.String("slotUID", headerSlotUID),
 		},
 	)
 	span.SetAttributes(logMetric.GetAttributes()...)
@@ -757,6 +765,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		GetPayloadStartTimeUnixMS: boostSendTime,
 		Cluster:                   cluster,
 		UserAgent:                 userAgent,
+		SlotUID:                   headerSlotUID,
 	})
 	logMetric.Merge(lm)
 	if err != nil {

@@ -681,6 +681,7 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, 
 			"maxSleep":          maxSleep,
 			"latency":           latency,
 			"authHeader":        in.AuthHeader,
+			"slotUID":           in.SlotUID,
 		},
 		[]attribute.KeyValue{
 			attribute.String("method", getHeader),
@@ -698,6 +699,7 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, 
 			attribute.Int64("maxSleep", maxSleep),
 			attribute.Int64("latency", latency),
 			attribute.String("authHeader", in.AuthHeader),
+			attribute.String("slotUID", in.SlotUID),
 		},
 	)
 
@@ -827,6 +829,7 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, 
 			AccountID:        in.AccountID,
 			ValidatorID:      in.ValidatorID,
 			GetHeaderLatency: latency,
+			SlotUID:          in.SlotUID,
 		}
 
 		if v, ok := s.slotStats.Get(k); !ok {
@@ -865,6 +868,7 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, 
 			ValidatorID:              in.ValidatorID,
 			Latency:                  latency,
 			UserAgent:                statsUserAgent,
+			SlotUID:                  in.SlotUID,
 		}
 		s.fluentD.LogToFluentD(fluentstats.Record{
 			Type: TypeRelayProxyGetHeader,
@@ -1416,6 +1420,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (any
 			"isAuthHeaderProvided": isAuthHeaderProvided,
 			"cluster":              in.Cluster,
 			"userAgent":            in.UserAgent,
+			"slotUID":              in.SlotUID,
 		},
 		[]attribute.KeyValue{
 			attribute.String("method", getPayload),
@@ -1429,6 +1434,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (any
 			attribute.String("authHeader", aKey),
 			attribute.String("cluster", in.Cluster),
 			attribute.String("userAgent", in.UserAgent),
+			attribute.String("slotUID", in.SlotUID),
 		},
 	)
 	s.logger.Info().Fields(logMetric.GetFields()).Msg("received getPayload")
@@ -1506,7 +1512,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (any
 		select {
 		case <-ctx.Done():
 			logMetricCopy := logMetric.Copy()
-			go s.sendPayloadStats(in.Payload, logMetricCopy, false, nil, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent)
+			go s.sendPayloadStats(in.Payload, logMetricCopy, false, nil, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
 			logMetric.Error(ctx.Err())
 			logMetric.String("relayError", "failed to getPayload")
 			return nil, logMetric, toErrorResp(http.StatusInternalServerError, ctx.Err().Error(), map[string]any{"relayError": "failed to getPayload"})
@@ -1515,7 +1521,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (any
 			slotStartTime := GetSlotStartTime(s.beaconGenesisTime, int64(resp.Slot), s.secondsPerSlot)
 			msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds()
 			duration := time.Since(startTime)
-			go s.sendPayloadStats(in.Payload, logMetricCopy, true, resp, in.ReceivedAt, startTime, slotStartTime, msIntoSlot, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent)
+			go s.sendPayloadStats(in.Payload, logMetricCopy, true, resp, in.ReceivedAt, startTime, slotStartTime, msIntoSlot, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
 			uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", resp.Slot, resp.BlockHash, resp.ParentHash)
 			logMetric.Fields(map[string]any{
 				"duration":      duration,
@@ -1544,7 +1550,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (any
 	}
 
 	logMetricCopy := logMetric.Copy()
-	go s.sendPayloadStats(in.Payload, logMetricCopy, false, errResp.resp, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent)
+	go s.sendPayloadStats(in.Payload, logMetricCopy, false, errResp.resp, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
 	payloadResponseSpan.End(trace.WithTimestamp(time.Now()))
 	logMetric.Error(errors.New(errResp.err.Message))
 	logMetric.Fields(errResp.err.Fields)
@@ -1639,7 +1645,7 @@ func (s *Service) getPayloadWithRetry(ctx context.Context, c *common.Client, par
 	})
 }
 
-func (s *Service) sendPayloadStats(payload []byte, logMetric *LogMetric, isSucceeded bool, resp *common.VersionedPayloadInfo, receivedAt, startTime, slotStartTime time.Time, msIntoSlot int64, id, clientIP, validatorID, accountID string, latency int64, cluster string, userAgent string) {
+func (s *Service) sendPayloadStats(payload []byte, logMetric *LogMetric, isSucceeded bool, resp *common.VersionedPayloadInfo, receivedAt, startTime, slotStartTime time.Time, msIntoSlot int64, id, clientIP, validatorID, accountID string, latency int64, cluster, userAgent, slotUID string) {
 	// 3 different scenario calling sendPayload stats
 	// case 1 : resp success
 	// case 2: Err case with resp
@@ -1704,38 +1710,27 @@ func (s *Service) sendPayloadStats(payload []byte, logMetric *LogMetric, isSucce
 		AccountID:                 accountID,
 		ValidatorID:               validatorID,
 		GetPayloadLatency:         latency,
+		SlotUID:                   slotUID,
 	}
 	var (
 		isRelayProxyWin bool
+		fallback        SlotStatsRecord
 	)
 	k := fmt.Sprintf("slot-%v-parentHash-%v", out.GetSlot(), out.GetParentHash())
 	v, ok := s.slotStats.Get(k)
 	if ok {
 		if records, success := v.([]SlotStatsRecord); success {
 			for i, record := range records {
-				isRelayProxyWin = record.HeaderDeliveredBlockHash == out.GetBlockHash()
-				if isRelayProxyWin || i == len(records)-1 {
-					statsRecord.HeaderReqID = record.HeaderReqID
-					statsRecord.HeaderReqReceivedAt = record.HeaderReqReceivedAt
-					statsRecord.HeaderReqDuration = record.HeaderReqDuration
-					statsRecord.HeaderReqDurationInMs = record.HeaderReqDurationInMs
-					statsRecord.HeaderMsIntoSlot = record.HeaderMsIntoSlot
-					statsRecord.HeaderMsIntoSlotWithDelay = record.HeaderMsIntoSlotWithDelay
-					statsRecord.HeaderDelayInMs = record.HeaderDelayInMs
-					statsRecord.HeaderMaxDelayInMs = record.HeaderMaxDelayInMs
-					statsRecord.HeaderSucceeded = record.HeaderSucceeded
-					statsRecord.HeaderDeliveredBlockHash = record.HeaderDeliveredBlockHash
-					statsRecord.HeaderBlockValue = record.HeaderBlockValue
-					statsRecord.HeaderUserAgent = record.HeaderUserAgent
-					statsRecord.PubKey = record.PubKey
-					statsRecord.GetHeaderLatency = record.GetHeaderLatency
-
-					// needed for stakely
-					statsRecord.AccountID = record.AccountID
-					accountID = record.AccountID
-					statsRecord.ValidatorID = record.ValidatorID
-					validatorID = record.ValidatorID
+				if i == len(records)-1 {
+					fallback = record
+				}
+				if record.HeaderDeliveredBlockHash == out.GetBlockHash() && record.SlotUID == statsRecord.SlotUID {
+					mergeSlotStats(record, statsRecord)
+					isRelayProxyWin = true
 					break
+				}
+				if !isRelayProxyWin {
+					mergeSlotStats(fallback, statsRecord)
 				}
 			}
 		}
@@ -1774,6 +1769,26 @@ func (s *Service) sendPayloadStats(payload []byte, logMetric *LogMetric, isSucce
 		Type: TypeRelayProxyGetPayload,
 		Data: payloadStats,
 	}, time.Now().UTC(), s.nodeID, StatsRelayProxyGetPayload)
+}
+func mergeSlotStats(record SlotStatsRecord, statsRecord SlotStatsRecord) SlotStatsRecord {
+	statsRecord.HeaderReqID = record.HeaderReqID
+	statsRecord.HeaderReqReceivedAt = record.HeaderReqReceivedAt
+	statsRecord.HeaderReqDuration = record.HeaderReqDuration
+	statsRecord.HeaderReqDurationInMs = record.HeaderReqDurationInMs
+	statsRecord.HeaderMsIntoSlot = record.HeaderMsIntoSlot
+	statsRecord.HeaderMsIntoSlotWithDelay = record.HeaderMsIntoSlotWithDelay
+	statsRecord.HeaderDelayInMs = record.HeaderDelayInMs
+	statsRecord.HeaderMaxDelayInMs = record.HeaderMaxDelayInMs
+	statsRecord.HeaderSucceeded = record.HeaderSucceeded
+	statsRecord.HeaderDeliveredBlockHash = record.HeaderDeliveredBlockHash
+	statsRecord.HeaderBlockValue = record.HeaderBlockValue
+	statsRecord.HeaderUserAgent = record.HeaderUserAgent
+	statsRecord.PubKey = record.PubKey
+	statsRecord.GetHeaderLatency = record.GetHeaderLatency
+
+	statsRecord.AccountID = record.AccountID
+	statsRecord.ValidatorID = record.ValidatorID
+	return statsRecord
 }
 
 func (s *Service) keyForCachingBids(slot uint64, parentHash string, proposerPubkey string) string {

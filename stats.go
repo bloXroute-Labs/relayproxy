@@ -85,6 +85,7 @@ type GetHeaderStatsRecord struct {
 	ValidatorID               string        `json:"validator_id"`
 	Latency                   int64         `json:"latency"`
 	UserAgent                 string        `json:"user_agent"`
+	SlotUID                   string        `json:"slot_uid"`
 }
 
 type ExternalRelayStats struct {
@@ -123,6 +124,7 @@ type GetPayloadStatsRecord struct {
 	ValidatorID       string        `json:"validator_id"`
 	Latency           int64         `json:"latency"`
 	UserAgent         string        `json:"user_agent"`
+	SlotUID           string        `json:"slot_uid"`
 }
 
 type SlotStatsRecord struct {
@@ -156,6 +158,7 @@ type SlotStatsRecord struct {
 	ParentHash    string    `json:"parent_hash"`
 	PubKey        string    `json:"pub_key"`
 	SlotStartTime time.Time `json:"slot_start_time"`
+	SlotUID       string    `json:"slot_uid"`
 
 	// node
 	ClientIP string `json:"client_ip"`
