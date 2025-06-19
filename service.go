@@ -58,6 +58,8 @@ const (
 	reconnectTime                     = 6000
 
 	prefetchAttempts = 20
+
+	clientFailureWindow = time.Minute * 10
 )
 
 var (
@@ -97,10 +99,10 @@ type Service struct {
 	slotStatsEventCh   chan slotStatsEvent
 	ethNetworkDetails  *common.EthNetworkDetails
 
-	clients                       []*common.Client
-	streamingClients              []*common.Client
-	streamingBlockClients         []*common.Client
-	registrationClients           []*common.Client
+	clients                       []*common.ParentClient
+	streamingClients              []*common.ParentClient
+	streamingBlockClients         []*common.ParentClient
+	registrationClients           []*common.ParentClient
 	currentRegistrationRelayIndex int
 	registrationRelayMutex        sync.Mutex
 
@@ -136,7 +138,7 @@ type preFetcherFields struct {
 	proposerPubKey  string
 	builderPubKey   string
 	blockValue      string
-	client          *common.Client
+	client          *common.ParentClient
 	payloadFetchUrl string
 }
 
@@ -268,8 +270,8 @@ func (s *Service) registerValidatorForClient(_ctx context.Context, req *relaygrp
 		s.currentRegistrationRelayIndex = (s.currentRegistrationRelayIndex + 1) % len(s.registrationClients)
 		s.registrationRelayMutex.Unlock()
 
-		out, err = selectedRelay.RegisterValidator(_ctx, req)
-		url := selectedRelay.URL
+		out, err = selectedRelay.SafeClient.RegisterValidator(_ctx, req)
+		url := selectedRelay.SafeClient.URL
 
 		if err != nil || out == nil || out.Code != uint32(codes.OK) {
 			s.logger.Warn().Str("url", url).Err(err).Msg("failed to register validator")
@@ -315,7 +317,7 @@ func (s *Service) StartStreamHeaders(ctx context.Context, wg *sync.WaitGroup) {
 
 	for _, client := range s.streamingClients {
 		wg.Add(1)
-		go func(_ctx context.Context, c *common.Client) {
+		go func(_ctx context.Context, c *common.ParentClient) {
 			defer wg.Done()
 			s.handleStream(_ctx, c)
 		}(ctx, client)
@@ -323,7 +325,7 @@ func (s *Service) StartStreamHeaders(ctx context.Context, wg *sync.WaitGroup) {
 	wg.Wait()
 }
 
-func (s *Service) handleStream(ctx context.Context, client *common.Client) {
+func (s *Service) handleStream(ctx context.Context, client *common.ParentClient) {
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
 	_, span := s.tracer.Start(ctx, "handleStream-streamHeader")
@@ -333,11 +335,16 @@ func (s *Service) handleStream(ctx context.Context, client *common.Client) {
 
 	span.SetAttributes(
 		attribute.String("method", "streamHeader"),
-		attribute.String("url", client.URL),
+		attribute.String("url", client.SafeClient.URL),
 		attribute.String("traceID", traceID),
 	)
 
+	var (
+		lastConnectTime time.Time
+	)
+
 	for {
+
 		select {
 		case <-ctx.Done():
 			s.logger.Warn().
@@ -346,9 +353,15 @@ func (s *Service) handleStream(ctx context.Context, client *common.Client) {
 			return
 
 		default:
-			if _, err := s.StreamHeader(ctx, client); err != nil {
+			active := client.FastClient
+			if time.Since(lastConnectTime) <= clientFailureWindow {
+				active = client.SafeClient
+			}
+			lastConnectTime = time.Now()
+
+			if _, err := s.StreamHeader(ctx, active, client); err != nil {
 				s.logger.Warn().
-					Str("url", client.URL).
+					Str("url", active.URL).
 					Str("traceID", traceID).
 					Err(err).
 					Msg("failed to stream header. Sleeping and then reconnecting")
@@ -359,7 +372,7 @@ func (s *Service) handleStream(ctx context.Context, client *common.Client) {
 				)
 			} else {
 				s.logger.Warn().
-					Str("url", client.URL).
+					Str("url", active.URL).
 					Str("traceID", traceID).
 					Msg("stream header stopped. Sleeping and then reconnecting")
 
@@ -374,7 +387,7 @@ func (s *Service) handleStream(ctx context.Context, client *common.Client) {
 	}
 }
 
-func (s *Service) StreamHeader(ctx context.Context, client *common.Client) (*relaygrpc.StreamHeaderResponse, error) {
+func (s *Service) StreamHeader(ctx context.Context, client *common.Client, parentClient *common.ParentClient) (*relaygrpc.StreamHeaderResponse, error) {
 	parentSpan := trace.SpanFromContext(ctx)
 	method := "streamHeader"
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
@@ -616,7 +629,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client) (*rel
 			header.GetBuilderPubkey(),
 			header.GetBuilderExtraData(),
 			header.GetAccountId(),
-			client,
+			parentClient,
 			header.GetPayloadFetchUrl(),
 		)
 		s.setBuilderBidForProxySlot(k, header.GetBuilderPubkey(), bid, header.GetSlot())
@@ -920,7 +933,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	defer span.End(trace.WithTimestamp(time.Now()))
 
 	if fields.client != nil {
-		clientURL = fields.client.URL
+		clientURL = fields.client.SafeClient.URL
 	}
 
 	uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", fields.slot, fields.blockHash, fields.parentHash)
@@ -1038,10 +1051,10 @@ func (s *Service) prefetchPayloadGRPC(
 		prefetchedRequests += len(clients)
 		for _, client := range clients {
 			wg.Add(1)
-			go func(client *common.Client) {
+			go func(client *common.ParentClient) {
 				defer wg.Done()
 				prefetchLogger := s.logger.With().Fields(logMetric.GetFields()).Logger()
-				s.prefetchPayload(ctx, client, req, span, errChan, respChan, prefetchLogger)
+				s.prefetchPayload(ctx, client.SafeClient, req, span, errChan, respChan, prefetchLogger)
 			}(client)
 		}
 	}
@@ -1483,9 +1496,9 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (any
 	ctx, payloadResponseSpan := s.tracer.Start(ctx, "getPayload-payloadResponseFromRelay")
 	for _, client := range s.clients {
 		wg.Add(1)
-		go func(c *common.Client) {
+		go func(c *common.ParentClient) {
 			defer wg.Done()
-			out, err := s.getPayloadWithRetry(ctx, c, span, req, maxGetPayloadRetry)
+			out, err := s.getPayloadWithRetry(ctx, c.SafeClient, span, req, maxGetPayloadRetry)
 			if err != nil {
 				s.logger.Error().Err(err).Msg("getPayloadWithRetry")
 				errChan <- ErrorRespWithPayload{err: err, resp: out}
@@ -1907,7 +1920,7 @@ func (s *Service) EmitSlotStats(ctx context.Context) {
 func (s *Service) StartStreamBlocks(ctx context.Context, wg *sync.WaitGroup) {
 	for _, client := range s.streamingBlockClients {
 		wg.Add(1)
-		go func(_ctx context.Context, c *common.Client) {
+		go func(_ctx context.Context, c *common.ParentClient) {
 			defer wg.Done()
 			s.handleBlockStream(_ctx, c)
 		}(ctx, client)
@@ -1916,7 +1929,7 @@ func (s *Service) StartStreamBlocks(ctx context.Context, wg *sync.WaitGroup) {
 	wg.Wait()
 }
 
-func (s *Service) handleBlockStream(ctx context.Context, client *common.Client) {
+func (s *Service) handleBlockStream(ctx context.Context, client *common.ParentClient) {
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
 	_, span := s.tracer.Start(ctx, "handleBlockStream-streamBlock")
@@ -1926,9 +1939,11 @@ func (s *Service) handleBlockStream(ctx context.Context, client *common.Client) 
 
 	span.SetAttributes(
 		attribute.String("method", "streamBlock"),
-		attribute.String("url", client.URL),
+		attribute.String("url", client.SafeClient.URL),
 		attribute.String("traceID", traceID),
 	)
+
+	var lastConnectTime time.Time
 
 	for {
 		select {
@@ -1938,9 +1953,14 @@ func (s *Service) handleBlockStream(ctx context.Context, client *common.Client) 
 				Msg("stream block context cancelled")
 			return
 		default:
-			if _, err := s.StreamBlock(ctx, client); err != nil {
+			active := client.FastClient
+			if time.Since(lastConnectTime) <= clientFailureWindow {
+				active = client.SafeClient
+			}
+			lastConnectTime = time.Now()
+			if _, err := s.StreamBlock(ctx, active); err != nil {
 				s.logger.Warn().
-					Str("url", client.URL).
+					Str("url", active.URL).
 					Str("traceID", traceID).
 					Err(err).
 					Msg("failed to stream block. Sleeping and then reconnecting")
@@ -1951,7 +1971,7 @@ func (s *Service) handleBlockStream(ctx context.Context, client *common.Client) 
 				)
 			} else {
 				s.logger.Warn().
-					Str("url", client.URL).
+					Str("url", active.URL).
 					Str("traceID", traceID).
 					Msg("stream block stopped. Sleeping and then reconnecting")
 
@@ -2097,7 +2117,7 @@ func (s *Service) StreamBlock(ctx context.Context, client *common.Client) (*rela
 func (s *Service) handleForwardedBlockResponse() {
 	s.logger.Info().Msg("start handling forwarded block response")
 	for forwardedBlockInfo := range *s.forwardedBlockCh {
-		s.logger.Info().Msg("received forwarded block from channel")
+		// s.logger.Info().Msg("received forwarded block from channel")
 
 		lm := NewLogMetric(
 			map[string]any{
@@ -2392,18 +2412,19 @@ func isVouch(userAgent string) bool {
 func (s *Service) StartStreamBuilderInfo(ctx context.Context, wg *sync.WaitGroup) {
 	for _, client := range s.streamingBlockClients {
 		wg.Add(1)
-		go func(_ctx context.Context, c *common.Client) {
+		go func(_ctx context.Context, c *common.ParentClient) {
 			defer wg.Done()
 			s.handleBuilderInfoStream(_ctx, c)
 		}(ctx, client)
 	}
 	wg.Wait()
 }
-func (s *Service) handleBuilderInfoStream(ctx context.Context, client *common.Client) {
+func (s *Service) handleBuilderInfoStream(ctx context.Context, client *common.ParentClient) {
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
 	traceID := parentSpan.SpanContext().TraceID().String()
 
+	var lastConnectTime time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -2412,15 +2433,21 @@ func (s *Service) handleBuilderInfoStream(ctx context.Context, client *common.Cl
 				Msg("stream block context cancelled")
 			return
 		default:
-			if _, err := s.StreamBuilderInfo(ctx, client); err != nil {
+			active := client.FastClient
+			if time.Since(lastConnectTime) <= clientFailureWindow {
+				active = client.SafeClient
+			}
+			lastConnectTime = time.Now()
+
+			if _, err := s.StreamBuilderInfo(ctx, active); err != nil {
 				s.logger.Warn().
-					Str("url", client.URL).
+					Str("url", active.URL).
 					Str("traceID", traceID).
 					Err(err).
 					Msg("failed to stream builderInfo. Sleeping and then reconnecting")
 			} else {
 				s.logger.Warn().
-					Str("url", client.URL).
+					Str("url", active.URL).
 					Str("traceID", traceID).
 					Msg("stream builderInfo stopped. Sleeping and then reconnecting")
 			}
@@ -2869,18 +2896,19 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origRe
 func (s *Service) StartStreamSlotInfo(ctx context.Context, wg *sync.WaitGroup) {
 	for _, client := range s.streamingBlockClients {
 		wg.Add(1)
-		go func(_ctx context.Context, c *common.Client) {
+		go func(_ctx context.Context, c *common.ParentClient) {
 			defer wg.Done()
 			s.handleSlotInfoStream(_ctx, c)
 		}(ctx, client)
 	}
 	wg.Wait()
 }
-func (s *Service) handleSlotInfoStream(ctx context.Context, client *common.Client) {
+func (s *Service) handleSlotInfoStream(ctx context.Context, client *common.ParentClient) {
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
 	traceID := parentSpan.SpanContext().TraceID().String()
 
+	var lastConnectTime time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -2889,15 +2917,21 @@ func (s *Service) handleSlotInfoStream(ctx context.Context, client *common.Clien
 				Msg("stream block context cancelled")
 			return
 		default:
-			if _, err := s.StreamSlotInfo(ctx, client); err != nil {
+			active := client.FastClient
+			if time.Since(lastConnectTime) <= clientFailureWindow {
+				active = client.SafeClient
+			}
+			lastConnectTime = time.Now()
+
+			if _, err := s.StreamSlotInfo(ctx, active); err != nil {
 				s.logger.Warn().
-					Str("url", client.URL).
+					Str("url", active.URL).
 					Str("traceID", traceID).
 					Err(err).
 					Msg("failed to stream SlotInfo. Sleeping and then reconnecting")
 			} else {
 				s.logger.Warn().
-					Str("url", client.URL).
+					Str("url", active.URL).
 					Str("traceID", traceID).
 					Msg("stream SlotInfo stopped. Sleeping and then reconnecting")
 			}

@@ -301,8 +301,25 @@ func (r *VersionedSignedBlindedBeaconBlock) ExecutionParentHash() (phase0.Hash32
 type Client struct {
 	URL    string
 	NodeID string
-	Conn   *grpc.ClientConn
 	relaygrpc.RelayClient
+}
+
+type ParentClient struct {
+	FastClient *Client
+	SafeClient *Client
+}
+
+func NewParentClient(safeUrl string, safeConn *grpc.ClientConn, fastUrl string, fastConn *grpc.ClientConn) *ParentClient {
+	return &ParentClient{
+		FastClient: &Client{
+			URL:         fastUrl,
+			RelayClient: relaygrpc.NewRelayClient(fastConn),
+		},
+		SafeClient: &Client{
+			URL:         safeUrl,
+			RelayClient: relaygrpc.NewRelayClient(fastConn),
+		},
+	}
 }
 
 type Bid struct {
@@ -313,7 +330,7 @@ type Bid struct {
 	BuilderPubkey      string
 	BuilderExtraData   string
 	AccountID          string
-	Client             *Client
+	Client             *ParentClient
 	PayloadFetchUrl    string
 }
 
@@ -324,7 +341,7 @@ func NewBid(Value []byte,
 	builderPubkey string,
 	builderExtraData string,
 	accountID string,
-	client *Client,
+	client *ParentClient,
 	payloadFetchUrl string,
 ) *Bid {
 	return &Bid{
