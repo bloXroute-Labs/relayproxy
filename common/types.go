@@ -311,11 +311,15 @@ type ParentClient struct {
 	SafeClient *Client
 }
 
-func (p *ParentClient) GetActiveClient(lastConnectTime time.Time) *Client {
+func (p *ParentClient) String() string {
+	return fmt.Sprintf("ParentClient{FastClient: %s, SafeClient: %s}", p.FastClient.URL, p.SafeClient.URL)
+}
+
+func (p *ParentClient) GetActiveClient(lastConnectTime time.Time) (*Client, bool) {
 	if time.Since(lastConnectTime) <= clientFailureWindow {
-		return p.SafeClient
+		return p.SafeClient, true
 	}
-	return p.FastClient
+	return p.FastClient, false
 }
 
 func NewParentClient(safeUrl string, safeConn *grpc.ClientConn, fastUrl string, fastConn *grpc.ClientConn) *ParentClient {

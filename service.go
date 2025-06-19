@@ -352,7 +352,10 @@ func (s *Service) handleStream(ctx context.Context, client *common.ParentClient)
 
 		default:
 
-			active := client.GetActiveClient(lastConnectTime)
+			active, safe := client.GetActiveClient(lastConnectTime)
+			if safe {
+				s.logger.Warn().Str("method", "streamHeader").Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("Fallback to safe IP used")
+			}
 			lastConnectTime = time.Now()
 
 			if _, err := s.StreamHeader(ctx, active, client); err != nil {
@@ -1949,7 +1952,10 @@ func (s *Service) handleBlockStream(ctx context.Context, client *common.ParentCl
 				Msg("stream block context cancelled")
 			return
 		default:
-			active := client.GetActiveClient(lastConnectTime)
+			active, safe := client.GetActiveClient(lastConnectTime)
+			if safe {
+				s.logger.Warn().Str("method", "streamBlock").Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("Fallback to safe IP used")
+			}
 			lastConnectTime = time.Now()
 			if _, err := s.StreamBlock(ctx, active); err != nil {
 				s.logger.Warn().
@@ -2426,7 +2432,10 @@ func (s *Service) handleBuilderInfoStream(ctx context.Context, client *common.Pa
 				Msg("stream block context cancelled")
 			return
 		default:
-			active := client.GetActiveClient(lastConnectTime)
+			active, safe := client.GetActiveClient(lastConnectTime)
+			if safe {
+				s.logger.Warn().Str("method", "streamBuilderInfo").Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("Fallback to safe IP used")
+			}
 			lastConnectTime = time.Now()
 
 			if _, err := s.StreamBuilderInfo(ctx, active); err != nil {
@@ -2907,7 +2916,10 @@ func (s *Service) handleSlotInfoStream(ctx context.Context, client *common.Paren
 				Msg("stream block context cancelled")
 			return
 		default:
-			active := client.GetActiveClient(lastConnectTime)
+			active, safe := client.GetActiveClient(lastConnectTime)
+			if safe {
+				s.logger.Warn().Str("method", "streamSlotInfo").Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("Fallback to safe IP used")
+			}
 			lastConnectTime = time.Now()
 
 			if _, err := s.StreamSlotInfo(ctx, active); err != nil {
