@@ -58,8 +58,6 @@ const (
 	reconnectTime                     = 6000
 
 	prefetchAttempts = 20
-
-	clientFailureWindow = time.Minute * 10
 )
 
 var (
@@ -353,10 +351,8 @@ func (s *Service) handleStream(ctx context.Context, client *common.ParentClient)
 			return
 
 		default:
-			active := client.FastClient
-			if time.Since(lastConnectTime) <= clientFailureWindow {
-				active = client.SafeClient
-			}
+
+			active := client.GetActiveClient(lastConnectTime)
 			lastConnectTime = time.Now()
 
 			if _, err := s.StreamHeader(ctx, active, client); err != nil {
@@ -1953,10 +1949,7 @@ func (s *Service) handleBlockStream(ctx context.Context, client *common.ParentCl
 				Msg("stream block context cancelled")
 			return
 		default:
-			active := client.FastClient
-			if time.Since(lastConnectTime) <= clientFailureWindow {
-				active = client.SafeClient
-			}
+			active := client.GetActiveClient(lastConnectTime)
 			lastConnectTime = time.Now()
 			if _, err := s.StreamBlock(ctx, active); err != nil {
 				s.logger.Warn().
@@ -2433,10 +2426,7 @@ func (s *Service) handleBuilderInfoStream(ctx context.Context, client *common.Pa
 				Msg("stream block context cancelled")
 			return
 		default:
-			active := client.FastClient
-			if time.Since(lastConnectTime) <= clientFailureWindow {
-				active = client.SafeClient
-			}
+			active := client.GetActiveClient(lastConnectTime)
 			lastConnectTime = time.Now()
 
 			if _, err := s.StreamBuilderInfo(ctx, active); err != nil {
@@ -2917,10 +2907,7 @@ func (s *Service) handleSlotInfoStream(ctx context.Context, client *common.Paren
 				Msg("stream block context cancelled")
 			return
 		default:
-			active := client.FastClient
-			if time.Since(lastConnectTime) <= clientFailureWindow {
-				active = client.SafeClient
-			}
+			active := client.GetActiveClient(lastConnectTime)
 			lastConnectTime = time.Now()
 
 			if _, err := s.StreamSlotInfo(ctx, active); err != nil {

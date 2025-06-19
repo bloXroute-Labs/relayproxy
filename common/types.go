@@ -298,6 +298,8 @@ func (r *VersionedSignedBlindedBeaconBlock) ExecutionParentHash() (phase0.Hash32
 	}
 }
 
+var clientFailureWindow = time.Minute * 10
+
 type Client struct {
 	URL    string
 	NodeID string
@@ -307,6 +309,13 @@ type Client struct {
 type ParentClient struct {
 	FastClient *Client
 	SafeClient *Client
+}
+
+func (p *ParentClient) GetActiveClient(lastConnectTime time.Time) *Client {
+	if time.Since(lastConnectTime) <= clientFailureWindow {
+		return p.SafeClient
+	}
+	return p.FastClient
 }
 
 func NewParentClient(safeUrl string, safeConn *grpc.ClientConn, fastUrl string, fastConn *grpc.ClientConn) *ParentClient {
