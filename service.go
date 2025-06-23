@@ -916,15 +916,16 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, 
 			s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to unmarshal signed header response")
 			return
 		}
-		*s.saveHeaderToDBCh <- &common.SaveHeaderToDBInfo{
-			VersionedSignedBuilderBid: versionedBid,
-			Slot:                      _slot,
-			GetHeaderRequestID:        "getHeaderRequestID",
-			ProposerPubkey:            in.PubKey,
-			GetHeaderStartTimeUnixMS:  in.GetHeaderStartTimeUnixMS,
-			ExtraData:                 slotBestHeader.BuilderExtraData,
+		if s.saveHeaderToDBCh != nil {
+			*s.saveHeaderToDBCh <- &common.SaveHeaderToDBInfo{
+				VersionedSignedBuilderBid: versionedBid,
+				Slot:                      _slot,
+				GetHeaderRequestID:        "getHeaderRequestID",
+				ProposerPubkey:            in.PubKey,
+				GetHeaderStartTimeUnixMS:  in.GetHeaderStartTimeUnixMS,
+				ExtraData:                 slotBestHeader.BuilderExtraData,
+			}
 		}
-		// s.SaveHeaderToDB(_slot, versionedBid, "", in.PubKey, in.GetHeaderStartTimeUnixMS, slotBestHeader.BuilderExtraData)
 	}()
 	return json.RawMessage(signedHeaderResponse), logMetric, nil
 }
