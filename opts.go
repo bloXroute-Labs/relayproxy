@@ -268,6 +268,13 @@ func WithForwardedBlockCh(ch *chan common.ForwardedBlockInfo) ServiceOption {
 		s.forwardedBlockCh = ch
 	}
 }
+
+func WithSaveHeaderToDBCh(ch *chan *common.SaveHeaderToDBInfo) ServiceOption {
+	return func(s *Service) {
+		s.saveHeaderToDBCh = ch
+	}
+}
+
 func WithAccountList(accountsLists *AccountsLists) ServiceOption {
 	return func(s *Service) {
 		s.accountsLists = accountsLists

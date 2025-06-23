@@ -111,6 +111,7 @@ type Service struct {
 	listenAddress     string
 	GrpcListenAddress string
 	forwardedBlockCh  *chan common.ForwardedBlockInfo
+	saveHeaderToDBCh  *chan *common.SaveHeaderToDBInfo
 
 	builderInfo *cache.Cache
 
@@ -908,6 +909,23 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, 
 	} else {
 		s.logger.Debug().Fields(logMetric.GetFields()).Msg("newly signed header")
 	}
+
+	go func() {
+		versionedBid := new(common.VersionedSignedBuilderBid)
+		if err = versionedBid.UnmarshalJSON(signedHeaderResponse); err != nil {
+			s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to unmarshal signed header response")
+			return
+		}
+		*s.saveHeaderToDBCh <- &common.SaveHeaderToDBInfo{
+			VersionedSignedBuilderBid: versionedBid,
+			Slot:                      _slot,
+			GetHeaderRequestID:        "getHeaderRequestID",
+			ProposerPubkey:            in.PubKey,
+			GetHeaderStartTimeUnixMS:  in.GetHeaderStartTimeUnixMS,
+			ExtraData:                 slotBestHeader.BuilderExtraData,
+		}
+		// s.SaveHeaderToDB(_slot, versionedBid, "", in.PubKey, in.GetHeaderStartTimeUnixMS, slotBestHeader.BuilderExtraData)
+	}()
 	return json.RawMessage(signedHeaderResponse), logMetric, nil
 }
 
