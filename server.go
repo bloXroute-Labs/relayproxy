@@ -72,6 +72,7 @@ type Server struct {
 	NodeID         string
 	AdminAccountID string
 
+	// Callback
 	OnPayloadDelivered func(slot uint64, blockHash string, parentHash string, proposerPubkey string) error
 }
 
@@ -785,7 +786,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 			versionedPayloadInfo.GetParentHash(),
 			versionedPayloadInfo.GetPubkey(),
 		); err != nil {
-			log.Error().Err(err).Msg("Failed to broadcast payload delivered message to Redis subscribers")
+			log.Error().Err(err).Msg("Failed to call OnPayloadDelivered callback")
 		}
 	}(success)
 
