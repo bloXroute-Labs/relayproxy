@@ -54,7 +54,7 @@ var (
 type Server struct {
 	logger        zerolog.Logger
 	server        *http.Server
-	svc           IService
+	Svc           IService
 	listenAddress string
 
 	beaconGenesisTime int64
@@ -375,7 +375,7 @@ func (s *Server) writeErrorResponse(w http.ResponseWriter, message string, err e
 	http.Error(w, message, statusCode)
 }
 func (s *Server) HandleGetAccounts(w http.ResponseWriter, r *http.Request) {
-	accounts := s.svc.GetAccounts(r.Context())
+	accounts := s.Svc.GetAccounts(r.Context())
 	out, err := json.Marshal(accounts)
 	if err != nil {
 		s.writeErrorResponse(w, "failed to fetch accounts", err, http.StatusInternalServerError)
@@ -385,7 +385,7 @@ func (s *Server) HandleGetAccounts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleGetDelays(w http.ResponseWriter, r *http.Request) {
-	settings := s.svc.GetDelaySettings(r.Context())
+	settings := s.Svc.GetDelaySettings(r.Context())
 	out, err := json.Marshal(settings)
 	if err != nil {
 		s.writeErrorResponse(w, "failed to fetch delay settings", err, http.StatusInternalServerError)
@@ -408,7 +408,7 @@ func (s *Server) HandleSetDelays(w http.ResponseWriter, r *http.Request) {
 				s.writeErrorResponse(w, "failed to update validators delay setting", err, http.StatusBadRequest)
 				return
 			}
-			s.svc.SetDelayForValidators(delaySettings)
+			s.Svc.SetDelayForValidators(delaySettings)
 			s.writeSuccessResponse(w, []byte(`{"msg":"validators delay settings updated"}`))
 			return
 
@@ -416,7 +416,7 @@ func (s *Server) HandleSetDelays(w http.ResponseWriter, r *http.Request) {
 		s.writeErrorResponse(w, "failed to update validators delay setting", err, http.StatusInternalServerError)
 		return
 	}
-	s.svc.SetDelayForValidator(id, delay, maxDelay)
+	s.Svc.SetDelayForValidator(id, delay, maxDelay)
 	s.writeSuccessResponse(w, []byte(`{"msg":"validator delay settings updated"}`))
 }
 
@@ -445,7 +445,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	if sszRequest {
 		outgoingCtx = metadata.AppendToOutgoingContext(outgoingCtx, common.HeaderBlxrContentType, common.MediaTypeOctetStream)
 	}
-	s.svc.SendAccount(accountID, validatorID)
+	s.Svc.SendAccount(accountID, validatorID)
 
 	logMetric := NewLogMetric(
 		map[string]any{
@@ -514,7 +514,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 	handleRegistrationSpan.AddEvent("handleRegistration- svcRegisterValidator")
 	go func() {
-		_, lm, err := s.svc.RegisterValidator(handleRegistrationCtx, outgoingCtx, &RegistrationParams{
+		_, lm, err := s.Svc.RegisterValidator(handleRegistrationCtx, outgoingCtx, &RegistrationParams{
 			ReceivedAt:         receivedAt,
 			Payload:            bodyBytes,
 			ClientIP:           clientIP,
@@ -606,7 +606,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	)
 	span.SetAttributes(logMetric.GetAttributes()...)
 	span.AddEvent("handleGetHeader-svcGetHeader")
-	out, lm, err := s.svc.GetHeader(handleGetHeaderCtx, &HeaderRequestParams{
+	out, lm, err := s.Svc.GetHeader(handleGetHeaderCtx, &HeaderRequestParams{
 		ReceivedAt:               receivedAt,
 		GetHeaderStartTimeUnixMS: boostSendTime,
 		Latency:                  latency,
@@ -747,7 +747,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		encodeJSONSpan.End()
 	}
 	span.AddEvent("handleGetPayload-svcGetPayload")
-	out, lm, err := s.svc.GetPayload(getPayloadCtx, &PayloadRequestParams{
+	out, lm, err := s.Svc.GetPayload(getPayloadCtx, &PayloadRequestParams{
 		ReceivedAt:                receivedAt,
 		Payload:                   bodyBytes,
 		ClientIP:                  clientIP,

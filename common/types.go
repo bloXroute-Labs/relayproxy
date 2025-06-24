@@ -447,6 +447,10 @@ type ForwardedBlockInfo struct {
 	ProcessTime int64
 }
 
+type OnHeaderDeliveredParams struct {
+	SaveHeaderToDBInfo *SaveHeaderToDBInfo
+}
+
 type SaveHeaderToDBInfo struct {
 	VersionedSignedBuilderBid *VersionedSignedBuilderBid
 	Slot                      uint64

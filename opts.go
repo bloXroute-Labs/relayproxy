@@ -28,7 +28,7 @@ func WithHTTPServer(server *http.Server) ServerOption {
 
 func WithService(svc *Service) ServerOption {
 	return func(s *Server) {
-		s.svc = svc
+		s.Svc = svc
 	}
 }
 
@@ -269,9 +269,9 @@ func WithForwardedBlockCh(ch *chan common.ForwardedBlockInfo) ServiceOption {
 	}
 }
 
-func WithSaveHeaderToDBCh(ch *chan *common.SaveHeaderToDBInfo) ServiceOption {
+func WithOnHeaderDelivered(onHeaderDelivered func(*common.OnHeaderDeliveredParams) error) ServiceOption {
 	return func(s *Service) {
-		s.saveHeaderToDBCh = ch
+		s.OnHeaderDelivered = onHeaderDelivered
 	}
 }
 

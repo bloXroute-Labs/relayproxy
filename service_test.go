@@ -556,7 +556,7 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 		}
 	}()
 
-	server := &Server{svc: service, logger: zerolog.Nop(), listenAddress: "127.0.0.1:9090", accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
+	server := &Server{Svc: service, logger: zerolog.Nop(), listenAddress: "127.0.0.1:9090", accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 		AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
 	go func() {
 		if err := server.Start(); err != nil {

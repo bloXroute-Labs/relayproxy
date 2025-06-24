@@ -73,7 +73,9 @@ type IService interface {
 	RegisterValidator(ctx context.Context, outgoingCtx context.Context, in *RegistrationParams) (any, *LogMetric, error)
 	GetHeader(ctx context.Context, in *HeaderRequestParams) (any, *LogMetric, error)
 	GetPayload(ctx context.Context, in *PayloadRequestParams) (any, *LogMetric, error)
+	AddServiceOptions(opts ...ServiceOption)
 }
+
 type Service struct {
 	logger      zerolog.Logger
 	version     string // build version
@@ -118,6 +120,9 @@ type Service struct {
 	accountsLists       *AccountsLists
 	walletAccounts      *map[string]*common.WalletAccount
 	miniProposerSlotMap *SyncMap[uint64, *common.MiniValidatorLatency]
+
+	//Callback
+	OnHeaderDelivered func(*common.OnHeaderDeliveredParams) error
 	// data service
 	IDataService
 }
@@ -157,6 +162,12 @@ func NewService(opts ...ServiceOption) *Service {
 		opt(svc)
 	}
 	return svc
+}
+
+func (s *Service) AddServiceOptions(opts ...ServiceOption) {
+	for _, opt := range opts {
+		opt(s)
+	}
 }
 
 func (s *Service) RegisterValidator(ctx context.Context, outgoingCtx context.Context, in *RegistrationParams) (any, *LogMetric, error) {
@@ -916,14 +927,17 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, 
 			s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to unmarshal signed header response")
 			return
 		}
-		if s.saveHeaderToDBCh != nil {
-			*s.saveHeaderToDBCh <- &common.SaveHeaderToDBInfo{
+		if s.OnHeaderDelivered != nil {
+			err := s.OnHeaderDelivered(&common.OnHeaderDeliveredParams{SaveHeaderToDBInfo: &common.SaveHeaderToDBInfo{
 				VersionedSignedBuilderBid: versionedBid,
 				Slot:                      _slot,
 				GetHeaderRequestID:        "getHeaderRequestID",
 				ProposerPubkey:            in.PubKey,
 				GetHeaderStartTimeUnixMS:  in.GetHeaderStartTimeUnixMS,
 				ExtraData:                 slotBestHeader.BuilderExtraData,
+			}})
+			if err != nil {
+				s.logger.Error().Fields(logMetric.GetFields()).Err(err).Msg("failed to call OnHeaderDelivered")
 			}
 		}
 	}()
