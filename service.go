@@ -72,7 +72,7 @@ var (
 type IService interface {
 	IDataService
 	RegisterValidator(ctx context.Context, outgoingCtx context.Context, in *RegistrationParams) (any, *LogMetric, error)
-	GetHeader(ctx context.Context, in *HeaderRequestParams) (any, *LogMetric, error)
+	GetHeader(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error)
 	GetPayload(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error)
 }
 type Service struct {
@@ -634,7 +634,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client) (*rel
 	return nil, nil
 }
 
-func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, *LogMetric, error) {
+func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
 	id := uuid.NewString()
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)

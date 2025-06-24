@@ -641,7 +641,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	}
 
 	versionedBid := new(common.VersionedSignedBuilderBid)
-	if err = versionedBid.UnmarshalJSON(out.(json.RawMessage)); err != nil {
+	if err = versionedBid.UnmarshalJSON(out); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to unmarshal JSON")
 		respondError(handleGetHeaderCtx, getHeader, w, toErrorResp(http.StatusInternalServerError, err.Error(), lm.GetFields()), s.logger, s.tracer, logMetric)
 		return

@@ -22,7 +22,7 @@ import (
 type MockService struct {
 	logger                    *zap.Logger
 	RegisterValidatorFunc     func(ctx context.Context, outgoingctx context.Context, in *RegistrationParams) (any, *LogMetric, error)
-	GetHeaderFunc             func(ctx context.Context, in *HeaderRequestParams) (any, *LogMetric, error)
+	GetHeaderFunc             func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error)
 	GetPayloadFunc            func(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error)
 	GetAccountsFunc           func(ctx context.Context) map[string]interface{}
 	SetAccountsFunc           func(ctx context.Context)
@@ -102,7 +102,7 @@ func (m *MockService) RegisterValidator(ctx context.Context, outgoingCtx context
 	}
 	return nil, new(LogMetric), nil
 }
-func (m *MockService) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, *LogMetric, error) {
+func (m *MockService) GetHeader(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
 	if m.GetHeaderFunc != nil {
 		return m.GetHeaderFunc(ctx, in)
 	}
@@ -193,9 +193,9 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk123",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (interface{}, *LogMetric, error) {
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
 
-					return "getHeader", nil, nil
+					return json.RawMessage("getHeader"), nil, nil
 				},
 			},
 			expectedCode:   http.StatusOK,
@@ -208,7 +208,7 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk456",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (interface{}, *LogMetric, error) {
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
 					return nil, nil, &ErrorResp{Code: http.StatusNoContent}
 				},
 			},
@@ -222,7 +222,7 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk456",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (interface{}, *LogMetric, error) {
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
 					return nil, nil, &ErrorResp{Code: http.StatusNoContent, Message: "header value is not present for the requested key slot"}
 				},
 			},
@@ -236,7 +236,7 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk456b",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (interface{}, *LogMetric, error) {
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
 					return nil, nil, &ErrorResp{Code: http.StatusTooManyRequests, Message: "only one getheader request allowed per slot per validator"}
 				},
 			},
