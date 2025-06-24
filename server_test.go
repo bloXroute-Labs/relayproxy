@@ -10,19 +10,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
+
+	"github.com/bloXroute-Labs/relayproxy/common"
 )
 
 type MockService struct {
 	logger                    *zap.Logger
 	RegisterValidatorFunc     func(ctx context.Context, outgoingctx context.Context, in *RegistrationParams) (any, *LogMetric, error)
 	GetHeaderFunc             func(ctx context.Context, in *HeaderRequestParams) (any, *LogMetric, error)
-	GetPayloadFunc            func(ctx context.Context, in *PayloadRequestParams) (any, *LogMetric, error)
+	GetPayloadFunc            func(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error)
 	GetAccountsFunc           func(ctx context.Context) map[string]interface{}
 	SetAccountsFunc           func(ctx context.Context)
 	SendAccountFunc           func(accountID, validatorID string)
@@ -89,7 +90,7 @@ func (m *MockService) DelayGetHeader(ctx context.Context, in DelayGetHeaderParam
 	}
 	return DelayGetHeaderResponse{}, nil
 }
-func (m *MockService) GetSlotDuty(slot uint64) (*common.MiniValidatorLatency, error) {
+func (m *MockService) GetSlotDuty(_ uint64) (*common.MiniValidatorLatency, error) {
 	return nil, nil
 }
 
@@ -108,7 +109,7 @@ func (m *MockService) GetHeader(ctx context.Context, in *HeaderRequestParams) (a
 	return nil, new(LogMetric), nil
 }
 
-func (m *MockService) GetPayload(ctx context.Context, in *PayloadRequestParams) (any, *LogMetric, error) {
+func (m *MockService) GetPayload(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error) {
 	if m.GetPayloadFunc != nil {
 		return m.GetPayloadFunc(ctx, in)
 	}
@@ -287,7 +288,7 @@ func TestServer_HandleGetPayload(t *testing.T) {
 			requestBody: []byte(`{"key": "value"}`),
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetPayloadFunc: func(ctx context.Context, params *PayloadRequestParams) (any, *LogMetric, error) {
+				GetPayloadFunc: func(ctx context.Context, params *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error) {
 					return nil, nil, nil
 				},
 			},
@@ -298,7 +299,7 @@ func TestServer_HandleGetPayload(t *testing.T) {
 			requestBody: []byte(`{"key": "value"}`),
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetPayloadFunc: func(ctx context.Context, params *PayloadRequestParams) (any, *LogMetric, error) {
+				GetPayloadFunc: func(ctx context.Context, params *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error) {
 					return nil, nil, toErrorResp(http.StatusInternalServerError, "failed to getPayload", nil)
 				},
 			},
