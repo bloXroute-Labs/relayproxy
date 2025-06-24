@@ -113,7 +113,6 @@ type Service struct {
 	listenAddress     string
 	GrpcListenAddress string
 	forwardedBlockCh  *chan common.ForwardedBlockInfo
-	saveHeaderToDBCh  *chan *common.SaveHeaderToDBInfo
 
 	builderInfo *cache.Cache
 
