@@ -819,17 +819,17 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, 
 			HeaderDeliveredBlockHash:  slotBestHeader.BlockHash,
 			HeaderBlockValue:          weiToEther(blockValue),
 			HeaderUserAgent:           statsUserAgent,
-
-			Slot:             _slot,
-			SlotStartTime:    slotStartTime,
-			ParentHash:       in.ParentHash,
-			PubKey:           in.PubKey,
-			ClientIP:         in.ClientIP,
-			NodeID:           s.nodeID,
-			AccountID:        in.AccountID,
-			ValidatorID:      in.ValidatorID,
-			GetHeaderLatency: latency,
-			SlotUID:          in.SlotUID,
+			HeaderStartTimeUnixMs:     in.GetHeaderStartTimeUnixMS,
+			Slot:                      _slot,
+			SlotStartTime:             slotStartTime,
+			ParentHash:                in.ParentHash,
+			PubKey:                    in.PubKey,
+			ClientIP:                  in.ClientIP,
+			NodeID:                    s.nodeID,
+			AccountID:                 in.AccountID,
+			ValidatorID:               in.ValidatorID,
+			GetHeaderLatency:          latency,
+			SlotUID:                   in.SlotUID,
 		}
 
 		if v, ok := s.slotStats.Get(k); !ok {
@@ -869,6 +869,7 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, 
 			Latency:                  latency,
 			UserAgent:                statsUserAgent,
 			SlotUID:                  in.SlotUID,
+			HeaderStartTimeUnixMs:    in.GetHeaderStartTimeUnixMS,
 		}
 		s.fluentD.LogToFluentD(fluentstats.Record{
 			Type: TypeRelayProxyGetHeader,
@@ -1785,6 +1786,7 @@ func mergeSlotStats(record SlotStatsRecord, statsRecord SlotStatsRecord) SlotSta
 	statsRecord.HeaderUserAgent = record.HeaderUserAgent
 	statsRecord.PubKey = record.PubKey
 	statsRecord.GetHeaderLatency = record.GetHeaderLatency
+	statsRecord.HeaderStartTimeUnixMs = record.HeaderStartTimeUnixMs
 
 	statsRecord.AccountID = record.AccountID
 	statsRecord.ValidatorID = record.ValidatorID
