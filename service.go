@@ -354,7 +354,9 @@ func (s *Service) handleStream(ctx context.Context, client *common.ParentClient)
 
 			active, safe := client.GetActiveClient(lastConnectTime)
 			if safe {
-				s.logger.Warn().Str("method", "streamHeader").Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("Fallback to safe IP used")
+				s.logger.Warn().Str("method", "streamHeader").Time("lastConnectTime", lastConnectTime).Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("Fallback to safe IP used")
+			} else {
+				s.logger.Info().Str("method", "streamHeader").Time("lastConnectTime", lastConnectTime).Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("fast IP used")
 			}
 			lastConnectTime = time.Now()
 
