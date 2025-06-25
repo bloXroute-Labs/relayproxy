@@ -161,12 +161,6 @@ func NewService(opts ...ServiceOption) *Service {
 	return svc
 }
 
-func (s *Service) AddServiceOptions(opts ...ServiceOption) {
-	for _, opt := range opts {
-		opt(s)
-	}
-}
-
 func (s *Service) RegisterValidator(ctx context.Context, outgoingCtx context.Context, in *RegistrationParams) (any, *LogMetric, error) {
 	var (
 		errChan  = make(chan *ErrorResp, len(s.clients))

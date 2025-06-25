@@ -116,9 +116,6 @@ func (m *MockService) GetPayload(ctx context.Context, in *PayloadRequestParams) 
 	return nil, new(LogMetric), nil
 }
 
-func (m *MockService) AddServiceOptions(opts ...ServiceOption) {
-}
-
 func TestServer_HandleRegistration(t *testing.T) {
 	testCases := map[string]struct {
 		requestBody  []byte
