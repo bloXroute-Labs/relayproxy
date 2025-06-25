@@ -19,11 +19,6 @@ import (
 
 	"github.com/attestantio/go-eth2-client/spec/bellatrix"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
-	"github.com/bloXroute-Labs/relayproxy/common"
-	"github.com/bloXroute-Labs/relayproxy/fastjson"
-	"github.com/bloXroute-Labs/relayproxy/fluentstats"
-	"github.com/bloXroute-Labs/relayproxy/httpclient"
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/ssz"
@@ -38,6 +33,12 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
+	"github.com/bloXroute-Labs/relayproxy/common"
+	"github.com/bloXroute-Labs/relayproxy/fastjson"
+	"github.com/bloXroute-Labs/relayproxy/fluentstats"
+	"github.com/bloXroute-Labs/relayproxy/httpclient"
 )
 
 const (
@@ -71,10 +72,13 @@ var (
 type IService interface {
 	IDataService
 	RegisterValidator(ctx context.Context, outgoingCtx context.Context, in *RegistrationParams) (any, *LogMetric, error)
-	GetHeader(ctx context.Context, in *HeaderRequestParams) (any, *LogMetric, error)
-	GetPayload(ctx context.Context, in *PayloadRequestParams) (any, *LogMetric, error)
+	GetHeader(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error)
+	GetPayload(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error)
 }
 type Service struct {
+	// data service
+	IDataService
+
 	logger      zerolog.Logger
 	version     string // build version
 	nodeID      string // UUID
@@ -117,8 +121,6 @@ type Service struct {
 	accountsLists       *AccountsLists
 	walletAccounts      *map[string]*common.WalletAccount
 	miniProposerSlotMap *SyncMap[uint64, *common.MiniValidatorLatency]
-	// data service
-	IDataService
 }
 
 type slotStatsEvent struct {
@@ -632,7 +634,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client) (*rel
 	return nil, nil
 }
 
-func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, *LogMetric, error) {
+func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
 	id := uuid.NewString()
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
@@ -1377,7 +1379,7 @@ func (s *Service) validateAndFetchPayload(ctx context.Context, logMetric *LogMet
 	}, toErrorResp(http.StatusOK, "pre fetch payload not available in cache", logMetric.GetFields())
 }
 
-func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (any, *LogMetric, error) {
+func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error) {
 	startTime := time.Now().UTC()
 	id := uuid.NewString()
 	parentSpan := trace.SpanFromContext(ctx)
@@ -1537,7 +1539,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (any
 				attribute.String("blockValue", resp.BlockValue),
 				attribute.String("uniqueKey", uKey),
 			)
-			return json.RawMessage(resp.Response), logMetric, nil
+			return resp, logMetric, nil
 		case errResp = <-errChan:
 			// if multiple client return errors, first error gets replaced by the subsequent errors
 		}
