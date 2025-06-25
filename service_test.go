@@ -18,9 +18,6 @@ import (
 	"time"
 
 	"github.com/attestantio/go-builder-client/spec"
-	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
-	"github.com/bloXroute-Labs/relayproxy/common"
-	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 	"github.com/patrickmn/go-cache"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -31,6 +28,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+
+	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
+	"github.com/bloXroute-Labs/relayproxy/common"
+	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 )
 
 const (
@@ -61,7 +62,6 @@ const (
 )
 
 func TestService_RegisterValidator(t *testing.T) {
-
 	tests := map[string]struct {
 		f           func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error)
 		wantSuccess any
@@ -93,6 +93,7 @@ func TestService_RegisterValidator(t *testing.T) {
 			wantErr: toErrorResp(http.StatusInternalServerError, "relay returned failure response code", map[string]any{}),
 		},
 	}
+
 	for testName, tt := range tests {
 		t.Run(testName, func(t *testing.T) {
 			c := &common.Client{RelayClient: &mockRelayClient{RegisterValidatorFunc: tt.f}}
@@ -118,7 +119,6 @@ func TestService_RegisterValidator(t *testing.T) {
 }
 
 func TestService_GetHeader(t *testing.T) {
-
 	tests := map[string]struct {
 		slot               string
 		parentHash         string
@@ -216,7 +216,6 @@ func TestService_GetHeader(t *testing.T) {
 }
 
 func TestService_getPayload(t *testing.T) {
-
 	tests := map[string]struct {
 		f           func(ctx context.Context, req *relaygrpc.GetPayloadRequest, opts ...grpc.CallOption) (*relaygrpc.GetPayloadResponse, error)
 		wantSuccess []byte
@@ -260,13 +259,14 @@ func TestService_getPayload(t *testing.T) {
 				AccountNameToInfo: make(map[AccountName]*AccountInfo)}
 			got, _, err := s.GetPayload(context.Background(), &PayloadRequestParams{AuthHeader: TestAuthHeader})
 			if err == nil {
-				assert.Equal(t, string(got.(json.RawMessage)), string(tt.wantSuccess))
+				assert.Equal(t, string(got.GetResponse()), string(tt.wantSuccess))
 				return
 			}
 			assert.Equal(t, err.Error(), tt.wantErr.Error())
 		})
 	}
 }
+
 func TestBlockCancellation(t *testing.T) {
 	s := &Service{
 		logger:                  zerolog.Nop(),

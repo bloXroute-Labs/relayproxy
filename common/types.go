@@ -330,7 +330,7 @@ func NewParentClient(safeUrl string, safeConn *grpc.ClientConn, fastUrl string, 
 		},
 		SafeClient: &Client{
 			URL:         safeUrl,
-			RelayClient: relaygrpc.NewRelayClient(fastConn),
+			RelayClient: relaygrpc.NewRelayClient(safeConn),
 		},
 	}
 }
