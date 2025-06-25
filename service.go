@@ -72,7 +72,7 @@ var (
 type IService interface {
 	IDataService
 	RegisterValidator(ctx context.Context, outgoingCtx context.Context, in *RegistrationParams) (any, *LogMetric, error)
-	GetHeader(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error)
+	GetHeader(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, *LogMetric, error)
 	GetPayload(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error)
 }
 
@@ -655,7 +655,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 	return nil, nil
 }
 
-func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
+func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, *LogMetric, error) {
 	id := uuid.NewString()
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
@@ -729,7 +729,7 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (json.
 	if err != nil {
 		preStoringHeaderSpan.End(trace.WithTimestamp(time.Now()))
 		logMetric.String("proxyError", err.Error())
-		return nil, logMetric, toErrorResp(http.StatusNoContent, err.Error(), logMetric.GetFields())
+		return nil, nil, logMetric, toErrorResp(http.StatusNoContent, err.Error(), logMetric.GetFields())
 	}
 
 	_, parseUintHeaderSpan := s.tracer.Start(ctx, "getHeader-parseUint")
@@ -738,7 +738,7 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (json.
 		logMetric.String("proxyError", "invalid slot "+in.Slot)
 		parseUintHeaderSpan.End(trace.WithTimestamp(time.Now()))
 		preStoringHeaderSpan.End(trace.WithTimestamp(time.Now()))
-		return nil, logMetric, toErrorResp(http.StatusNoContent, errInvalidSlot.Error(), logMetric.GetFields())
+		return nil, nil, logMetric, toErrorResp(http.StatusNoContent, errInvalidSlot.Error(), logMetric.GetFields())
 	}
 
 	parseUintHeaderSpan.End(trace.WithTimestamp(time.Now()))
@@ -760,13 +760,13 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (json.
 	if len(in.PubKey) != 98 {
 		storingHeaderSpan.End(trace.WithTimestamp(time.Now()))
 		logMetric.String("proxyError", fmt.Sprintf("pub key should be %d long", 98))
-		return nil, logMetric, toErrorResp(http.StatusNoContent, errInvalidPubkey.Error(), logMetric.GetFields())
+		return nil, nil, logMetric, toErrorResp(http.StatusNoContent, errInvalidPubkey.Error(), logMetric.GetFields())
 	}
 
 	if len(in.ParentHash) != 66 {
 		storingHeaderSpan.End(trace.WithTimestamp(time.Now()))
 		logMetric.String("proxyError", fmt.Sprintf("parent hash should be %d long", 66))
-		return nil, logMetric, toErrorResp(http.StatusNoContent, errInvalidHash.Error(), logMetric.GetFields())
+		return nil, nil, logMetric, toErrorResp(http.StatusNoContent, errInvalidHash.Error(), logMetric.GetFields())
 	}
 
 	fetchGetHeaderStartTime := time.Now().UTC()
@@ -809,7 +809,7 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (json.
 			}, time.Now().UTC(), s.nodeID, StatsRelayProxyGetHeader)
 		}()
 		logMetric.String("proxyError", msg)
-		return nil, logMetric, toErrorResp(http.StatusNoContent, "Header value is not present", logMetric.GetFields())
+		return nil, nil, logMetric, toErrorResp(http.StatusNoContent, "Header value is not present", logMetric.GetFields())
 	}
 	if slotBestHeader.AccountID != "" {
 		in.AccountID = slotBestHeader.AccountID
@@ -920,27 +920,16 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (json.
 		s.logger.Debug().Fields(logMetric.GetFields()).Msg("newly signed header")
 	}
 
-	go func() {
-		versionedBid := new(common.VersionedSignedBuilderBid)
-		if err = versionedBid.UnmarshalJSON(signedHeaderResponse); err != nil {
-			s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to unmarshal signed header response")
-			return
-		}
-		if s.OnHeaderDelivered != nil {
-			err := s.OnHeaderDelivered(&common.OnHeaderDeliveredParams{SaveHeaderToDBInfo: &common.SaveHeaderToDBInfo{
-				VersionedSignedBuilderBid: versionedBid,
-				Slot:                      _slot,
-				GetHeaderRequestID:        "getHeaderRequestID",
-				ProposerPubkey:            in.PubKey,
-				GetHeaderStartTimeUnixMS:  in.GetHeaderStartTimeUnixMS,
-				ExtraData:                 slotBestHeader.BuilderExtraData,
-			}})
-			if err != nil {
-				s.logger.Error().Fields(logMetric.GetFields()).Err(err).Msg("failed to call OnHeaderDelivered")
-			}
-		}
-	}()
-	return json.RawMessage(signedHeaderResponse), logMetric, nil
+	onHeaderDeliveredParams := &common.OnHeaderDeliveredParams{
+		SignedHeaderResponse:     signedHeaderResponse,
+		Slot:                     _slot,
+		GetHeaderRequestID:       "getHeaderRequestID",
+		ProposerPubkey:           in.PubKey,
+		GetHeaderStartTimeUnixMS: in.GetHeaderStartTimeUnixMS,
+		ExtraData:                slotBestHeader.BuilderExtraData,
+	}
+
+	return json.RawMessage(signedHeaderResponse), onHeaderDeliveredParams, logMetric, nil
 }
 
 func (s *Service) StartPreFetcher(ctx context.Context) {

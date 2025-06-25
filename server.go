@@ -55,7 +55,7 @@ var (
 type Server struct {
 	logger        zerolog.Logger
 	server        *http.Server
-	Svc           IService
+	svc           IService
 	listenAddress string
 
 	beaconGenesisTime int64
@@ -74,6 +74,13 @@ type Server struct {
 
 	// Callback
 	OnPayloadDelivered func(slot uint64, blockHash string, parentHash string, proposerPubkey string) error
+	OnHeaderDelivered  func(
+		VersionedSignedBuilderBid *common.VersionedSignedBuilderBid, Slot uint64,
+		GetHeaderRequestID string,
+		ProposerPubkey string,
+		GetHeaderStartTimeUnixMS string,
+		ExtraData string,
+	) error
 }
 
 type GetHeaderRateLimitInfo struct {
@@ -382,7 +389,7 @@ func (s *Server) writeErrorResponse(w http.ResponseWriter, message string, err e
 	http.Error(w, message, statusCode)
 }
 func (s *Server) HandleGetAccounts(w http.ResponseWriter, r *http.Request) {
-	accounts := s.Svc.GetAccounts(r.Context())
+	accounts := s.svc.GetAccounts(r.Context())
 	out, err := json.Marshal(accounts)
 	if err != nil {
 		s.writeErrorResponse(w, "failed to fetch accounts", err, http.StatusInternalServerError)
@@ -392,7 +399,7 @@ func (s *Server) HandleGetAccounts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleGetDelays(w http.ResponseWriter, r *http.Request) {
-	settings := s.Svc.GetDelaySettings(r.Context())
+	settings := s.svc.GetDelaySettings(r.Context())
 	out, err := json.Marshal(settings)
 	if err != nil {
 		s.writeErrorResponse(w, "failed to fetch delay settings", err, http.StatusInternalServerError)
@@ -415,7 +422,7 @@ func (s *Server) HandleSetDelays(w http.ResponseWriter, r *http.Request) {
 				s.writeErrorResponse(w, "failed to update validators delay setting", err, http.StatusBadRequest)
 				return
 			}
-			s.Svc.SetDelayForValidators(delaySettings)
+			s.svc.SetDelayForValidators(delaySettings)
 			s.writeSuccessResponse(w, []byte(`{"msg":"validators delay settings updated"}`))
 			return
 
@@ -423,7 +430,7 @@ func (s *Server) HandleSetDelays(w http.ResponseWriter, r *http.Request) {
 		s.writeErrorResponse(w, "failed to update validators delay setting", err, http.StatusInternalServerError)
 		return
 	}
-	s.Svc.SetDelayForValidator(id, delay, maxDelay)
+	s.svc.SetDelayForValidator(id, delay, maxDelay)
 	s.writeSuccessResponse(w, []byte(`{"msg":"validator delay settings updated"}`))
 }
 
@@ -452,7 +459,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	if sszRequest {
 		outgoingCtx = metadata.AppendToOutgoingContext(outgoingCtx, common.HeaderBlxrContentType, common.MediaTypeOctetStream)
 	}
-	s.Svc.SendAccount(accountID, validatorID)
+	s.svc.SendAccount(accountID, validatorID)
 
 	logMetric := NewLogMetric(
 		map[string]any{
@@ -521,7 +528,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 	handleRegistrationSpan.AddEvent("handleRegistration- svcRegisterValidator")
 	go func() {
-		_, lm, err := s.Svc.RegisterValidator(handleRegistrationCtx, outgoingCtx, &RegistrationParams{
+		_, lm, err := s.svc.RegisterValidator(handleRegistrationCtx, outgoingCtx, &RegistrationParams{
 			ReceivedAt:         receivedAt,
 			Payload:            bodyBytes,
 			ClientIP:           clientIP,
@@ -613,7 +620,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	)
 	span.SetAttributes(logMetric.GetAttributes()...)
 	span.AddEvent("handleGetHeader-svcGetHeader")
-	out, lm, err := s.Svc.GetHeader(handleGetHeaderCtx, &HeaderRequestParams{
+	out, onHeaderDeliveredParams, lm, err := s.svc.GetHeader(handleGetHeaderCtx, &HeaderRequestParams{
 		ReceivedAt:               receivedAt,
 		GetHeaderStartTimeUnixMS: boostSendTime,
 		Latency:                  latency,
@@ -633,6 +640,29 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		respondError(handleGetHeaderCtx, getHeader, w, err, s.logger, s.tracer, logMetric)
 		return
 	}
+	go func() {
+		if onHeaderDeliveredParams == nil || s.OnHeaderDelivered == nil {
+			s.logger.Warn().Fields(logMetric.GetFields()).Msg("skipping callback")
+			return
+		}
+		versionedBid := new(common.VersionedSignedBuilderBid)
+		if err = versionedBid.UnmarshalJSON(onHeaderDeliveredParams.SignedHeaderResponse); err != nil {
+			s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to unmarshal signed header response")
+			return
+		}
+		err := s.OnHeaderDelivered(
+			versionedBid,
+			onHeaderDeliveredParams.Slot,
+			onHeaderDeliveredParams.GetHeaderRequestID,
+			onHeaderDeliveredParams.ProposerPubkey,
+			onHeaderDeliveredParams.GetHeaderStartTimeUnixMS,
+			onHeaderDeliveredParams.ExtraData,
+		)
+		if err != nil {
+			s.logger.Error().Fields(logMetric.GetFields()).Err(err).Msg("failed to call OnHeaderDelivered")
+		}
+
+	}()
 
 	if !sszResponse {
 		s.logger.Info().Msg("Responding with JSON")

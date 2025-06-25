@@ -28,7 +28,7 @@ func WithHTTPServer(server *http.Server) ServerOption {
 
 func WithService(svc *Service) ServerOption {
 	return func(s *Server) {
-		s.Svc = svc
+		s.svc = svc
 	}
 }
 
@@ -266,12 +266,6 @@ func WithSvcGrpcListenAddress(listenAddr string) ServiceOption {
 func WithForwardedBlockCh(ch *chan common.ForwardedBlockInfo) ServiceOption {
 	return func(s *Service) {
 		s.forwardedBlockCh = ch
-	}
-}
-
-func WithOnHeaderDelivered(onHeaderDelivered func(*common.OnHeaderDeliveredParams) error) ServiceOption {
-	return func(s *Service) {
-		s.OnHeaderDelivered = onHeaderDelivered
 	}
 }
 

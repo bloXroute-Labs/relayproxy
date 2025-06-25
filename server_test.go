@@ -22,7 +22,7 @@ import (
 type MockService struct {
 	logger                    *zap.Logger
 	RegisterValidatorFunc     func(ctx context.Context, outgoingctx context.Context, in *RegistrationParams) (any, *LogMetric, error)
-	GetHeaderFunc             func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error)
+	GetHeaderFunc             func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, *LogMetric, error)
 	GetPayloadFunc            func(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error)
 	GetAccountsFunc           func(ctx context.Context) map[string]interface{}
 	SetAccountsFunc           func(ctx context.Context)
@@ -102,11 +102,11 @@ func (m *MockService) RegisterValidator(ctx context.Context, outgoingCtx context
 	}
 	return nil, new(LogMetric), nil
 }
-func (m *MockService) GetHeader(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
+func (m *MockService) GetHeader(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, *LogMetric, error) {
 	if m.GetHeaderFunc != nil {
 		return m.GetHeaderFunc(ctx, in)
 	}
-	return nil, new(LogMetric), nil
+	return nil, nil, new(LogMetric), nil
 }
 
 func (m *MockService) GetPayload(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error) {
@@ -171,7 +171,7 @@ func TestServer_HandleRegistration(t *testing.T) {
 			}
 			rr := httptest.NewRecorder()
 			dataSvc := NewDataService()
-			server := &Server{Svc: tc.mockService, logger: zerolog.Nop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
+			server := &Server{svc: tc.mockService, logger: zerolog.Nop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
 			go dataSvc.SetAccounts(context.Background())
 			h := server.Middleware(http.HandlerFunc(server.HandleRegistration))
 			h.ServeHTTP(rr, req)
@@ -196,9 +196,9 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk123",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, *LogMetric, error) {
 
-					return json.RawMessage("getHeader"), nil, nil
+					return json.RawMessage("getHeader"), nil, nil, nil
 				},
 			},
 			expectedCode:   http.StatusOK,
@@ -211,8 +211,8 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk456",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
-					return nil, nil, &ErrorResp{Code: http.StatusNoContent}
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, *LogMetric, error) {
+					return nil, nil, nil, &ErrorResp{Code: http.StatusNoContent}
 				},
 			},
 			expectedCode:   http.StatusNoContent,
@@ -225,8 +225,8 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk456",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
-					return nil, nil, &ErrorResp{Code: http.StatusNoContent, Message: "header value is not present for the requested key slot"}
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, *LogMetric, error) {
+					return nil, nil, nil, &ErrorResp{Code: http.StatusNoContent, Message: "header value is not present for the requested key slot"}
 				},
 			},
 			expectedCode:   http.StatusNoContent,
@@ -239,8 +239,8 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk456b",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
-					return nil, nil, &ErrorResp{Code: http.StatusTooManyRequests, Message: "only one getheader request allowed per slot per validator"}
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, *LogMetric, error) {
+					return nil, nil, nil, &ErrorResp{Code: http.StatusTooManyRequests, Message: "only one getheader request allowed per slot per validator"}
 				},
 			},
 			expectedCode:   http.StatusTooManyRequests,
@@ -263,7 +263,7 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 			req.Header.Add("X-Forwarded-For", tc.ip)
 			rr := httptest.NewRecorder()
-			server := &Server{Svc: tc.mockService, logger: zerolog.Nop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
+			server := &Server{svc: tc.mockService, logger: zerolog.Nop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
 
 			h := server.Middleware(http.HandlerFunc(server.HandleGetHeader))
 			h.ServeHTTP(rr, req)
@@ -318,7 +318,7 @@ func TestServer_HandleGetPayload(t *testing.T) {
 				t.Fatal(err)
 			}
 			rr := httptest.NewRecorder()
-			server := &Server{Svc: tc.mockService, logger: zerolog.Nop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
+			server := &Server{svc: tc.mockService, logger: zerolog.Nop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
 			h := server.Middleware(http.HandlerFunc(server.HandleGetPayload))
 			h.ServeHTTP(rr, req)
 
@@ -403,7 +403,7 @@ func TestServer_HandleSetDelays(t *testing.T) {
 			opts := make([]ServiceOption, 0)
 			opts = append(opts, WithDataService(dSvc))
 			svc := NewService(opts...)
-			server := &Server{Svc: svc, logger: zerolog.Nop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
+			server := &Server{svc: svc, logger: zerolog.Nop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
 			server.HandleSetDelays(rrPost, tc.reqPostFunc())
 			assert.Equal(t, rrPost.Code, tc.expectedPostCode)
 

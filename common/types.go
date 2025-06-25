@@ -448,16 +448,12 @@ type ForwardedBlockInfo struct {
 }
 
 type OnHeaderDeliveredParams struct {
-	SaveHeaderToDBInfo *SaveHeaderToDBInfo
-}
-
-type SaveHeaderToDBInfo struct {
-	VersionedSignedBuilderBid *VersionedSignedBuilderBid
-	Slot                      uint64
-	GetHeaderRequestID        string
-	ProposerPubkey            string
-	GetHeaderStartTimeUnixMS  string
-	ExtraData                 string
+	SignedHeaderResponse     []byte
+	Slot                     uint64
+	GetHeaderRequestID       string
+	ProposerPubkey           string
+	GetHeaderStartTimeUnixMS string
+	ExtraData                string
 }
 
 type BuilderInfo struct {
