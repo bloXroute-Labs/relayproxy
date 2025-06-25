@@ -24,6 +24,7 @@ import (
 	"github.com/bloXroute-Labs/relayproxy"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
+	"github.com/bloXroute-Labs/relayproxy/otel"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/ssz"
@@ -33,8 +34,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/patrickmn/go-cache"
 	"github.com/rs/zerolog"
-	"github.com/uptrace/uptrace-go/uptrace"
-	"go.opentelemetry.io/otel"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	_ "google.golang.org/grpc/encoding/gzip" // to enable gzip encoding
@@ -87,6 +86,12 @@ var (
 
 	// external relay
 	externalRelayURL = flag.String("external-relay", "", "external relay to be called")
+
+	// tempo config
+	tempoDSN        = flag.String("tempo-dsn", "", "tempo URL")
+	env             = flag.String("env", "local", "running environment")
+	tempoSampleRate = flag.Float64("tempo-sample-rate", 1.0, "running environment") //0.1 - 10% / 1.0 - 100% of traces
+	enableTrace     = flag.Bool("enable-trace", false, "enable trace")
 )
 var (
 	grpcPort          = flag.String("grpc-port", "5001", "grpc port")
@@ -94,7 +99,7 @@ var (
 	secretKey         = flag.String("secret-key", "", "private key used for signing messages")
 	expectedPublicKey = flag.String("expected-public-key", "", "expected decoded public key")
 	accountImportPath = flag.String("account-import-filepath", "", "file path for accounts list")
-	adminAccountID    = flag.String("admin-account-id", "", "admin account id")
+	adminAccountID    = flag.String("admin-account-id", "1.0", "admin account id")
 )
 
 func main() {
@@ -179,25 +184,20 @@ func main() {
 		}
 	}()
 
-	// Configure OpenTelemetry with sensible defaults.
-	uptrace.ConfigureOpentelemetry(
-		uptrace.WithDSN(*uptraceDSN),
+	// Initialize OpenTelemetry for Tempo
+	tracer, shutdown := otel.InitTracer(ctx, *enableTrace, *tempoSampleRate, *env, *tempoDSN, *nodeID, _AppName, _BuildVersion)
 
-		uptrace.WithServiceName(_AppName),
-		uptrace.WithServiceVersion(_BuildVersion),
-		uptrace.WithDeploymentEnvironment(*nodeID),
-	)
 	// Send buffered spans and free resources.
 	defer func() {
-		ctxWithTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
+		_, _cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer _cancel()
 
-		if err := uptrace.Shutdown(ctxWithTimeout); err != nil {
-			l.Error().Err(err).Msg("failed to shutdown uptrace")
-		}
+		shutdown() // your shutdown func already logs if error occurs
 	}()
 
-	tracer := otel.Tracer("main")
+	// Start using the tracer
+	ctx, span := tracer.Start(ctx, "main")
+	defer span.End()
 
 	// init fluentD if enabled
 	fluentLogger := fluentstats.NewStats(true, *fluentDHostFlag)
