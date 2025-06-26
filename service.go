@@ -922,7 +922,7 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (json.
 	onHeaderDeliveredParams := &common.OnHeaderDeliveredParams{
 		SignedHeaderResponse:     signedHeaderResponse,
 		Slot:                     _slot,
-		GetHeaderRequestID:       "getHeaderRequestID",
+		GetHeaderRequestID:       in.SlotUID,
 		ProposerPubkey:           in.PubKey,
 		GetHeaderStartTimeUnixMS: in.GetHeaderStartTimeUnixMS,
 		ExtraData:                slotBestHeader.BuilderExtraData,
