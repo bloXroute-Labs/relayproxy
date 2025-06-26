@@ -5,6 +5,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -38,12 +39,13 @@ func InitTracer(ctx context.Context, enableTracer bool, sampleRate float64, env,
 			semconv.SchemaURL,
 			semconv.ServiceNameKey.String(appName),
 			semconv.ServiceVersionKey.String(version),
-			semconv.DeploymentEnvironmentKey.String(env+"-"+nodeID),
+			semconv.DeploymentEnvironmentKey.String(env),
+			attribute.String("node.id", nodeID),
 		)),
 	}
 
 	// Add local structured logging span exporter if running locally
-	if env == "local" {
+	if env == "custom" {
 		localExporter := NewLocalExporter()
 		tpOpts = append(tpOpts, sdktrace.WithSpanProcessor(sdktrace.NewBatchSpanProcessor(localExporter)))
 	}

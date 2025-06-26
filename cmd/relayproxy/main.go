@@ -68,7 +68,8 @@ var (
 	getHeaderMaxDelayInMS     = flag.Int64("get-header-max-delay-ms", 0, "max delay for sending the getHeader request in millisecond")
 	authKey                   = flag.String("auth-key", "", "account authentication key")
 	nodeID                    = flag.String("node-id", fmt.Sprintf("rproxy-%v", uuid.New().String()), "unique identifier for the node")
-	uptraceDSN                = flag.String("uptrace-dsn", "", "uptrace URL")
+	//nolint:unused
+	uptraceDSN = flag.String("uptrace-dsn", "", "uptrace URL")
 	// fluentD
 	fluentDHostFlag   = flag.String("fluentd-host", "", "fluentd host")
 	beaconGenesisTime = flag.Int64("beacon-genesis-time", 1606824023, "beacon genesis time in unix timestamp, default value set to mainnet")
@@ -88,10 +89,9 @@ var (
 	externalRelayURL = flag.String("external-relay", "", "external relay to be called")
 
 	// tempo config
-	tempoDSN        = flag.String("tempo-dsn", "", "tempo URL")
-	env             = flag.String("env", "local", "running environment")
-	tempoSampleRate = flag.Float64("tempo-sample-rate", 1.0, "running environment") //0.1 - 10% / 1.0 - 100% of traces
-	enableTrace     = flag.Bool("enable-trace", false, "enable trace")
+	tempoDSN         = flag.String("tempo-dsn", "", "tempo URL")
+	tempoSampleRate  = flag.Float64("tempo-sample-rate", 1.0, "running environment") //0.1 - 10% / 1.0 - 100% of traces
+	tempoEnableTrace = flag.Bool("tempo-enable-trace", false, "enable trace")
 )
 var (
 	grpcPort          = flag.String("grpc-port", "5001", "grpc port")
@@ -185,7 +185,7 @@ func main() {
 	}()
 
 	// Initialize OpenTelemetry for Tempo
-	tracer, shutdown := otel.InitTracer(ctx, *enableTrace, *tempoSampleRate, *env, *tempoDSN, *nodeID, _AppName, _BuildVersion)
+	tracer, shutdown := otel.InitTracer(ctx, *tempoEnableTrace, *tempoSampleRate, *network, *tempoDSN, *nodeID, _AppName, _BuildVersion)
 
 	// Send buffered spans and free resources.
 	defer func() {
