@@ -829,7 +829,7 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, 
 			AccountID:                 in.AccountID,
 			ValidatorID:               in.ValidatorID,
 			GetHeaderLatency:          latency,
-			SlotUID:                   in.SlotUID,
+			HeaderSlotUID:             in.SlotUID,
 		}
 
 		if v, ok := s.slotStats.Get(k); !ok {
@@ -1711,11 +1711,12 @@ func (s *Service) sendPayloadStats(payload []byte, logMetric *LogMetric, isSucce
 		AccountID:                 accountID,
 		ValidatorID:               validatorID,
 		GetPayloadLatency:         latency,
-		SlotUID:                   slotUID,
+		PayloadSlotUID:            slotUID,
 	}
 	var (
 		isRelayProxyWin bool
-		fallback        SlotStatsRecord
+		//isSlotUIDMatch  bool
+		fallback SlotStatsRecord
 	)
 	k := fmt.Sprintf("slot-%v-parentHash-%v", out.GetSlot(), out.GetParentHash())
 	v, ok := s.slotStats.Get(k)
@@ -1725,9 +1726,10 @@ func (s *Service) sendPayloadStats(payload []byte, logMetric *LogMetric, isSucce
 				if i == len(records)-1 {
 					fallback = record
 				}
-				if record.HeaderDeliveredBlockHash == out.GetBlockHash() && record.SlotUID == statsRecord.SlotUID {
+				if record.HeaderDeliveredBlockHash == out.GetBlockHash() {
 					mergeSlotStats(record, statsRecord)
 					isRelayProxyWin = true
+					//isSlotUIDMatch = record.HeaderSlotUID == statsRecord.PayloadSlotUID
 					break
 				}
 				if !isRelayProxyWin {
@@ -1787,6 +1789,7 @@ func mergeSlotStats(record SlotStatsRecord, statsRecord SlotStatsRecord) SlotSta
 	statsRecord.PubKey = record.PubKey
 	statsRecord.GetHeaderLatency = record.GetHeaderLatency
 	statsRecord.HeaderStartTimeUnixMs = record.HeaderStartTimeUnixMs
+	statsRecord.HeaderSlotUID = record.HeaderSlotUID
 
 	statsRecord.AccountID = record.AccountID
 	statsRecord.ValidatorID = record.ValidatorID

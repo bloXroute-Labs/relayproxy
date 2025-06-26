@@ -143,6 +143,7 @@ type SlotStatsRecord struct {
 	HeaderBlockValue          string        `json:"header_block_value"`
 	HeaderUserAgent           string        `json:"header_user_agent"`
 	HeaderStartTimeUnixMs     string        `json:"header_start_time_unix_ms"`
+	HeaderSlotUID             string        `json:"header_slot_uid"`
 
 	// payload fields
 	PayloadReqID              string        `json:"payload_req_id"`
@@ -154,13 +155,13 @@ type SlotStatsRecord struct {
 	PayloadDeliveredBlockHash string        `json:"payload_delivered_block_hash"`
 	PayloadBlockValue         string        `json:"payload_block_value"`
 	PayloadUserAgent          string        `json:"payload_user_agent"`
+	PayloadSlotUID            string        `json:"payload_slot_uid"`
 
 	// slot info
 	Slot          uint64    `json:"slot"`
 	ParentHash    string    `json:"parent_hash"`
 	PubKey        string    `json:"pub_key"`
 	SlotStartTime time.Time `json:"slot_start_time"`
-	SlotUID       string    `json:"slot_uid"`
 
 	// node
 	ClientIP string `json:"client_ip"`

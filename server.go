@@ -38,7 +38,7 @@ const (
 
 	MEVBoostStartTimeUnixMS = "X-MEVBoost-StartTimeUnixMS"
 	HeaderDateMilliseconds  = "Date-Milliseconds"
-	HeaderKeySlotUID        = "X-Mevboost-Slotid"
+	HeaderKeySlotUID        = "X-MEVBoost-SlotID"
 	VouchCluster            = "setup"
 )
 
