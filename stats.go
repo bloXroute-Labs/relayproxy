@@ -85,6 +85,8 @@ type GetHeaderStatsRecord struct {
 	ValidatorID               string        `json:"validator_id"`
 	Latency                   int64         `json:"latency"`
 	UserAgent                 string        `json:"user_agent"`
+	SlotUID                   string        `json:"slot_uid"`
+	HeaderStartTimeUnixMs     string        `json:"header_start_time_unix_ms"`
 }
 
 type ExternalRelayStats struct {
@@ -123,6 +125,7 @@ type GetPayloadStatsRecord struct {
 	ValidatorID       string        `json:"validator_id"`
 	Latency           int64         `json:"latency"`
 	UserAgent         string        `json:"user_agent"`
+	SlotUID           string        `json:"slot_uid"`
 }
 
 type SlotStatsRecord struct {
@@ -139,6 +142,8 @@ type SlotStatsRecord struct {
 	HeaderDeliveredBlockHash  string        `json:"header_delivered_block_hash"`
 	HeaderBlockValue          string        `json:"header_block_value"`
 	HeaderUserAgent           string        `json:"header_user_agent"`
+	HeaderStartTimeUnixMs     string        `json:"header_start_time_unix_ms"`
+	HeaderSlotUID             string        `json:"header_slot_uid"`
 
 	// payload fields
 	PayloadReqID              string        `json:"payload_req_id"`
@@ -150,6 +155,7 @@ type SlotStatsRecord struct {
 	PayloadDeliveredBlockHash string        `json:"payload_delivered_block_hash"`
 	PayloadBlockValue         string        `json:"payload_block_value"`
 	PayloadUserAgent          string        `json:"payload_user_agent"`
+	PayloadSlotUID            string        `json:"payload_slot_uid"`
 
 	// slot info
 	Slot          uint64    `json:"slot"`
