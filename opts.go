@@ -203,19 +203,19 @@ func WithEthNetworkDetails(details *common.EthNetworkDetails) ServiceOption {
 	}
 }
 
-func WithClients(clients []*common.Client) ServiceOption {
+func WithClients(clients []*common.ParentClient) ServiceOption {
 	return func(s *Service) {
 		s.clients = clients
 	}
 }
 
-func WithStreamingClients(clients []*common.Client) ServiceOption {
+func WithStreamingClients(clients []*common.ParentClient) ServiceOption {
 	return func(s *Service) {
 		s.streamingClients = clients
 	}
 }
 
-func WithRegistrationClients(clients []*common.Client) ServiceOption {
+func WithRegistrationClients(clients []*common.ParentClient) ServiceOption {
 	return func(s *Service) {
 		s.registrationClients = clients
 	}
@@ -227,7 +227,7 @@ func WithCurrentRegistrationRelayIndex(index int) ServiceOption {
 	}
 }
 
-func WithStreamingBlockClients(clients []*common.Client) ServiceOption {
+func WithStreamingBlockClients(clients []*common.ParentClient) ServiceOption {
 	return func(s *Service) {
 		s.streamingBlockClients = clients
 	}
