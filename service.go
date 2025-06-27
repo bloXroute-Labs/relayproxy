@@ -1535,6 +1535,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (*co
 			go s.sendPayloadStats(in.Payload, logMetricCopy, false, nil, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
 			logMetric.Error(ctx.Err())
 			logMetric.String("relayError", "failed to getPayload")
+			payloadResponseSpan.End()
 			return nil, logMetric, toErrorResp(http.StatusInternalServerError, ctx.Err().Error(), map[string]any{"relayError": "failed to getPayload"})
 		case resp := <-respChan:
 			logMetricCopy := logMetric.Copy()
@@ -1563,6 +1564,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (*co
 				attribute.String("blockValue", resp.BlockValue),
 				attribute.String("uniqueKey", uKey),
 			)
+			payloadResponseSpan.End()
 			return resp, logMetric, nil
 		case errResp = <-errChan:
 			// if multiple client return errors, first error gets replaced by the subsequent errors
