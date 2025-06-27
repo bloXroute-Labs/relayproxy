@@ -938,7 +938,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
 	_, span := s.tracer.Start(ctx, "preFetchGetPayload-start")
-	defer span.End(trace.WithTimestamp(time.Now()))
+	defer span.End()
 
 	if fields.client != nil {
 		clientURL = fields.client.SafeClient.URL
@@ -1410,7 +1410,8 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (*co
 	}
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
 	ctx, span := s.tracer.Start(ctx, "getPayload-start")
-	defer span.End(trace.WithTimestamp(time.Now()))
+	defer span.End()
+	_, timeToRelayRequestSpan := s.tracer.Start(ctx, "getPayload-TimeToRelayRequest")
 	var (
 		latency int64
 	)
@@ -1422,6 +1423,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (*co
 			latency = in.ReceivedAt.Sub(time.UnixMilli(getPayloadStartTime)).Milliseconds()
 		}
 	}
+	_, logTimingSpan := s.tracer.Start(ctx, "getPayload-logTimingSpan")
 
 	logMetric := NewLogMetric(
 		map[string]any{
@@ -1462,6 +1464,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (*co
 	respChan := make(chan *common.VersionedPayloadInfo, len(s.clients)+prefetchAttempts)
 	attempts := make([]struct{}, prefetchAttempts)
 	metricCopy := logMetric.Copy()
+	logTimingSpan.End()
 	var wg sync.WaitGroup
 	wg.Add(1)
 	totalPrefetchResponses := 1
@@ -1502,7 +1505,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (*co
 		ReceivedAt:  timestamppb.New(in.ReceivedAt),
 		SecretToken: s.secretToken,
 	}
-
+	timeToRelayRequestSpan.End()
 	ctx, payloadResponseSpan := s.tracer.Start(ctx, "getPayload-payloadResponseFromRelay")
 	for _, client := range s.clients {
 		wg.Add(1)
