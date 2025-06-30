@@ -1864,7 +1864,7 @@ func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey strin
 	replace := true
 	if err != nil || slotDuty == nil {
 		if err != common.ErrNoProposerSlotMap {
-			s.logger.Err(err).Uint64("slot", slot).Msg("failed to get slot duty")
+			s.logger.Warn().Err(err).Uint64("slot", slot).Msg("failed to get slot duty")
 		}
 	} else {
 		replace = slotDuty.IsOptedIn
