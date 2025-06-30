@@ -795,12 +795,14 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 			SlotUID:                   headerSlotUID,
 		})
 	}
+	_, mergeLogMetric := s.tracer.Start(getPayloadCtx, "handleGetPayload-mergeLogMetric")
 	logMetric.Merge(lm)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
 		respondError(getPayloadCtx, getPayload, w, err, s.logger, s.tracer, logMetric)
 		return
 	}
+	mergeLogMetric.End()
 
 	// If successful, execute the 'OnPayloadDelivered' callback after the function returns.
 	success := &atomic.Bool{}
@@ -825,6 +827,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		respondOK(getPayloadCtx, getPayload, w, versionedPayloadInfo.GetResponse(), s.logger, s.tracer, logMetric)
 		return
 	}
+	_, marshalUnmarshalSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-marshalUnmarshal")
 	payloadResponse := new(common.VersionedSubmitBlindedBlockResponse)
 	if err := payloadResponse.UnmarshalJSON(versionedPayloadInfo.GetResponse()); err != nil {
 		span.SetStatus(codes.Error, err.Error())
@@ -839,7 +842,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		respondOK(getPayloadCtx, getPayload, w, versionedPayloadInfo.GetResponse(), s.logger, s.tracer, logMetric)
 		return
 	}
-
+	marshalUnmarshalSpan.End()
 	w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
 	s.respondOKWithContextSSZMarshalled(getPayloadCtx, getPayload, w, outByte, s.logger, s.tracer, logMetric)
 }
