@@ -79,8 +79,9 @@ func (r *RewardEngine) Start(ctx context.Context) {
 		case slotStats := <-r.slotStartRecordCh:
 			bids := r.collectExternalRelayBids(slotStats.Slot)
 			reward := r.calculateElRewardInfo(slotStats, bids)
-			r.logger.Info().Msgf("calculated EL reward: %v", reward) //TODO:omit bids while logging to avoid cluttering
-		default:
+			r.logRecord(reward)
+		case <-ctx.Done():
+			return
 		}
 	}
 }
