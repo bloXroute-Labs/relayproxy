@@ -1923,16 +1923,18 @@ func (s *Service) sendPayloadStats(payload []byte, logMetric *LogMetric, isSucce
 					fallback = record
 				}
 				if record.HeaderDeliveredBlockHash == out.GetBlockHash() {
-					mergeSlotStats(record, statsRecord)
+					mergeSlotStats(&record, &statsRecord)
 					isRelayProxyWin = true
 					//isSlotUIDMatch = record.HeaderSlotUID == statsRecord.PayloadSlotUID
 					break
 				}
 				if !isRelayProxyWin {
-					mergeSlotStats(fallback, statsRecord)
+					mergeSlotStats(&fallback, &statsRecord)
 				}
 			}
 		}
+	} else {
+		s.logger.Warn().Str("slotKey", k).Msg("no previous slot stats found, creating new record")
 	}
 	s.slotStatsEvent.Set(k, statsRecord, cache.DefaultExpiration) // replace with updated slot stats
 
@@ -1969,7 +1971,7 @@ func (s *Service) sendPayloadStats(payload []byte, logMetric *LogMetric, isSucce
 		Data: payloadStats,
 	}, time.Now().UTC(), s.nodeID, StatsRelayProxyGetPayload)
 }
-func mergeSlotStats(record SlotStatsRecord, statsRecord SlotStatsRecord) SlotStatsRecord {
+func mergeSlotStats(record *SlotStatsRecord, statsRecord *SlotStatsRecord) {
 	statsRecord.HeaderReqID = record.HeaderReqID
 	statsRecord.HeaderReqReceivedAt = record.HeaderReqReceivedAt
 	statsRecord.HeaderReqDuration = record.HeaderReqDuration
@@ -1989,7 +1991,7 @@ func mergeSlotStats(record SlotStatsRecord, statsRecord SlotStatsRecord) SlotSta
 
 	statsRecord.AccountID = record.AccountID
 	statsRecord.ValidatorID = record.ValidatorID
-	return statsRecord
+	return
 }
 
 func (s *Service) keyForCachingBids(slot uint64, parentHash string, proposerPubkey string) string {
