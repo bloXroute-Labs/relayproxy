@@ -1373,7 +1373,7 @@ func (s *Service) validateAndFetchPayload(ctx context.Context, logMetric *LogMet
 
 	_, fetchPayloadFromCacheSpan := s.tracer.Start(ctx, "validateAndFetchPayload-fetchPayloadFromCache")
 	proxyCacheKey := common.GetKeyForCachingPayload(uint64(slot), parentHash.String(), blockHashString, pubKey)
-	defer fetchPayloadFromCacheSpan.End(trace.WithTimestamp(time.Now()))
+	defer fetchPayloadFromCacheSpan.End()
 
 	var payloadResponse *common.PayloadResponseForProxy
 	var found bool
