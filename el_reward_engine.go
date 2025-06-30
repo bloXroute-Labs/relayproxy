@@ -40,6 +40,7 @@ type BidTrace struct {
 	ValueEth                string `json:"value_eth"`
 	ProposerSendTimestampMs string `json:"proposer_send_timestamp_ms"`
 	ExtraData               string `json:"extra_data"`
+	RelayURL                string `json:"-"`
 }
 
 type ElRewardInfo struct {
@@ -86,8 +87,8 @@ func (r *RewardEngine) Start(ctx context.Context) {
 	}
 }
 
-func (r *RewardEngine) collectExternalRelayBids(slot uint64) []BidTrace {
-	var allBids []BidTrace
+func (r *RewardEngine) collectExternalRelayBids(slot uint64) map[string][]BidTrace {
+	relayBids := make(map[string][]BidTrace)
 
 	for baseURL, apiKey := range r.relayUrlsWithApiKeys {
 		url := fmt.Sprintf("%s%s%d", baseURL, proposerHeaderDeliveredURI, slot)
@@ -105,19 +106,28 @@ func (r *RewardEngine) collectExternalRelayBids(slot uint64) []BidTrace {
 
 		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		if err != nil {
+			r.logger.Error().Err(err).Msg("failed to read body from relay")
+			continue
+		}
+
 		var bids []BidTrace
 		if err = json.Unmarshal(body, &bids); err != nil {
 			r.logger.Error().Err(err).Msg("failed to unmarshal bid trace")
 			continue
 		}
-		allBids = append(allBids, bids...)
+		for i := range bids {
+			bids[i].RelayURL = baseURL
+		}
+
+		relayBids[baseURL] = bids
 	}
 
-	return allBids
+	return relayBids
 }
 
 // TODO: Recovery option, move as a standalone script to calculate based on db and endpoints
-func (r *RewardEngine) calculateElRewardInfo(slotStats SlotStatsRecord, allBids []BidTrace) ElRewardInfo {
+func (r *RewardEngine) calculateElRewardInfo(slotStats SlotStatsRecord, groupedBids map[string][]BidTrace) ElRewardInfo {
 	elInfo := ElRewardInfo{
 		Slot:                          fmt.Sprintf("%d", slotStats.Slot),
 		SlotUID:                       slotStats.HeaderSlotUID,
@@ -130,10 +140,12 @@ func (r *RewardEngine) calculateElRewardInfo(slotStats SlotStatsRecord, allBids 
 	}
 
 	var matchedBids []BidTrace
-	for _, bid := range allBids {
-		elInfo.Bids[bid.ProposerSendTimestampMs] = append(elInfo.Bids[bid.ProposerSendTimestampMs], bid)
-		if bid.ProposerSendTimestampMs == slotStats.HeaderStartTimeUnixMs {
-			matchedBids = append(matchedBids, bid)
+	for relayURL, bids := range groupedBids {
+		elInfo.Bids[relayURL] = bids
+		for _, bid := range bids {
+			if bid.ProposerSendTimestampMs == slotStats.HeaderStartTimeUnixMs {
+				matchedBids = append(matchedBids, bid)
+			}
 		}
 	}
 
@@ -141,6 +153,7 @@ func (r *RewardEngine) calculateElRewardInfo(slotStats SlotStatsRecord, allBids 
 		return elInfo
 	}
 
+	// Sort by value (ascending)
 	sort.SliceStable(matchedBids, func(i, j int) bool {
 		iVal, _ := new(big.Float).SetString(matchedBids[i].ValueEth)
 		jVal, _ := new(big.Float).SetString(matchedBids[j].ValueEth)
@@ -155,11 +168,12 @@ func (r *RewardEngine) calculateElRewardInfo(slotStats SlotStatsRecord, allBids 
 	percentPrecise := new(big.Float).Quo(increase, winVal)
 	percentPrecise.Mul(percentPrecise, big.NewFloat(100))
 
-	// Check equality: if second best bid == winning bid
+	// Check if second best bid == winning bid
 	isEqual := winVal.Cmp(secondVal) == 0
 	elInfo.IsEqualToProxyBid = isEqual
 	if isEqual {
 		elInfo.IsProxyWin = false
+		elInfo.EqualToProxyBidders = secondHighest.RelayURL
 	}
 
 	onchainFloat, _ := winVal.Float64()
@@ -178,30 +192,31 @@ func (r *RewardEngine) calculateElRewardInfo(slotStats SlotStatsRecord, allBids 
 	elRewardWei.Int(elInfo.ElRewardIncreaseWei)
 
 	//TODO: Perform fee per block calculation only certain accountID
-	if elInfo.ElRewardIncreasePercentage <= 1 {
+	switch {
+	case elInfo.ElRewardIncreasePercentage <= 1:
 		elInfo.FeePerBlock = 0.0
-	} else if elInfo.ElRewardIncreasePercentage <= 5 {
+	case elInfo.ElRewardIncreasePercentage <= 5:
 		if elInfo.ElRewardIncreaseEth >= 0.0015 {
 			elInfo.FeePerBlock = 0.0015
-		} else {
-			elInfo.FeePerBlock = 0.0
 		}
-	} else if elInfo.ElRewardIncreasePercentage <= 9 {
-		if elInfo.ElRewardIncreaseEth > 0.003 {
+	case elInfo.ElRewardIncreasePercentage <= 9:
+		switch {
+		case elInfo.ElRewardIncreaseEth > 0.003:
 			elInfo.FeePerBlock = 0.003
-		} else if elInfo.ElRewardIncreaseEth > 0.0015 {
+		case elInfo.ElRewardIncreaseEth > 0.0015:
 			elInfo.FeePerBlock = 0.0015
-		} else {
+		default:
 			elInfo.FeePerBlock = 0.0
 		}
-	} else {
-		if elInfo.ElRewardIncreaseEth > 0.005 {
+	default:
+		switch {
+		case elInfo.ElRewardIncreaseEth > 0.005:
 			elInfo.FeePerBlock = 0.005
-		} else if elInfo.ElRewardIncreaseEth > 0.003 {
+		case elInfo.ElRewardIncreaseEth > 0.003:
 			elInfo.FeePerBlock = 0.003
-		} else if elInfo.ElRewardIncreaseEth > 0.0015 {
+		case elInfo.ElRewardIncreaseEth > 0.0015:
 			elInfo.FeePerBlock = 0.0015
-		} else {
+		default:
 			elInfo.FeePerBlock = 0.0
 		}
 	}
