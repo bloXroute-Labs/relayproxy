@@ -419,6 +419,8 @@ func main() {
 		server.Stop()
 		close(exit)
 	}()
+	// start el reward engine
+	go rewardEngine.Start(ctx)
 
 	// start receiving account info
 	go dataSvc.SetAccounts(ctx)
