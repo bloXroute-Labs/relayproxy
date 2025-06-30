@@ -1378,7 +1378,7 @@ func (s *Service) validateAndFetchPayload(ctx context.Context, logMetric *LogMet
 	var payloadResponse *common.PayloadResponseForProxy
 	var found bool
 
-	for i := 0; i < 6; i++ { // try for 300ms with 50ms interval
+	for i := 0; i < 10; i++ { // try for 300ms with 50ms interval
 		if val, ok := s.getPayloadResponseForProxySlot.Get(proxyCacheKey); ok {
 			casted, castOk := val.(*common.PayloadResponseForProxy)
 			if castOk {
