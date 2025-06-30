@@ -24,6 +24,7 @@ type MockService struct {
 	RegisterValidatorFunc     func(ctx context.Context, outgoingctx context.Context, in *RegistrationParams) (any, *LogMetric, error)
 	GetHeaderFunc             func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error)
 	GetPayloadFunc            func(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error)
+	GetPayloadTrustedFunc     func(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error)
 	GetAccountsFunc           func(ctx context.Context) map[string]interface{}
 	SetAccountsFunc           func(ctx context.Context)
 	SendAccountFunc           func(accountID, validatorID string)
@@ -115,7 +116,12 @@ func (m *MockService) GetPayload(ctx context.Context, in *PayloadRequestParams) 
 	}
 	return nil, new(LogMetric), nil
 }
-
+func (m *MockService) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error) {
+	if m.GetPayloadFunc != nil {
+		return m.GetPayloadTrustedFunc(ctx, in)
+	}
+	return nil, new(LogMetric), nil
+}
 func TestServer_HandleRegistration(t *testing.T) {
 	testCases := map[string]struct {
 		requestBody  []byte

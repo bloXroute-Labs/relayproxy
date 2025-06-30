@@ -103,6 +103,7 @@ type AccountInfo struct {
 	CustomCtx                 string      `yaml:"custom-context"`
 	InstantReturnFirstRequest bool        `yaml:"instant-return-first-request"`
 	IsWhitelisted             bool        `yaml:"whitelisted"`
+	IsTrusted                 bool        `yaml:"trusted"`
 }
 type AccountsLists struct {
 	AccountIDToInfo   map[string]*AccountInfo
