@@ -1581,7 +1581,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (*co
 				"slot":          fmt.Sprintf("%v", resp.Slot),
 				"slotStartTime": slotStartTime,
 				"msIntoSlot":    msIntoSlot,
-				"in.ParentHash": resp.ParentHash,
+				"parentHash":    resp.ParentHash,
 				"blockHash":     resp.BlockHash,
 				"blockValue":    resp.BlockValue,
 				"uniqueKey":     uKey,
@@ -1591,7 +1591,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (*co
 				attribute.String("slot", fmt.Sprintf("%v", resp.Slot)),
 				attribute.Int64("slotStartTime", slotStartTime.UnixMilli()),
 				attribute.Int64("msIntoSlot", msIntoSlot),
-				attribute.String("in.ParentHash", resp.ParentHash),
+				attribute.String("parentHash", resp.ParentHash),
 				attribute.String("blockHash", resp.BlockHash),
 				attribute.String("blockValue", resp.BlockValue),
 				attribute.String("uniqueKey", uKey),
@@ -1611,6 +1611,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (*co
 	payloadResponseSpan.End(trace.WithTimestamp(time.Now()))
 	logMetric.Error(errors.New(errResp.err.Message))
 	logMetric.Fields(errResp.err.Fields)
+	span.SetAttributes(logMetric.GetAttributes()...)
 	return nil, logMetric, errResp.err
 }
 
@@ -1646,9 +1647,9 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParam
 		map[string]any{
 			"method":                    getPayloadTrusted,
 			"receivedAt":                in.ReceivedAt,
-			"in.ClientIP":               in.ClientIP,
+			"clientIP":                  in.ClientIP,
 			"reqID":                     id,
-			"in.ValidatorID":            in.ValidatorID,
+			"validatorID":               in.ValidatorID,
 			"accountID":                 in.AccountID,
 			"latency":                   latency,
 			"traceID":                   parentSpan.SpanContext().TraceID().String(),
@@ -1661,9 +1662,9 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParam
 		},
 		[]attribute.KeyValue{
 			attribute.String("method", getPayload),
-			attribute.String("in.ClientIP", in.ClientIP),
+			attribute.String("clientIP", in.ClientIP),
 			attribute.String("reqID", id),
-			attribute.String("in.ValidatorID", in.ValidatorID),
+			attribute.String("validatorID", in.ValidatorID),
 			attribute.String("accountID", in.AccountID),
 			attribute.Int64("receivedAt", in.ReceivedAt.Unix()),
 			attribute.Int64("latency", latency),
@@ -1707,6 +1708,7 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParam
 	blindedBeaconBlock, errRes := s.prefetchPayloadToSignedBlindedBeaconBlock(ctx, metricCopy, in.Payload)
 	if errRes != nil {
 		go s.sendPayloadStats(in.Payload, metricCopy, false, nil, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
+		span.SetAttributes(logMetric.GetAttributes()...)
 		return nil, logMetric, errRes
 	}
 
@@ -1715,6 +1717,7 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParam
 		// TODO: wait for relay response
 		go s.sendPayloadStats(in.Payload, metricCopy, false, payloadInfo, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
 		logMetric.Error(errRes)
+		span.SetAttributes(logMetric.GetAttributes()...)
 		return nil, logMetric, errRes
 	}
 
@@ -1731,7 +1734,7 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParam
 		"slot":          fmt.Sprintf("%v", payloadInfo.Slot),
 		"slotStartTime": slotStartTime,
 		"msIntoSlot":    msIntoSlot,
-		"in.ParentHash": payloadInfo.ParentHash,
+		"parentHash":    payloadInfo.ParentHash,
 		"blockHash":     payloadInfo.BlockHash,
 		"blockValue":    payloadInfo.BlockValue,
 		"uniqueKey":     uKey,
@@ -1741,12 +1744,13 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParam
 		attribute.String("slot", fmt.Sprintf("%v", payloadInfo.Slot)),
 		attribute.Int64("slotStartTime", slotStartTime.UnixMilli()),
 		attribute.Int64("msIntoSlot", msIntoSlot),
-		attribute.String("in.ParentHash", payloadInfo.ParentHash),
+		attribute.String("parentHash", payloadInfo.ParentHash),
 		attribute.String("blockHash", payloadInfo.BlockHash),
 		attribute.String("blockValue", payloadInfo.BlockValue),
 		attribute.String("uniqueKey", uKey),
 	)
 
+	span.SetAttributes(logMetric.GetAttributes()...)
 	return payloadInfo, logMetric, nil
 }
 
