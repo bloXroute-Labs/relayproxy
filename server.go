@@ -32,10 +32,11 @@ const (
 	AuthHeaderPrefix = "bearer "
 
 	// methods
-	getHeader       = "getHeader"
-	getPayload      = "getPayload"
-	preFetchPayload = "preFetchPayload"
-	registration    = "registration"
+	getHeader         = "getHeader"
+	getPayload        = "getPayload"
+	getPayloadTrusted = "getPayloadTrusted"
+	preFetchPayload   = "preFetchPayload"
+	registration      = "registration"
 
 	MEVBoostStartTimeUnixMS = "X-MEVBoost-StartTimeUnixMS"
 	HeaderDateMilliseconds  = "Date-Milliseconds"
@@ -762,18 +763,38 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		encodeJSONSpan.End()
 	}
 	span.AddEvent("handleGetPayload-svcGetPayload")
-	versionedPayloadInfo, lm, err := s.svc.GetPayload(getPayloadCtx, &PayloadRequestParams{
-		ReceivedAt:                receivedAt,
-		Payload:                   bodyBytes,
-		ClientIP:                  clientIP,
-		AuthHeader:                authHeader,
-		ValidatorID:               validatorID,
-		AccountID:                 accountID,
-		GetPayloadStartTimeUnixMS: boostSendTime,
-		Cluster:                   cluster,
-		UserAgent:                 userAgent,
-		SlotUID:                   headerSlotUID,
-	})
+	accountInfo := s.accountsLists.AccountIDToInfo[accountID]
+	var (
+		versionedPayloadInfo *common.VersionedPayloadInfo
+		lm                   *LogMetric
+	)
+	if accountInfo.IsTrusted {
+		versionedPayloadInfo, lm, err = s.svc.GetPayloadTrusted(getPayloadCtx, &PayloadRequestParams{
+			ReceivedAt:                receivedAt,
+			Payload:                   bodyBytes,
+			ClientIP:                  clientIP,
+			AuthHeader:                authHeader,
+			ValidatorID:               validatorID,
+			AccountID:                 accountID,
+			GetPayloadStartTimeUnixMS: boostSendTime,
+			Cluster:                   cluster,
+			UserAgent:                 userAgent,
+			SlotUID:                   headerSlotUID,
+		})
+	} else {
+		versionedPayloadInfo, lm, err = s.svc.GetPayload(getPayloadCtx, &PayloadRequestParams{
+			ReceivedAt:                receivedAt,
+			Payload:                   bodyBytes,
+			ClientIP:                  clientIP,
+			AuthHeader:                authHeader,
+			ValidatorID:               validatorID,
+			AccountID:                 accountID,
+			GetPayloadStartTimeUnixMS: boostSendTime,
+			Cluster:                   cluster,
+			UserAgent:                 userAgent,
+			SlotUID:                   headerSlotUID,
+		})
+	}
 	logMetric.Merge(lm)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
