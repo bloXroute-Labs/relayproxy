@@ -12,6 +12,7 @@ const (
 	StatsRelayProxyHeaderStreamReceived   = "stats.relay-proxy-headerStreamReceived"
 	StatsRelayProxyBlockStreamReceived    = "stats.relay-proxy-blockStreamReceived"
 	StatsRelayProxyGetHeaderExternalRelay = "stats.relay-proxy-getHeader-externalRelay"
+	StatsRelayProxyElReward               = "stats.relay-proxy-el-reward"
 
 	TypeRelayProxyGetHeader              = "relay_proxy_provided_header"
 	TypeRelayProxyGetPayload             = "relay_proxy_provided_payload"

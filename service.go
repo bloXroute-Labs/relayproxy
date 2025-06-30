@@ -116,13 +116,14 @@ type Service struct {
 
 	builderInfo *cache.Cache
 
-	accountsLists       *AccountsLists
-	walletAccounts      *map[string]*common.WalletAccount
-	miniProposerSlotMap *SyncMap[uint64, *common.MiniValidatorLatency]
-
+	accountsLists                *AccountsLists
+	walletAccounts               *map[string]*common.WalletAccount
+	miniProposerSlotMap          *SyncMap[uint64, *common.MiniValidatorLatency]
 	blockPublishingGatewayClient interface{}
 	gatewayAuthKey               string
 	blockPublishFunc             func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, blockPublishingGatewayClient interface{}, authKey string)
+	// slot stats record channel for reward engine
+	slotStatsRecordCh chan SlotStatsRecord
 }
 
 type slotStatsEvent struct {
@@ -1853,8 +1854,7 @@ func (s *Service) sendPayloadStats(payload []byte, log *zerolog.Logger, isSuccee
 	}
 	var (
 		isRelayProxyWin bool
-		//isSlotUIDMatch  bool
-		fallback SlotStatsRecord
+		fallback        SlotStatsRecord
 	)
 	k := fmt.Sprintf("slot-%v-parentHash-%v", out.GetSlot(), out.GetParentHash())
 	v, ok := s.slotStats.Get(k)
@@ -1867,7 +1867,6 @@ func (s *Service) sendPayloadStats(payload []byte, log *zerolog.Logger, isSuccee
 				if record.HeaderDeliveredBlockHash == out.GetBlockHash() {
 					mergeSlotStats(&record, &statsRecord)
 					isRelayProxyWin = true
-					//isSlotUIDMatch = record.HeaderSlotUID == statsRecord.PayloadSlotUID
 					break
 				}
 				if !isRelayProxyWin {

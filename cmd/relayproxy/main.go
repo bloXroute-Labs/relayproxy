@@ -85,7 +85,12 @@ var (
 	skipAuth         = flag.Bool("skip-auth", false, "auth header authentication skip flag")
 
 	// external relay
-	externalRelayURL = flag.String("external-relay", "", "external relay to be called")
+	externalRelayURL               = flag.String("external-relay", "", "external relay to be called")
+	externalRelayURLWithAPIKeyJSON = flag.String(
+		"external-relay-urls-api-key-json",
+		"{}",
+		"JSON string mapping external relay URLs to their corresponding API keys. Example: '{\"https://bloxroute.max-profit.blxrbdn.com\": \"xxxxxxx\"}'",
+	)
 )
 var (
 	grpcPort          = flag.String("grpc-port", "5001", "grpc port")
@@ -298,7 +303,11 @@ func main() {
 	if err != nil {
 		l.Fatal().Err(err).Msg("failed to compute builder signing domain")
 	}
-
+	rewardEngineCh := make(chan relayproxy.SlotStatsRecord, 100) // channel to review slot starts record for reward calculation
+	var externalRelayUrlsWithApiKeys map[string]string
+	if err = json.Unmarshal([]byte(*externalRelayURLWithAPIKeyJSON), externalRelayUrlsWithApiKeys); err != nil {
+		l.Fatal().Err(err).Msg("failed to unmarshal external relays with api keys json object")
+	}
 	l.Info().
 		Str("listenAddr", *listenAddr).
 		Str("uptraceDSN", *uptraceDSN).
@@ -319,10 +328,19 @@ func main() {
 		Msg("Starting relay proxy server")
 
 	var (
-		dataSvcOpts []relayproxy.DataServiceOption
-		svcOpts     []relayproxy.ServiceOption
-		serverOpts  []relayproxy.ServerOption
+		rewardEngineOpts []relayproxy.RewardEngineOpts
+		dataSvcOpts      []relayproxy.DataServiceOption
+		svcOpts          []relayproxy.ServiceOption
+		serverOpts       []relayproxy.ServerOption
 	)
+	rewardEngineOpts = append(rewardEngineOpts, relayproxy.WithRewardEngineLogger(l))
+	rewardEngineOpts = append(rewardEngineOpts, relayproxy.WithRewardEngineHttpClient(httpClient))
+	rewardEngineOpts = append(rewardEngineOpts, relayproxy.WithRewardEngineSlotStatsRecordCh(rewardEngineCh))
+	rewardEngineOpts = append(rewardEngineOpts, relayproxy.WithRewardEngineRelayUrlsWithApiKey(externalRelayUrlsWithApiKeys))
+	rewardEngineOpts = append(rewardEngineOpts, relayproxy.WithRewardEngineNodeID(*nodeID))
+	rewardEngineOpts = append(rewardEngineOpts, relayproxy.WithRewardEngineFluentd(fluentLogger))
+	rewardEngine := relayproxy.NewElRewardEngine(rewardEngineOpts...)
+
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithDataSvcLogger(l))
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithDataSvcNodeID(*nodeID))
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithDataSvcTracer(tracer))
@@ -369,6 +387,7 @@ func main() {
 	svcOpts = append(svcOpts, relayproxy.WithSvcListenAddress(*listenAddr))
 	svcOpts = append(svcOpts, relayproxy.WithSvcGrpcListenAddress(*grpcPort))
 	svcOpts = append(svcOpts, relayproxy.WithAccountList(accountsLists))
+	svcOpts = append(svcOpts, relayproxy.WithSlotStatsRecordCh(rewardEngineCh))
 
 	svc := relayproxy.NewService(svcOpts...)
 
