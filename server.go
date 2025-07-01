@@ -763,12 +763,12 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		encodeJSONSpan.End()
 	}
 	span.AddEvent("handleGetPayload-svcGetPayload")
-	accountInfo := s.accountsLists.AccountIDToInfo[accountID]
 	var (
 		versionedPayloadInfo *common.VersionedPayloadInfo
 		lm                   *LogMetric
 	)
-	if accountInfo.IsTrusted {
+	if s.accountsLists.AccountIDToInfo[accountID] != nil &&
+		s.accountsLists.AccountIDToInfo[accountID].IsTrusted {
 		versionedPayloadInfo, lm, err = s.svc.GetPayloadTrusted(getPayloadCtx, &PayloadRequestParams{
 			ReceivedAt:                receivedAt,
 			Payload:                   bodyBytes,
