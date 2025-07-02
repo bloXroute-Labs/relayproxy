@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
 	"github.com/bloXroute-Labs/relayproxy"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
@@ -150,18 +149,18 @@ func main() {
 
 	// init client connection
 	var (
-		clients []*common.Client
+		clients []*common.ParentClient
 		conns   []*grpc.ClientConn
 
-		streamingClients []*common.Client
+		streamingClients []*common.ParentClient
 		streamingConns   []*grpc.ClientConn
 
-		registrationClients []*common.Client
+		registrationClients []*common.ParentClient
 		regConns            []*grpc.ClientConn
 	)
 
 	// Parse the relaysGRPCURL
-	newClients, newConns := getClientsAndConnsFromURLs(l, *relaysGRPCURL, conns, keepaliveOpts, clients)
+	newClients, newConns := getClientsAndConnsFromURLs(l, *relaysGRPCURL, conns, keepaliveOpts, clients, map[string]string{})
 	defer func() {
 		for _, conn := range newConns {
 			conn.Close()
@@ -169,7 +168,7 @@ func main() {
 	}()
 
 	// Parse the streamingRelaysGRPCURL
-	newStreamingClients, newStreamingConns := getClientsAndConnsFromURLs(l, *streamingRelaysGRPCURL, streamingConns, keepaliveOpts, streamingClients)
+	newStreamingClients, newStreamingConns := getClientsAndConnsFromURLs(l, *streamingRelaysGRPCURL, streamingConns, keepaliveOpts, streamingClients, map[string]string{})
 	defer func() {
 		for _, conn := range newStreamingConns {
 			conn.Close()
@@ -177,7 +176,7 @@ func main() {
 	}()
 
 	// Parse the registrationRelaysURL
-	newRegistrationClients, newRegConns := getClientsAndConnsFromURLs(l, *registrationRelaysGRPCURL, regConns, keepaliveOpts, registrationClients)
+	newRegistrationClients, newRegConns := getClientsAndConnsFromURLs(l, *registrationRelaysGRPCURL, regConns, keepaliveOpts, registrationClients, map[string]string{})
 	defer func() {
 		for _, conn := range newRegConns {
 			conn.Close()
@@ -478,7 +477,7 @@ func getEnv(key string, defaultValue string) string {
 	return defaultValue
 }
 
-func getClientsAndConnsFromURLs(l zerolog.Logger, relaysGRPCURL string, conns []*grpc.ClientConn, keepaliveOpts grpc.DialOption, clients []*common.Client) ([]*common.Client, []*grpc.ClientConn) {
+func getClientsAndConnsFromURLs(l zerolog.Logger, relaysGRPCURL string, conns []*grpc.ClientConn, keepaliveOpts grpc.DialOption, clients []*common.ParentClient, fastAlternativeIPMapping map[string]string) ([]*common.ParentClient, []*grpc.ClientConn) {
 	// Parse the relaysGRPCURL
 	relays := strings.Split(relaysGRPCURL, ",")
 	// Dial each relay and store the connections
@@ -499,7 +498,35 @@ func getClientsAndConnsFromURLs(l zerolog.Logger, relaysGRPCURL string, conns []
 			continue
 		}
 		conns = append(conns, conn)
-		clients = append(clients, &common.Client{URL: relayURL, RelayClient: relaygrpc.NewRelayClient(conn)})
+		var (
+			fastUrl  string
+			fastConn *grpc.ClientConn
+			found    bool
+		)
+		fastUrl, found = fastAlternativeIPMapping[relayURL]
+		if found {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+			fastConn, err = grpc.DialContext( //nolint:staticcheck
+				ctx,
+				fastUrl,
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+				keepaliveOpts,
+				grpc.WithInitialConnWindowSize(windowSize),
+				grpc.WithWriteBufferSize(bufferSize),
+			)
+
+			cancel()
+			if err != nil {
+				// Handle error: failed to dial relay
+				l.Err(err).Str("url", relayURL).Msg("failed to dial relay")
+				continue
+			}
+			conns = append(conns, fastConn)
+		} else {
+			fastUrl = relayURL
+			fastConn = conn
+		}
+		clients = append(clients, common.NewParentClient(relayURL, conn, fastUrl, fastConn))
 	}
 	if len(conns) == 0 {
 		l.Fatal().Msg("failed to create grpc connection")

@@ -12,6 +12,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// ---------------- service options ----------------------
+
 type ServerOption func(*Server)
 
 func WithLogger(logger zerolog.Logger) ServerOption {
@@ -203,19 +205,19 @@ func WithEthNetworkDetails(details *common.EthNetworkDetails) ServiceOption {
 	}
 }
 
-func WithClients(clients []*common.Client) ServiceOption {
+func WithClients(clients []*common.ParentClient) ServiceOption {
 	return func(s *Service) {
 		s.clients = clients
 	}
 }
 
-func WithStreamingClients(clients []*common.Client) ServiceOption {
+func WithStreamingClients(clients []*common.ParentClient) ServiceOption {
 	return func(s *Service) {
 		s.streamingClients = clients
 	}
 }
 
-func WithRegistrationClients(clients []*common.Client) ServiceOption {
+func WithRegistrationClients(clients []*common.ParentClient) ServiceOption {
 	return func(s *Service) {
 		s.registrationClients = clients
 	}
@@ -227,7 +229,7 @@ func WithCurrentRegistrationRelayIndex(index int) ServiceOption {
 	}
 }
 
-func WithStreamingBlockClients(clients []*common.Client) ServiceOption {
+func WithStreamingBlockClients(clients []*common.ParentClient) ServiceOption {
 	return func(s *Service) {
 		s.streamingBlockClients = clients
 	}
@@ -291,6 +293,25 @@ func WithDataService(ds *DataService) ServiceOption {
 		s.IDataService = ds
 	}
 }
+
+func WithBlockPublishingGatewayClient(client interface{}) ServiceOption {
+	return func(s *Service) {
+		s.blockPublishingGatewayClient = client
+	}
+}
+
+func WithBlockPublishFunc(blockPublishFunc func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, blockPublishingGatewayClient interface{}, authKey string)) ServiceOption {
+	return func(s *Service) {
+		s.blockPublishFunc = blockPublishFunc
+	}
+}
+func WithGatewayAuthKey(key string) ServiceOption {
+	return func(s *Service) {
+		s.gatewayAuthKey = key
+	}
+}
+
+// ---------------- Data service options ----------------------
 
 type DataServiceOption func(s *DataService)
 

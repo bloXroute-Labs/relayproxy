@@ -50,6 +50,8 @@ type HeaderRequestParams struct {
 	Cluster string
 	// User agent string.
 	UserAgent string
+	//Unique id provided by MEVBoost for each request
+	SlotUID string
 }
 
 // PayloadRequestParams holds the input parameters for getting payload data.
@@ -72,6 +74,8 @@ type PayloadRequestParams struct {
 	Cluster string
 	// User agent string.
 	UserAgent string
+	//Unique id provided by MEVBoost for each request
+	SlotUID string
 }
 
 type DelayGetHeaderParams struct {

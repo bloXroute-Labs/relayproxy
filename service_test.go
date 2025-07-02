@@ -18,9 +18,6 @@ import (
 	"time"
 
 	"github.com/attestantio/go-builder-client/spec"
-	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
-	"github.com/bloXroute-Labs/relayproxy/common"
-	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 	"github.com/patrickmn/go-cache"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -31,6 +28,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+
+	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
+	"github.com/bloXroute-Labs/relayproxy/common"
+	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 )
 
 const (
@@ -61,7 +62,6 @@ const (
 )
 
 func TestService_RegisterValidator(t *testing.T) {
-
 	tests := map[string]struct {
 		f           func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error)
 		wantSuccess any
@@ -93,12 +93,18 @@ func TestService_RegisterValidator(t *testing.T) {
 			wantErr: toErrorResp(http.StatusInternalServerError, "relay returned failure response code", map[string]any{}),
 		},
 	}
+
 	for testName, tt := range tests {
 		t.Run(testName, func(t *testing.T) {
+			c := &common.Client{RelayClient: &mockRelayClient{RegisterValidatorFunc: tt.f}}
+			pc := &common.ParentClient{
+				SafeClient: c,
+				FastClient: c,
+			}
 			s := &Service{
 				logger:              zerolog.Nop(),
-				clients:             []*common.Client{{URL: "", NodeID: "", Conn: nil, RelayClient: &mockRelayClient{RegisterValidatorFunc: tt.f}}},
-				registrationClients: []*common.Client{{URL: "", NodeID: "", Conn: nil, RelayClient: &mockRelayClient{RegisterValidatorFunc: tt.f}}},
+				clients:             []*common.ParentClient{pc},
+				registrationClients: []*common.ParentClient{pc},
 				tracer:              noop.NewTracerProvider().Tracer("test"),
 				fluentD:             fluentstats.NewStats(true, "0.0.0.0:24224"),
 			}
@@ -113,7 +119,6 @@ func TestService_RegisterValidator(t *testing.T) {
 }
 
 func TestService_GetHeader(t *testing.T) {
-
 	tests := map[string]struct {
 		slot               string
 		parentHash         string
@@ -178,7 +183,12 @@ func TestService_GetHeader(t *testing.T) {
 			opts := make([]ServiceOption, 0)
 			opts = append(opts, WithSvcLogger(zerolog.Nop()))
 			opts = append(opts, WithDataService(dSvc))
-			opts = append(opts, WithClients([]*common.Client{{URL: "", NodeID: "", Conn: nil, RelayClient: &mockRelayClient{}}}))
+			c := &common.Client{RelayClient: &mockRelayClient{}}
+			pc := &common.ParentClient{
+				SafeClient: c,
+				FastClient: c,
+			}
+			opts = append(opts, WithClients([]*common.ParentClient{pc}))
 			opts = append(opts, WithSvcTracer(noop.NewTracerProvider().Tracer("test")))
 			opts = append(opts, WithSvcFluentD(fluentstats.NewStats(true, "0.0.0.0:24224")))
 			opts = append(opts, WithSvcBeaconGenesisTime(1606824023))
@@ -206,7 +216,6 @@ func TestService_GetHeader(t *testing.T) {
 }
 
 func TestService_getPayload(t *testing.T) {
-
 	tests := map[string]struct {
 		f           func(ctx context.Context, req *relaygrpc.GetPayloadRequest, opts ...grpc.CallOption) (*relaygrpc.GetPayloadResponse, error)
 		wantSuccess []byte
@@ -236,7 +245,12 @@ func TestService_getPayload(t *testing.T) {
 		t.Run(testName, func(t *testing.T) {
 			var svcOpts []ServiceOption
 			svcOpts = append(svcOpts, WithSvcLogger(zerolog.Nop()))
-			svcOpts = append(svcOpts, WithClients([]*common.Client{{RelayClient: &mockRelayClient{GetPayloadFunc: tt.f}}}))
+			c := &common.Client{RelayClient: &mockRelayClient{GetPayloadFunc: tt.f}}
+			pc := &common.ParentClient{
+				SafeClient: c,
+				FastClient: c,
+			}
+			svcOpts = append(svcOpts, WithClients([]*common.ParentClient{pc}))
 			svcOpts = append(svcOpts, WithSvcTracer(noop.NewTracerProvider().Tracer("test")))
 			svcOpts = append(svcOpts, WithSvcFluentD(fluentstats.NewStats(true, "0.0.0.0:24224")))
 
@@ -245,13 +259,14 @@ func TestService_getPayload(t *testing.T) {
 				AccountNameToInfo: make(map[AccountName]*AccountInfo)}
 			got, _, err := s.GetPayload(context.Background(), &PayloadRequestParams{AuthHeader: TestAuthHeader})
 			if err == nil {
-				assert.Equal(t, string(got.(json.RawMessage)), string(tt.wantSuccess))
+				assert.Equal(t, string(got.GetResponse()), string(tt.wantSuccess))
 				return
 			}
 			assert.Equal(t, err.Error(), tt.wantErr.Error())
 		})
 	}
 }
+
 func TestBlockCancellation(t *testing.T) {
 	s := &Service{
 		logger:                  zerolog.Nop(),
@@ -513,15 +528,14 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 		t.Fatal("Failed to create client connection", zap.Error(err))
 	}
 	defer conn.Close()
-	relayClient := relaygrpc.NewRelayClient(conn)
 	dSvc := NewDataService(WithDataSvcLogger(zerolog.Nop()))
 	svcOpts := make([]ServiceOption, 0)
-	c := &common.Client{URL: lis.Addr().String(), NodeID: "", Conn: conn, RelayClient: relayClient}
-	clients := []*common.Client{c}
-	sc := &common.Client{URL: lis.Addr().String(), NodeID: "", Conn: conn, RelayClient: relayClient}
-	streamingClients := []*common.Client{sc}
-	registrationClient := &common.Client{URL: lis.Addr().String(), NodeID: "", Conn: conn, RelayClient: relayClient}
-	registrationClients := []*common.Client{registrationClient}
+	c := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn)
+	clients := []*common.ParentClient{c}
+	sc := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn)
+	streamingClients := []*common.ParentClient{sc}
+	registrationClient := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn)
+	registrationClients := []*common.ParentClient{registrationClient}
 	tracer := noop.NewTracerProvider().Tracer("test")
 	svcOpts = append(svcOpts, WithSvcLogger(l))
 	svcOpts = append(svcOpts, WithClients(clients))
@@ -537,7 +551,7 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	service.accountsLists = &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 		AccountNameToInfo: make(map[AccountName]*AccountInfo)}
 	go func() {
-		if _, err := service.StreamHeader(ctx, c); err != nil {
+		if _, err := service.StreamHeader(ctx, c.FastClient, c); err != nil {
 			panic(err)
 		}
 	}()
@@ -986,9 +1000,13 @@ func TestGetPayloadWithRetry(t *testing.T) {
 			mockClient.On("GetPayload", mock.Anything, mock.Anything).Return(tc.mockResp, tc.mockErr)
 			trcr := noop.NewTracerProvider().Tracer("")
 			_, span := trcr.Start(context.Background(), "")
-			client := &common.Client{URL: "", NodeID: "", Conn: nil, RelayClient: mockClient}
+			client := &common.Client{URL: "", NodeID: "", RelayClient: mockClient}
+			parentClient := &common.ParentClient{
+				SafeClient: client,
+				FastClient: client,
+			}
 			service := &Service{
-				clients: []*common.Client{client},
+				clients: []*common.ParentClient{parentClient},
 				tracer:  trcr,
 			}
 			result, err := service.getPayloadWithRetry(context.Background(), client, span, tc.mockReq, 2)

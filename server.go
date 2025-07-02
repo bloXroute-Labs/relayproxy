@@ -10,10 +10,11 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
-	"github.com/bloXroute-Labs/relayproxy/common"
-	"github.com/bloXroute-Labs/relayproxy/fluentstats"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors"
 	gjson "github.com/goccy/go-json"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -22,8 +23,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/cors"
+	"github.com/bloXroute-Labs/relayproxy/common"
+	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 )
 
 // Router paths
@@ -31,13 +32,15 @@ const (
 	AuthHeaderPrefix = "bearer "
 
 	// methods
-	getHeader       = "getHeader"
-	getPayload      = "getPayload"
-	preFetchPayload = "preFetchPayload"
-	registration    = "registration"
+	getHeader         = "getHeader"
+	getPayload        = "getPayload"
+	getPayloadTrusted = "getPayloadTrusted"
+	preFetchPayload   = "preFetchPayload"
+	registration      = "registration"
 
 	MEVBoostStartTimeUnixMS = "X-MEVBoost-StartTimeUnixMS"
 	HeaderDateMilliseconds  = "Date-Milliseconds"
+	HeaderKeySlotUID        = "X-MEVBoost-SlotID"
 	VouchCluster            = "setup"
 )
 
@@ -70,6 +73,9 @@ type Server struct {
 	accountsLists  *AccountsLists
 	NodeID         string
 	AdminAccountID string
+
+	// Callback
+	OnPayloadDelivered func(slot uint64, blockHash string, parentHash string, proposerPubkey string) error
 }
 
 type GetHeaderRateLimitInfo struct {
@@ -97,9 +103,11 @@ type account struct {
 
 func New(opts ...ServerOption) *Server {
 	server := new(Server)
+
 	for _, opt := range opts {
 		opt(server)
 	}
+
 	server.ghRatelimit = GetHeaderRateLimitInfo{
 		lastGetHeaderRequest: 0,
 		slotToIPToGHRequest:  NewIntegerMapOf[uint64, map[string]bool](),
@@ -143,6 +151,7 @@ func (s *Server) InitHandler() *chi.Mux {
 	s.logger.Info().Msg("Init relay proxy")
 	return handler
 }
+
 func addCORS() func(next http.Handler) http.Handler {
 	corsOpts := cors.Options{
 		AllowedOrigins: []string{"*"},
@@ -554,6 +563,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	accountID := r.Context().Value(keyAccountID).(string)
 	mevBoostSendTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
 	commitBoostSendTimeUnixMS := r.Header.Get(HeaderDateMilliseconds)
+	headerSlotUID := r.Header.Get(HeaderKeySlotUID)
 	boostSendTime, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
 	cluster := r.Header.Get(VouchCluster)
 	userAgent := r.Header.Get("User-Agent")
@@ -583,6 +593,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 			"cluster":                  cluster,
 			"sszResponse":              sszResponse,
 			"headers":                  headers,
+			"slotUID":                  headerSlotUID,
 		},
 		[]attribute.KeyValue{
 			attribute.String("reqHost", r.Host),
@@ -602,6 +613,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 			attribute.String("userAgent", userAgent),
 			attribute.Bool("sszResponse", sszResponse),
 			attribute.StringSlice("headers", headers),
+			attribute.String("slotUID", headerSlotUID),
 		},
 	)
 	span.SetAttributes(logMetric.GetAttributes()...)
@@ -619,6 +631,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		AccountID:                accountID,
 		Cluster:                  cluster,
 		UserAgent:                userAgent,
+		SlotUID:                  headerSlotUID,
 	})
 	logMetric.Merge(lm)
 	if err != nil {
@@ -634,7 +647,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	}
 
 	versionedBid := new(common.VersionedSignedBuilderBid)
-	if err = versionedBid.UnmarshalJSON(out.(json.RawMessage)); err != nil {
+	if err = versionedBid.UnmarshalJSON(out); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to unmarshal JSON")
 		respondError(handleGetHeaderCtx, getHeader, w, toErrorResp(http.StatusInternalServerError, err.Error(), lm.GetFields()), s.logger, s.tracer, logMetric)
 		return
@@ -668,6 +681,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 
 	mevBoostSendTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
 	commitBoostSendTimeUnixMS := r.Header.Get(HeaderDateMilliseconds)
+	headerSlotUID := r.Header.Get(HeaderKeySlotUID)
 	boostSendTime, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
 	cluster := r.Header.Get(VouchCluster)
 	userAgent := r.Header.Get("User-Agent")
@@ -696,6 +710,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 			"sszRequest":               sszRequest,
 			"sszResponse":              sszResponse,
 			"headers":                  headers,
+			"slotUID":                  headerSlotUID,
 		},
 		[]attribute.KeyValue{
 			attribute.String("reqHost", r.Host),
@@ -715,6 +730,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 			attribute.Bool("sszRequest", sszRequest),
 			attribute.Bool("sszResponse", sszResponse),
 			attribute.StringSlice("headers", headers),
+			attribute.String("slotUID", headerSlotUID),
 		},
 	)
 	span.SetAttributes(logMetric.GetAttributes()...)
@@ -747,44 +763,90 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		encodeJSONSpan.End()
 	}
 	span.AddEvent("handleGetPayload-svcGetPayload")
-	out, lm, err := s.svc.GetPayload(getPayloadCtx, &PayloadRequestParams{
-		ReceivedAt:                receivedAt,
-		Payload:                   bodyBytes,
-		ClientIP:                  clientIP,
-		AuthHeader:                authHeader,
-		ValidatorID:               validatorID,
-		AccountID:                 accountID,
-		GetPayloadStartTimeUnixMS: boostSendTime,
-		Cluster:                   cluster,
-		UserAgent:                 userAgent,
-	})
+	var (
+		versionedPayloadInfo *common.VersionedPayloadInfo
+		lm                   *LogMetric
+	)
+	method := getPayload
+	if s.accountsLists.AccountIDToInfo[accountID] != nil &&
+		s.accountsLists.AccountIDToInfo[accountID].IsTrusted {
+		method = getPayloadTrusted
+		versionedPayloadInfo, lm, err = s.svc.GetPayloadTrusted(getPayloadCtx, &PayloadRequestParams{
+			ReceivedAt:                receivedAt,
+			Payload:                   bodyBytes,
+			ClientIP:                  clientIP,
+			AuthHeader:                authHeader,
+			ValidatorID:               validatorID,
+			AccountID:                 accountID,
+			GetPayloadStartTimeUnixMS: boostSendTime,
+			Cluster:                   cluster,
+			UserAgent:                 userAgent,
+			SlotUID:                   headerSlotUID,
+		})
+	} else {
+		versionedPayloadInfo, lm, err = s.svc.GetPayload(getPayloadCtx, &PayloadRequestParams{
+			ReceivedAt:                receivedAt,
+			Payload:                   bodyBytes,
+			ClientIP:                  clientIP,
+			AuthHeader:                authHeader,
+			ValidatorID:               validatorID,
+			AccountID:                 accountID,
+			GetPayloadStartTimeUnixMS: boostSendTime,
+			Cluster:                   cluster,
+			UserAgent:                 userAgent,
+			SlotUID:                   headerSlotUID,
+		})
+	}
+	_, mergeLogMetric := s.tracer.Start(getPayloadCtx, "handleGetPayload-mergeLogMetric")
 	logMetric.Merge(lm)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
-		respondError(getPayloadCtx, getPayload, w, err, s.logger, s.tracer, logMetric)
+		respondError(getPayloadCtx, method, w, err, s.logger, s.tracer, logMetric)
 		return
 	}
+	mergeLogMetric.End()
 
+	// If successful, execute the 'OnPayloadDelivered' callback after the function returns.
+	success := &atomic.Bool{}
+	success.Store(true)
+	defer func(success *atomic.Bool) {
+		if s.OnPayloadDelivered == nil || !success.Load() {
+			return
+		}
+
+		if err := s.OnPayloadDelivered(
+			versionedPayloadInfo.GetSlot(),
+			versionedPayloadInfo.GetBlockHash(),
+			versionedPayloadInfo.GetParentHash(),
+			versionedPayloadInfo.GetPubkey(),
+		); err != nil {
+			log.Error().Err(err).Msg("Failed to call OnPayloadDelivered callback")
+		}
+	}(success)
+
+	// Return response
 	if !sszResponse {
-		respondOK(getPayloadCtx, getPayload, w, out, s.logger, s.tracer, logMetric)
+		respondOK(getPayloadCtx, method, w, versionedPayloadInfo.GetResponse(), s.logger, s.tracer, logMetric)
 		return
 	}
+	_, marshalUnmarshalSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-marshalUnmarshal")
 	payloadResponse := new(common.VersionedSubmitBlindedBlockResponse)
-	if err := payloadResponse.UnmarshalJSON(out.(json.RawMessage)); err != nil {
+	if err := payloadResponse.UnmarshalJSON(versionedPayloadInfo.GetResponse()); err != nil {
 		span.SetStatus(codes.Error, err.Error())
-		respondError(getPayloadCtx, getPayload, w, toErrorResp(http.StatusInternalServerError, err.Error(), logMetric.GetFields()), s.logger, s.tracer, logMetric)
+		success.Store(false)
+		respondError(getPayloadCtx, method, w, toErrorResp(http.StatusInternalServerError, err.Error(), logMetric.GetFields()), s.logger, s.tracer, logMetric)
 		return
 	}
 	outByte, err := payloadResponse.MarshalSSZ()
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal getHeader to ssz")
 		span.SetStatus(codes.Error, err.Error())
-		respondOK(getPayloadCtx, getPayload, w, out, s.logger, s.tracer, logMetric)
+		respondOK(getPayloadCtx, method, w, versionedPayloadInfo.GetResponse(), s.logger, s.tracer, logMetric)
 		return
 	}
-
+	marshalUnmarshalSpan.End()
 	w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
-	s.respondOKWithContextSSZMarshalled(getPayloadCtx, getPayload, w, outByte, s.logger, s.tracer, logMetric)
+	s.respondOKWithContextSSZMarshalled(getPayloadCtx, method, w, outByte, s.logger, s.tracer, logMetric)
 }
 func respondOK(ctx context.Context, method string, w http.ResponseWriter, response any, log zerolog.Logger, tracer trace.Tracer, logMetric *LogMetric) {
 	_, span := tracer.Start(ctx, "respondOK-"+method)
@@ -879,7 +941,7 @@ func parseQuery(query string, value string, log zerolog.Logger, logMetric *LogMe
 	return proposerMevProtect, err
 }
 
-func (m *Server) respondOKWithContextSSZMarshalled(ctx context.Context, method string, w http.ResponseWriter, resBytes []byte, log zerolog.Logger, tracer trace.Tracer, logMetric *LogMetric) {
+func (s *Server) respondOKWithContextSSZMarshalled(ctx context.Context, method string, w http.ResponseWriter, resBytes []byte, log zerolog.Logger, tracer trace.Tracer, logMetric *LogMetric) {
 	_, span := tracer.Start(ctx, fmt.Sprintf("respondOKSSZ-%s", method))
 	defer span.End()
 	logMetric.Attributes(
@@ -891,11 +953,11 @@ func (m *Server) respondOKWithContextSSZMarshalled(ctx context.Context, method s
 
 	w.Header().Set(common.HeaderContentType, common.MediaTypeOctetStream)
 
-	_, writeHeaderSpan := m.tracer.Start(ctx, "writeHeader")
+	_, writeHeaderSpan := s.tracer.Start(ctx, "writeHeader")
 	w.WriteHeader(http.StatusOK)
 	writeHeaderSpan.End()
 
-	_, writeBytesSpan := m.tracer.Start(ctx, "writeBytes")
+	_, writeBytesSpan := s.tracer.Start(ctx, "writeBytes")
 	_, err := w.Write(resBytes)
 	writeBytesSpan.End()
 	if err != nil {

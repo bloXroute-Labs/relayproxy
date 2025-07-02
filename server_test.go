@@ -10,19 +10,21 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
+
+	"github.com/bloXroute-Labs/relayproxy/common"
 )
 
 type MockService struct {
 	logger                    *zap.Logger
 	RegisterValidatorFunc     func(ctx context.Context, outgoingctx context.Context, in *RegistrationParams) (any, *LogMetric, error)
-	GetHeaderFunc             func(ctx context.Context, in *HeaderRequestParams) (any, *LogMetric, error)
-	GetPayloadFunc            func(ctx context.Context, in *PayloadRequestParams) (any, *LogMetric, error)
+	GetHeaderFunc             func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error)
+	GetPayloadFunc            func(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error)
+	GetPayloadTrustedFunc     func(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error)
 	GetAccountsFunc           func(ctx context.Context) map[string]interface{}
 	SetAccountsFunc           func(ctx context.Context)
 	SendAccountFunc           func(accountID, validatorID string)
@@ -89,7 +91,7 @@ func (m *MockService) DelayGetHeader(ctx context.Context, in DelayGetHeaderParam
 	}
 	return DelayGetHeaderResponse{}, nil
 }
-func (m *MockService) GetSlotDuty(slot uint64) (*common.MiniValidatorLatency, error) {
+func (m *MockService) GetSlotDuty(_ uint64) (*common.MiniValidatorLatency, error) {
 	return nil, nil
 }
 
@@ -101,20 +103,25 @@ func (m *MockService) RegisterValidator(ctx context.Context, outgoingCtx context
 	}
 	return nil, new(LogMetric), nil
 }
-func (m *MockService) GetHeader(ctx context.Context, in *HeaderRequestParams) (any, *LogMetric, error) {
+func (m *MockService) GetHeader(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
 	if m.GetHeaderFunc != nil {
 		return m.GetHeaderFunc(ctx, in)
 	}
 	return nil, new(LogMetric), nil
 }
 
-func (m *MockService) GetPayload(ctx context.Context, in *PayloadRequestParams) (any, *LogMetric, error) {
+func (m *MockService) GetPayload(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error) {
 	if m.GetPayloadFunc != nil {
 		return m.GetPayloadFunc(ctx, in)
 	}
 	return nil, new(LogMetric), nil
 }
-
+func (m *MockService) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error) {
+	if m.GetPayloadFunc != nil {
+		return m.GetPayloadTrustedFunc(ctx, in)
+	}
+	return nil, new(LogMetric), nil
+}
 func TestServer_HandleRegistration(t *testing.T) {
 	testCases := map[string]struct {
 		requestBody  []byte
@@ -192,9 +199,9 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk123",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (interface{}, *LogMetric, error) {
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
 
-					return "getHeader", nil, nil
+					return json.RawMessage("getHeader"), nil, nil
 				},
 			},
 			expectedCode:   http.StatusOK,
@@ -207,7 +214,7 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk456",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (interface{}, *LogMetric, error) {
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
 					return nil, nil, &ErrorResp{Code: http.StatusNoContent}
 				},
 			},
@@ -221,7 +228,7 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk456",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (interface{}, *LogMetric, error) {
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
 					return nil, nil, &ErrorResp{Code: http.StatusNoContent, Message: "header value is not present for the requested key slot"}
 				},
 			},
@@ -235,7 +242,7 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk456b",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (interface{}, *LogMetric, error) {
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
 					return nil, nil, &ErrorResp{Code: http.StatusTooManyRequests, Message: "only one getheader request allowed per slot per validator"}
 				},
 			},
@@ -287,7 +294,7 @@ func TestServer_HandleGetPayload(t *testing.T) {
 			requestBody: []byte(`{"key": "value"}`),
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetPayloadFunc: func(ctx context.Context, params *PayloadRequestParams) (any, *LogMetric, error) {
+				GetPayloadFunc: func(ctx context.Context, params *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error) {
 					return nil, nil, nil
 				},
 			},
@@ -298,7 +305,7 @@ func TestServer_HandleGetPayload(t *testing.T) {
 			requestBody: []byte(`{"key": "value"}`),
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetPayloadFunc: func(ctx context.Context, params *PayloadRequestParams) (any, *LogMetric, error) {
+				GetPayloadFunc: func(ctx context.Context, params *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error) {
 					return nil, nil, toErrorResp(http.StatusInternalServerError, "failed to getPayload", nil)
 				},
 			},
