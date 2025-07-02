@@ -21,10 +21,10 @@ import (
 
 type MockService struct {
 	logger                    *zap.Logger
-	RegisterValidatorFunc     func(ctx context.Context, outgoingctx context.Context, in *RegistrationParams) (any, *LogMetric, error)
-	GetHeaderFunc             func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error)
-	GetPayloadFunc            func(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error)
-	GetPayloadTrustedFunc     func(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error)
+	RegisterValidatorFunc     func(ctx context.Context, outgoingctx context.Context, in *RegistrationParams) (any, error)
+	GetHeaderFunc             func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, error)
+	GetPayloadFunc            func(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, error)
+	GetPayloadTrustedFunc     func(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, error)
 	GetAccountsFunc           func(ctx context.Context) map[string]interface{}
 	SetAccountsFunc           func(ctx context.Context)
 	SendAccountFunc           func(accountID, validatorID string)
@@ -97,26 +97,26 @@ func (m *MockService) GetSlotDuty(_ uint64) (*common.MiniValidatorLatency, error
 
 var _ IService = (*MockService)(nil)
 
-func (m *MockService) RegisterValidator(ctx context.Context, outgoingCtx context.Context, in *RegistrationParams) (any, *LogMetric, error) {
+func (m *MockService) RegisterValidator(ctx context.Context, outgoingCtx context.Context, in *RegistrationParams, log *zerolog.Logger) (any, error) {
 	if m.RegisterValidatorFunc != nil {
 		return m.RegisterValidatorFunc(ctx, outgoingCtx, in)
 	}
 	return nil, new(LogMetric), nil
 }
-func (m *MockService) GetHeader(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *LogMetric, error) {
+func (m *MockService) GetHeader(ctx context.Context, in *HeaderRequestParams, log *zerolog.Logger) (json.RawMessage, error) {
 	if m.GetHeaderFunc != nil {
 		return m.GetHeaderFunc(ctx, in)
 	}
 	return nil, new(LogMetric), nil
 }
 
-func (m *MockService) GetPayload(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error) {
+func (m *MockService) GetPayload(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, error) {
 	if m.GetPayloadFunc != nil {
 		return m.GetPayloadFunc(ctx, in)
 	}
 	return nil, new(LogMetric), nil
 }
-func (m *MockService) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, *LogMetric, error) {
+func (m *MockService) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, error) {
 	if m.GetPayloadFunc != nil {
 		return m.GetPayloadTrustedFunc(ctx, in)
 	}

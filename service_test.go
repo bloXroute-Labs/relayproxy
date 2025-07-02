@@ -108,7 +108,7 @@ func TestService_RegisterValidator(t *testing.T) {
 				tracer:              noop.NewTracerProvider().Tracer("test"),
 				fluentD:             fluentstats.NewStats(true, "0.0.0.0:24224"),
 			}
-			got, _, err := s.RegisterValidator(context.Background(), context.Background(), &RegistrationParams{})
+			got, err := s.RegisterValidator(context.Background(), context.Background(), &RegistrationParams{}, &zerolog.Logger{})
 			if err == nil {
 				assert.Equal(t, got, tt.wantSuccess)
 				return
@@ -209,7 +209,7 @@ func TestService_GetHeader(t *testing.T) {
 				PubKey:     tt.pubKey,
 				ClientIP:   "ip",
 				AuthHeader: TestAuthHeader,
-			})
+			}, &zerolog.Logger{})
 			assert.Equal(t, err.Error(), tt.wantErr.Error())
 		})
 	}
@@ -596,7 +596,7 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 				Slot:       strconv.FormatUint(tt.in.Slot, 10),
 				ParentHash: tt.in.ParentHash,
 				PubKey:     tt.in.ProposerPubKey,
-			})
+			}, &zerolog.Logger{})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetHeader() error = %v, wantErr %v", err, tt.wantErr)
 				return
