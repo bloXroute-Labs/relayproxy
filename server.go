@@ -473,7 +473,6 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 			"boostSendTime":  boostSendTime,
 			"latency":        latency,
 		},
-		[]attribute.KeyValue{},
 	)
 
 	handleRegistrationSpan.SetAttributes(
@@ -595,7 +594,6 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 			"headers":                  headers,
 			"slotUID":                  headerSlotUID,
 		},
-		[]attribute.KeyValue{},
 	)
 
 	span.SetAttributes(
@@ -716,7 +714,6 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 			"headers":                  headers,
 			"slotUID":                  headerSlotUID,
 		},
-		[]attribute.KeyValue{},
 	)
 	span.SetAttributes(
 		attribute.String("reqHost", r.Host),

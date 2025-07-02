@@ -192,7 +192,6 @@ func (s *Service) RegisterValidator(ctx context.Context, outgoingCtx context.Con
 			"authHeader":         in.AuthHeader,
 			"proposerMevProtect": in.ProposerMevProtect,
 		},
-		[]attribute.KeyValue{},
 	)
 	s.logger.Info().Fields(logMetric.GetFields()).Msg("received registration")
 	parentSpan.SetAttributes(
@@ -415,9 +414,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			"reqID":  id,
 			"url":    client.URL,
 		},
-		[]attribute.KeyValue{},
 	)
-	span.SetAttributes(logMetric.GetAttributes()...)
 
 	s.logger.Info().Fields(logMetric.GetFields()).Msg("streaming headers")
 	if err != nil {
@@ -544,7 +541,6 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			})
 
 			s.logger.Warn().Fields(lm.GetFields()).Msg("block hash already exist")
-			streamReceiveSpan.AddEvent("blockHashAlreadyExist", trace.WithAttributes(lm.GetAttributes()...))
 			continue
 		}
 		// update block hash map if not seen already
@@ -646,7 +642,6 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 	}
 
 	<-done
-	streamReceiveSpan.SetAttributes(logMetric.GetAttributes()...)
 	streamReceiveSpan.End(trace.WithTimestamp(time.Now()))
 
 	s.logger.Warn().Fields(logMetric.GetFields()).Msg("closing connection")
@@ -704,7 +699,6 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (json.
 			"authHeader":        in.AuthHeader,
 			"slotUID":           in.SlotUID,
 		},
-		[]attribute.KeyValue{},
 	)
 	parentSpan.SetAttributes(
 		attribute.String("method", getHeader),
@@ -828,7 +822,6 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams) (json.
 		attribute.String("blockValue", blockValue.String()),
 		attribute.String("uniqueKey", uKey),
 	)
-	storingHeaderSpan.SetAttributes(logMetric.GetAttributes()...)
 	storingHeaderSpan.End(trace.WithTimestamp(time.Now()))
 
 	go func() {
@@ -969,7 +962,6 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 			"slot":        int64(fields.slot),
 			"blockHash":   fields.blockHash,
 		},
-		[]attribute.KeyValue{},
 	)
 
 	s.logger.Info().Fields(logMetric.GetFields()).Msg("received preFetchGetPayload")
@@ -1466,7 +1458,6 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (*co
 			"slotUID":                   in.SlotUID,
 			"getPayloadStartTimeUnixMS": in.GetPayloadStartTimeUnixMS,
 		},
-		[]attribute.KeyValue{},
 	)
 
 	s.logger.Info().Fields(logMetric.GetFields()).Msg("received getPayload")
@@ -1690,7 +1681,6 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParam
 			"slotUID":                   in.SlotUID,
 			"getPayloadStartTimeUnixMS": in.GetPayloadStartTimeUnixMS,
 		},
-		[]attribute.KeyValue{},
 	)
 	s.logger.Info().Fields(logMetric.GetFields()).Msg("received getPayloadTrusted")
 	parentSpan.SetAttributes(
@@ -1738,7 +1728,6 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParam
 	blindedBeaconBlock, errRes := s.prefetchPayloadToSignedBlindedBeaconBlock(ctx, metricCopy, in.Payload)
 	if errRes != nil {
 		go s.sendPayloadStats(in.Payload, metricCopy, false, nil, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
-		span.SetAttributes(logMetric.GetAttributes()...)
 		return nil, logMetric, errRes
 	}
 
@@ -1766,9 +1755,6 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParam
 		// TODO: wait for relay response
 		go s.sendPayloadStats(in.Payload, metricCopy, false, payloadInfo, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
 		logMetric.Error(errRes)
-		parentSpan.SetAttributes(
-			attribute.String("getPayloadErr", errRes.Message),
-		)
 		return nil, logMetric, errRes
 	}
 
@@ -2277,7 +2263,6 @@ func (s *Service) StreamBlock(ctx context.Context, client *common.Client) (*rela
 			"reqID":  id,
 			"url":    client.URL,
 		},
-		[]attribute.KeyValue{},
 	)
 	span.SetAttributes(
 		attribute.String("method", method),
@@ -2370,7 +2355,6 @@ func (s *Service) StreamBlock(ctx context.Context, client *common.Client) (*rela
 		go s.handleStreamBlockResponse(streamBlockCtx, block, logMetric, receivedAt, latency, parentSpan.SpanContext().TraceID().String(), method, clientIP, processTime)
 	}
 	<-done
-	streamReceiveSpan.SetAttributes(logMetric.GetAttributes()...)
 	streamReceiveSpan.End(trace.WithTimestamp(time.Now()))
 
 	s.logger.Warn().Fields(logMetric.GetFields()).Msg("closing connection")
@@ -2385,9 +2369,6 @@ func (s *Service) handleForwardedBlockResponse() {
 		lm := NewLogMetric(
 			map[string]any{
 				"method": forwardedBlockInfo.Method,
-			},
-			[]attribute.KeyValue{
-				attribute.String("method", forwardedBlockInfo.Method),
 			},
 		)
 		if forwardedBlockInfo.Block == nil || forwardedBlockInfo.Block.GetBlockHash() == "" {
@@ -2601,7 +2582,6 @@ func (s *Service) handleStreamBlockResponse(
 
 	_, storeBidsSpan := s.tracer.Start(spanCtx, "StreamHeader-storeBids")
 	s.setBuilderBidForProxySlot(k, block.GetBuilderPubkey(), bid, block.GetSlot())
-	storeBidsSpan.SetAttributes(lm.GetAttributes()...)
 	storeBidsSpan.End(trace.WithTimestamp(time.Now()))
 
 	go func() {
@@ -2732,7 +2712,7 @@ func (s *Service) StreamBuilderInfo(ctx context.Context, client *common.Client) 
 	ctx = metadata.AppendToOutgoingContext(ctx, "listenAddress", port)
 	ctx = metadata.AppendToOutgoingContext(ctx, "grpcListenAddress", s.GrpcListenAddress)
 	streamBuilderInfoCtx, span := s.tracer.Start(ctx, "streamBuilderInfo-start")
-	defer span.End(trace.WithTimestamp(time.Now().UTC()))
+	defer span.End()
 
 	id := uuid.NewString()
 	client.NodeID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
@@ -2750,14 +2730,7 @@ func (s *Service) StreamBuilderInfo(ctx context.Context, client *common.Client) 
 			"reqID":  id,
 			"url":    client.URL,
 		},
-		[]attribute.KeyValue{
-			attribute.String("method", method),
-			attribute.String("nodeID", client.NodeID),
-			attribute.String("url", client.URL),
-			attribute.String("reqID", id),
-		},
 	)
-	span.SetAttributes(logMetric.GetAttributes()...)
 
 	s.logger.Info().Fields(logMetric.GetFields()).Msg("streaming builder info")
 
@@ -2863,7 +2836,6 @@ func (s *Service) StreamBuilderInfo(ctx context.Context, client *common.Client) 
 	}
 
 	<-done
-	streamReceiveSpan.SetAttributes(logMetric.GetAttributes()...)
 	streamReceiveSpan.End(trace.WithTimestamp(time.Now()))
 	s.logger.Warn().Fields(logMetric.GetFields()).Msg("closing connection")
 	return nil, nil
@@ -2880,6 +2852,15 @@ func (s *Service) handleStreamBuilderInfoResponse(
 	processTime int64,
 ) {
 	// check if the block hash has already been received
+	_, span := s.tracer.Start(ctx, "handleStreamBuilderInfoResponse")
+	span.SetAttributes(
+		attribute.String("clientIPAddress", clientIP),
+		attribute.String("method", method),
+		attribute.String("traceID", traceId),
+		attribute.Int64("processTime", processTime),
+	)
+	defer span.End()
+
 	handleStart := time.Now().UTC()
 	lm := logMetric.Copy()
 	builderInfos := builderInfoResponse.GetBuilderInfo()
@@ -3234,14 +3215,7 @@ func (s *Service) StreamSlotInfo(ctx context.Context, client *common.Client) (*r
 			"reqID":  id,
 			"url":    client.URL,
 		},
-		[]attribute.KeyValue{
-			attribute.String("method", method),
-			attribute.String("nodeID", client.NodeID),
-			attribute.String("url", client.URL),
-			attribute.String("reqID", id),
-		},
 	)
-	span.SetAttributes(logMetric.GetAttributes()...)
 
 	s.logger.Debug().Fields(logMetric.GetFields()).Msg("streaming Validator info")
 
@@ -3338,7 +3312,6 @@ func (s *Service) StreamSlotInfo(ctx context.Context, client *common.Client) (*r
 	}
 
 	<-done
-	streamReceiveSpan.SetAttributes(logMetric.GetAttributes()...)
 	streamReceiveSpan.End(trace.WithTimestamp(time.Now()))
 	s.logger.Warn().Fields(logMetric.GetFields()).Msg("closing connection")
 
@@ -3355,6 +3328,14 @@ func (s *Service) handleStreamSlotInfoResponse(
 	clientIP string,
 	processTime int64,
 ) {
+	_, span := s.tracer.Start(ctx, "handleStreamSlotInfoResponse")
+	span.SetAttributes(
+		attribute.String("clientIPAddress", clientIP),
+		attribute.String("method", method),
+		attribute.String("traceID", traceId),
+		attribute.Int64("processTime", processTime),
+	)
+	defer span.End()
 	lm := logMetric.Copy()
 
 	proposerPubkey := phase0.BLSPubKey(SlotInfoResponse.GetProposerPubkey())
