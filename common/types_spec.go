@@ -471,13 +471,6 @@ func SignedBlindedBeaconBlockToBeaconBlock(signedBlindedBeaconBlock *VersionedSi
 		}
 
 		signedBeaconBlock.Electra = ElectraUnblindSignedBlock(electraBlindedBlock, blockPayload.Electra)
-	case spec.DataVersionDeneb:
-		denebBlindedBlock := signedBlindedBeaconBlock.Deneb
-		if len(denebBlindedBlock.Message.Body.BlobKZGCommitments) != len(blockPayload.Deneb.BlobsBundle.Blobs) {
-			return nil, errors.New("number of blinded blobs does not match blobs bundle length")
-		}
-
-		signedBeaconBlock.Deneb = DenebUnblindSignedBlock(denebBlindedBlock, blockPayload.Deneb)
 	case spec.DataVersionUnknown, spec.DataVersionPhase0, spec.DataVersionAltair, spec.DataVersionBellatrix:
 		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", signedBlindedBeaconBlock.Version))
 	}
@@ -563,22 +556,6 @@ func (r *VersionedSignedProposal) MarshalSSZ() ([]byte, error) {
 func (r *VersionedSignedProposal) UnmarshalSSZ(input []byte) error {
 	var err error
 
-	if IsElectra {
-		electraRequest := new(eth2ApiV1Electra.SignedBlockContents)
-		if err = electraRequest.UnmarshalSSZ(input); err == nil {
-			r.Version = spec.DataVersionElectra
-			r.Electra = electraRequest
-			return nil
-		}
-	}
-
-	denebRequest := new(eth2ApiV1Deneb.SignedBlockContents)
-	if err = denebRequest.UnmarshalSSZ(input); err == nil {
-		r.Version = spec.DataVersionDeneb
-		r.Deneb = denebRequest
-		return nil
-	}
-
 	electraRequest := new(eth2ApiV1Electra.SignedBlockContents)
 	if err = electraRequest.UnmarshalSSZ(input); err == nil {
 		r.Version = spec.DataVersionElectra
@@ -601,21 +578,6 @@ func (r *VersionedSignedProposal) MarshalJSON() ([]byte, error) {
 
 func (r *VersionedSignedProposal) UnmarshalJSON(input []byte) error {
 	var err error
-	if IsElectra {
-		electraContents := new(eth2ApiV1Electra.SignedBlockContents)
-		if err = electraContents.UnmarshalJSON(input); err == nil {
-			r.Version = spec.DataVersionElectra
-			r.Electra = electraContents
-			return nil
-		}
-	}
-
-	denebContents := new(eth2ApiV1Deneb.SignedBlockContents)
-	if err = denebContents.UnmarshalJSON(input); err == nil {
-		r.Version = spec.DataVersionDeneb
-		r.Deneb = denebContents
-		return nil
-	}
 
 	electraContents := new(eth2ApiV1Electra.SignedBlockContents)
 	if err = electraContents.UnmarshalJSON(input); err == nil {
