@@ -47,6 +47,20 @@ func BuildGetHeaderResponse(payload *VersionedSubmitBlockRequest) (*builderSpec.
 			Version: spec.DataVersionElectra,
 			Electra: signedBuilderBid.Electra,
 		}, nil
+	case spec.DataVersionDeneb:
+		versionedPayload.Deneb = payload.Deneb.ExecutionPayload
+		header, err := utils.PayloadToPayloadHeader(versionedPayload)
+		if err != nil {
+			return nil, err
+		}
+		signedBuilderBid, err := BuilderBlockRequestToSignedBuilderBid(payload, header)
+		if err != nil {
+			return nil, err
+		}
+		return &builderSpec.VersionedSignedBuilderBid{
+			Version: spec.DataVersionDeneb,
+			Deneb:   signedBuilderBid.Deneb,
+		}, nil
 	case spec.DataVersionUnknown, spec.DataVersionPhase0, spec.DataVersionAltair, spec.DataVersionBellatrix:
 		return nil, errInvalidVersion
 	default:
@@ -64,6 +78,16 @@ func BuildGetHeaderResponseV3(payload *HeaderSubmissionV3, sk *bls.SecretKey, pu
 	}
 
 	switch payload.Submission.Version {
+	case spec.DataVersionDeneb:
+		signedBuilderBid, err := BuilderBlockRequestToSignedBuilderBidV3(payload, sk, pubkey, domain)
+		if err != nil {
+			return nil, err
+		}
+		return &builderSpec.VersionedSignedBuilderBid{
+			Version: spec.DataVersionDeneb,
+			Deneb:   signedBuilderBid.Deneb,
+		}, nil
+
 	case spec.DataVersionElectra:
 		signedBuilderBid, err := BuilderBlockRequestToSignedBuilderBidV3(payload, sk, pubkey, domain)
 		if err != nil {
@@ -110,6 +134,26 @@ func BuilderBlockRequestToSignedBuilderBidOld(payload *VersionedSubmitBlockReque
 			},
 		}, nil
 
+	case spec.DataVersionDeneb:
+		builderBid := builderApiDeneb.BuilderBid{
+			Header:             header.Deneb,
+			BlobKZGCommitments: payload.Deneb.BlobsBundle.Commitments,
+			Value:              value,
+			Pubkey:             *pubkey,
+		}
+
+		sig, err := ssz.SignMessage(&builderBid, domain, sk)
+		if err != nil {
+			return nil, err
+		}
+
+		return &builderSpec.VersionedSignedBuilderBid{
+			Version: spec.DataVersionDeneb,
+			Deneb: &builderApiDeneb.SignedBuilderBid{
+				Message:   &builderBid,
+				Signature: sig,
+			},
+		}, nil
 	default:
 		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", payload.Version))
 	}
@@ -148,6 +192,21 @@ func BuilderBlockRequestToSignedBuilderBid(payload *VersionedSubmitBlockRequest,
 				Signature: signature,
 			},
 		}, nil
+	case spec.DataVersionDeneb:
+		builderBid := builderApiDeneb.BuilderBid{
+			Header:             header.Deneb,
+			BlobKZGCommitments: payload.Deneb.BlobsBundle.Commitments,
+			Value:              value,
+			Pubkey:             builderPubkey,
+		}
+
+		return &builderSpec.VersionedSignedBuilderBid{
+			Version: spec.DataVersionDeneb,
+			Deneb: &builderApiDeneb.SignedBuilderBid{
+				Message:   &builderBid,
+				Signature: signature,
+			},
+		}, nil
 	case spec.DataVersionUnknown, spec.DataVersionPhase0, spec.DataVersionAltair, spec.DataVersionBellatrix:
 		fallthrough
 	default:
@@ -171,6 +230,26 @@ func BuilderBlockRequestToSignedBuilderBidV3(payload *HeaderSubmissionV3, sk *bl
 	}
 
 	switch payload.Submission.Version { //nolint:exhaustive
+	case spec.DataVersionDeneb:
+		builderBid := builderApiDeneb.BuilderBid{
+			Header:             executionPayloadHeader,
+			BlobKZGCommitments: commitments,
+			Value:              value,
+			Pubkey:             *pubkey,
+		}
+
+		sig, err := ssz.SignMessage(&builderBid, domain, sk)
+		if err != nil {
+			return nil, err
+		}
+
+		return &builderSpec.VersionedSignedBuilderBid{
+			Version: spec.DataVersionDeneb,
+			Deneb: &builderApiDeneb.SignedBuilderBid{
+				Message:   &builderBid,
+				Signature: sig,
+			},
+		}, nil
 	case spec.DataVersionElectra:
 		executionRequests, err := payload.Submission.ExecutionRequests()
 		if err != nil {
@@ -222,6 +301,22 @@ func ReSignVersionedSignedBuilderBid(versionedSignedBuilderBid *VersionedSignedB
 		}
 		return resignedVersionedSignedBuilderBid, nil
 
+	case spec.DataVersionDeneb:
+		newBuilderBid := versionedSignedBuilderBid.Deneb.Message
+		newBuilderBid.Pubkey = *resignPubkey
+		sig, err := ssz.SignMessage(newBuilderBid, domain, sk)
+		if err != nil {
+			return nil, err
+		}
+		resignedVersionedSignedBuilderBid := &VersionedSignedBuilderBid{}
+		resignedVersionedSignedBuilderBid.VersionedSignedBuilderBid = builderSpec.VersionedSignedBuilderBid{
+			Version: spec.DataVersionDeneb,
+			Deneb: &builderApiDeneb.SignedBuilderBid{
+				Message:   newBuilderBid,
+				Signature: sig,
+			},
+		}
+		return resignedVersionedSignedBuilderBid, nil
 	default:
 		return nil, fmt.Errorf("versioned signed builder bid version is not available")
 	}
@@ -255,6 +350,25 @@ func BuildHeaderSubmissionV3(payload *VersionedSubmitBlockRequest) (*HeaderSubmi
 				},
 			},
 		}, nil
+	case spec.DataVersionDeneb:
+		versionedPayload.Deneb = payload.Deneb.ExecutionPayload
+		header, err := utils.PayloadToPayloadHeader(versionedPayload)
+		if err != nil {
+			return nil, err
+		}
+		return &HeaderSubmissionV3{
+			URL: []byte{},
+			Submission: &VersionedSignedHeaderSubmission{
+				Version: spec.DataVersionDeneb,
+				Deneb: &SignedHeaderSubmissionDeneb{
+					Message: HeaderSubmissionDenebV2{
+						BidTrace:               payload.Deneb.Message,
+						ExecutionPayloadHeader: header.Deneb,
+						Commitments:            payload.Deneb.BlobsBundle.Commitments,
+					},
+				},
+			},
+		}, nil
 	case spec.DataVersionUnknown, spec.DataVersionPhase0, spec.DataVersionAltair, spec.DataVersionBellatrix:
 		return nil, errInvalidVersion
 	default:
@@ -280,6 +394,11 @@ func BuildGetHeaderResponseAndSign(headerSubmissionV3 *HeaderSubmissionV3, sk *b
 		return &builderSpec.VersionedSignedBuilderBid{
 			Version: spec.DataVersionElectra,
 			Electra: signedBuilderBid.Electra,
+		}, nil
+	case spec.DataVersionDeneb:
+		return &builderSpec.VersionedSignedBuilderBid{
+			Version: spec.DataVersionDeneb,
+			Deneb:   signedBuilderBid.Deneb,
 		}, nil
 	case spec.DataVersionUnknown, spec.DataVersionPhase0, spec.DataVersionAltair, spec.DataVersionBellatrix:
 		return nil, errInvalidVersion
