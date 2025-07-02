@@ -185,7 +185,7 @@ func (s *Service) RegisterValidator(ctx context.Context, outgoingCtx context.Con
 		Str("secretToken", s.secretToken).
 		Str("authHeader", in.AuthHeader).
 		Bool("proposerMevProtect", in.ProposerMevProtect).Logger()
-	span.SetAttributes(
+	parentSpan.SetAttributes(
 		attribute.String("method", "registerValidator"),
 		attribute.String("in.ClientIP", in.ClientIP),
 		attribute.String("reqID", id),
@@ -700,7 +700,7 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams, log *z
 		Int64("msIntoSlotIncludingDelay", msIntoSlotIncludingDelay).
 		Str("slotUID", in.SlotUID).Logger()
 
-	span.SetAttributes(
+	parentSpan.SetAttributes(
 		attribute.String("method", getHeader),
 		attribute.String("clientIP", in.ClientIP),
 		attribute.String("req", id),
@@ -768,7 +768,7 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams, log *z
 
 	if slotBestHeader == nil || err != nil {
 		msg := fmt.Sprintf("header value is not present for the requested key %v", keyForCachingBids)
-		span.AddEvent("Header value is not present", trace.WithAttributes(attribute.String("msg", msg)))
+		parentSpan.AddEvent("Header value is not present", trace.WithAttributes(attribute.String("msg", msg)))
 		go func() {
 			headerStats := GetHeaderStatsRecord{
 				RequestReceivedAt:        in.ReceivedAt,
@@ -811,7 +811,7 @@ func (s *Service) GetHeader(ctx context.Context, in *HeaderRequestParams, log *z
 	*log = log.With().Str("blockHash", slotBestHeader.BlockHash).
 		Str("blockValue", blockValue.String()).
 		Str("uniqueKey", uKey).Logger()
-	span.SetAttributes(
+	parentSpan.SetAttributes(
 		attribute.String("blockHash", slotBestHeader.BlockHash),
 		attribute.String("blockValue", blockValue.String()),
 		attribute.String("uniqueKey", uKey),
@@ -1436,7 +1436,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams, log 
 		Str("slotUID", in.SlotUID).
 		Str("getPayloadStartTimeUnixMS", in.GetPayloadStartTimeUnixMS).Logger()
 
-	span.SetAttributes(
+	parentSpan.SetAttributes(
 		attribute.String("method", getPayload),
 		attribute.String("in.ClientIP", in.ClientIP),
 		attribute.String("reqID", id),
@@ -1506,7 +1506,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams, log 
 		wg.Add(1)
 		go func(c *common.ParentClient) {
 			defer wg.Done()
-			out, err := s.getPayloadWithRetry(ctx, c.SafeClient, span, req, maxGetPayloadRetry)
+			out, err := s.getPayloadWithRetry(ctx, c.SafeClient, parentSpan, req, maxGetPayloadRetry)
 			if err != nil {
 				log.Error().Err(err).Msg("getPayloadWithRetry")
 				errChan <- ErrorRespWithPayload{err: err, resp: out}
@@ -1553,7 +1553,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams, log 
 				Str("blockValue", resp.BlockValue).
 				Str("uniqueKey", uKey).Logger()
 
-			span.SetAttributes(
+			parentSpan.SetAttributes(
 				attribute.String("duration", duration.String()),
 				attribute.String("slot", fmt.Sprintf("%v", resp.Slot)),
 				attribute.Int64("slotStartTime", slotStartTime.UnixMilli()),
@@ -1623,7 +1623,7 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParam
 		Str("slotUID", in.SlotUID).
 		Str("getPayloadStartTimeUnixMS", in.GetPayloadStartTimeUnixMS).Logger()
 
-	span.SetAttributes(
+	parentSpan.SetAttributes(
 		attribute.String("method", getPayload),
 		attribute.String("in.ClientIP", in.ClientIP),
 		attribute.String("reqID", id),
@@ -1652,7 +1652,7 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParam
 	}
 	for _, client := range s.clients {
 		go func(c *common.ParentClient) {
-			_, err := s.getPayloadWithRetry(ctx, c.SafeClient, span, req, maxGetPayloadRetry)
+			_, err := s.getPayloadWithRetry(ctx, c.SafeClient, parentSpan, req, maxGetPayloadRetry)
 			if err != nil {
 				log.Error().Err(err).Msg("getPayloadWithRetry")
 				return
@@ -1695,7 +1695,7 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParam
 		Str("blockValue", payloadInfo.BlockValue).
 		Str("uniqueKey", uKey).Logger()
 
-	span.SetAttributes(
+	parentSpan.SetAttributes(
 		attribute.String("duration", duration.String()),
 		attribute.String("slot", fmt.Sprintf("%v", payloadInfo.Slot)),
 		attribute.Int64("slotStartTime", slotStartTime.UnixMilli()),
