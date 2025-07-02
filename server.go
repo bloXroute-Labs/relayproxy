@@ -536,6 +536,9 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 		logMetric.Merge(lm)
 		if err != nil {
 			handleRegistrationSpan.SetStatus(codes.Error, err.Error())
+			handleRegistrationSpan.SetAttributes(
+				attribute.String("error", err.Error()),
+			)
 			respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, err, s.logger, s.tracer, logMetric)
 			return
 		}
@@ -801,6 +804,9 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	_, mergeLogMetric := s.tracer.Start(getPayloadCtx, "handleGetPayload-mergeLogMetric")
 	logMetric.Merge(lm)
 	if err != nil {
+		span.SetAttributes(
+			attribute.String("error", err.Error()),
+		)
 		span.SetStatus(codes.Error, err.Error())
 		respondError(getPayloadCtx, span, method, w, err, s.logger, s.tracer, logMetric)
 		return
