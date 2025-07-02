@@ -473,29 +473,29 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 			"boostSendTime":  boostSendTime,
 			"latency":        latency,
 		},
-		[]attribute.KeyValue{
-			attribute.String("reqHost", r.Host),
-			attribute.String("method", r.Method),
-			attribute.String("validatorID", validatorID),
-			attribute.String("complianceList", complianceList),
-			attribute.String("skipOptimism", skipOptimismQuery),
-			attribute.String("clientIP", clientIP),
-			attribute.String("remoteAddr", r.RemoteAddr),
-			attribute.String("requestURI", r.RequestURI),
-			attribute.String("authHeader", authHeader),
-			attribute.String("traceID", handleRegistrationSpan.SpanContext().TraceID().String()),
-			attribute.String("boostSendTime", boostSendTime),
-			attribute.Int64("latency", latency),
-		},
+		[]attribute.KeyValue{},
 	)
 
-	handleRegistrationSpan.SetAttributes(logMetric.GetAttributes()...)
+	handleRegistrationSpan.SetAttributes(
+		attribute.String("reqHost", r.Host),
+		attribute.String("method", r.Method),
+		attribute.String("validatorID", validatorID),
+		attribute.String("complianceList", complianceList),
+		attribute.String("skipOptimism", skipOptimismQuery),
+		attribute.String("clientIP", clientIP),
+		attribute.String("remoteAddr", r.RemoteAddr),
+		attribute.String("requestURI", r.RequestURI),
+		attribute.String("authHeader", authHeader),
+		attribute.String("traceID", handleRegistrationSpan.SpanContext().TraceID().String()),
+		attribute.String("boostSendTime", boostSendTime),
+		attribute.Int64("latency", latency),
+	)
 	hasProposerMevProtect, err := GetProposerMevProtectQueryAny(parsedURL, s.logger, logMetric)
 	if err != nil {
 		handleRegistrationSpan.SetStatus(codes.Error, err.Error())
 		logMetric.String("proxyError", err.Error())
 		logMetric.Error(errors.New("could not read proposer_mev_protect"))
-		respondError(handleRegistrationCtx, registration, w, toErrorResp(http.StatusInternalServerError, "could not parse boolean proposer_mev_protect", logMetric.GetFields()), s.logger, s.tracer, logMetric)
+		respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, toErrorResp(http.StatusInternalServerError, "could not parse boolean proposer_mev_protect", logMetric.GetFields()), s.logger, s.tracer, logMetric)
 		return
 	}
 	isSkipOptimism := false
@@ -506,7 +506,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 			handleRegistrationSpan.SetStatus(codes.Error, err.Error())
 			logMetric.String("proxyError", err.Error())
 			logMetric.Error(errors.New("could not read skip_optimism"))
-			respondError(handleRegistrationCtx, registration, w, toErrorResp(http.StatusInternalServerError, "could not parse boolean skip_optimism: "+skipOptimismQuery, logMetric.GetFields()), s.logger, s.tracer, logMetric)
+			respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, toErrorResp(http.StatusInternalServerError, "could not parse boolean skip_optimism: "+skipOptimismQuery, logMetric.GetFields()), s.logger, s.tracer, logMetric)
 			return
 		}
 	}
@@ -518,7 +518,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 		handleRegistrationSpan.SetStatus(codes.Error, err.Error())
 		logMetric.String("proxyError", err.Error())
 		logMetric.Error(errors.New("could not read registration"))
-		respondError(handleRegistrationCtx, registration, w, toErrorResp(http.StatusInternalServerError, "could not read registration", logMetric.GetFields()), s.logger, s.tracer, logMetric)
+		respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, toErrorResp(http.StatusInternalServerError, "could not read registration", logMetric.GetFields()), s.logger, s.tracer, logMetric)
 		return
 	}
 	handleRegistrationSpan.AddEvent("handleRegistration- svcRegisterValidator")
@@ -537,12 +537,12 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 		logMetric.Merge(lm)
 		if err != nil {
 			handleRegistrationSpan.SetStatus(codes.Error, err.Error())
-			respondError(handleRegistrationCtx, registration, w, err, s.logger, s.tracer, logMetric)
+			respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, err, s.logger, s.tracer, logMetric)
 			return
 		}
 	}()
 
-	respondOK(handleRegistrationCtx, registration, w, struct{}{}, s.logger, s.tracer, logMetric)
+	respondOK(handleRegistrationCtx, handleRegistrationSpan, registration, w, struct{}{}, s.logger, s.tracer, logMetric)
 }
 
 func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
@@ -595,28 +595,29 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 			"headers":                  headers,
 			"slotUID":                  headerSlotUID,
 		},
-		[]attribute.KeyValue{
-			attribute.String("reqHost", r.Host),
-			attribute.String("method", r.Method),
-			attribute.String("clientIP", clientIP),
-			attribute.String("remoteAddr", r.RemoteAddr),
-			attribute.String("requestURI", r.RequestURI),
-			attribute.String("validatorID", validatorID),
-			attribute.String("accountID", accountID),
-			attribute.String("authHeader", authHeader),
-			attribute.String("parentHash", parentHash),
-			attribute.String("pubKey", pubKey),
-			attribute.String("traceID", span.SpanContext().TraceID().String()),
-			attribute.String("getHeaderStartTimeUnixMS", boostSendTime),
-			attribute.Int64("latency", latency),
-			attribute.String("cluster", cluster),
-			attribute.String("userAgent", userAgent),
-			attribute.Bool("sszResponse", sszResponse),
-			attribute.StringSlice("headers", headers),
-			attribute.String("slotUID", headerSlotUID),
-		},
+		[]attribute.KeyValue{},
 	)
-	span.SetAttributes(logMetric.GetAttributes()...)
+
+	span.SetAttributes(
+		attribute.String("reqHost", r.Host),
+		attribute.String("method", r.Method),
+		attribute.String("clientIP", clientIP),
+		attribute.String("remoteAddr", r.RemoteAddr),
+		attribute.String("requestURI", r.RequestURI),
+		attribute.String("validatorID", validatorID),
+		attribute.String("accountID", accountID),
+		attribute.String("authHeader", authHeader),
+		attribute.String("parentHash", parentHash),
+		attribute.String("pubKey", pubKey),
+		attribute.String("traceID", span.SpanContext().TraceID().String()),
+		attribute.String("getHeaderStartTimeUnixMS", boostSendTime),
+		attribute.Int64("latency", latency),
+		attribute.String("cluster", cluster),
+		attribute.String("userAgent", userAgent),
+		attribute.Bool("sszResponse", sszResponse),
+		attribute.StringSlice("headers", headers),
+		attribute.String("slotUID", headerSlotUID),
+	)
 	span.AddEvent("handleGetHeader-svcGetHeader")
 	out, lm, err := s.svc.GetHeader(handleGetHeaderCtx, &HeaderRequestParams{
 		ReceivedAt:               receivedAt,
@@ -636,33 +637,36 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	logMetric.Merge(lm)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Error in GetHeader")
-		respondError(handleGetHeaderCtx, getHeader, w, err, s.logger, s.tracer, logMetric)
+		span.SetAttributes(
+			attribute.String("error", err.Error()),
+		)
+		respondError(handleGetHeaderCtx, span, getHeader, w, err, s.logger, s.tracer, logMetric)
 		return
 	}
 
 	if !sszResponse {
 		s.logger.Info().Msg("Responding with JSON")
-		respondOK(handleGetHeaderCtx, getHeader, w, out, s.logger, s.tracer, logMetric)
+		respondOK(handleGetHeaderCtx, span, getHeader, w, out, s.logger, s.tracer, logMetric)
 		return
 	}
 
 	versionedBid := new(common.VersionedSignedBuilderBid)
 	if err = versionedBid.UnmarshalJSON(out); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to unmarshal JSON")
-		respondError(handleGetHeaderCtx, getHeader, w, toErrorResp(http.StatusInternalServerError, err.Error(), lm.GetFields()), s.logger, s.tracer, logMetric)
+		respondError(handleGetHeaderCtx, span, getHeader, w, toErrorResp(http.StatusInternalServerError, err.Error(), lm.GetFields()), s.logger, s.tracer, logMetric)
 		return
 	}
 
 	sszMarshal, err := versionedBid.MarshalSSZ()
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to marshal SSZ")
-		respondOK(handleGetHeaderCtx, getHeader, w, out, s.logger, s.tracer, nil)
+		respondOK(handleGetHeaderCtx, span, getHeader, w, out, s.logger, s.tracer, nil)
 		return
 	}
 
 	w.Header().Set(common.HeaderEthConsensusVersion, versionedBid.Version.String())
 	s.logger.Info().Msg("Responding with SSZ")
-	s.respondOKWithContextSSZMarshalled(handleGetHeaderCtx, getHeader, w, sszMarshal, s.logger, s.tracer, logMetric)
+	s.respondOKWithContextSSZMarshalled(handleGetHeaderCtx, span, getHeader, w, sszMarshal, s.logger, s.tracer, logMetric)
 }
 
 func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
@@ -712,35 +716,35 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 			"headers":                  headers,
 			"slotUID":                  headerSlotUID,
 		},
-		[]attribute.KeyValue{
-			attribute.String("reqHost", r.Host),
-			attribute.String("method", r.Method),
-			attribute.String("clientIP", clientIP),
-			attribute.String("remoteAddr", r.RemoteAddr),
-			attribute.String("requestURI", r.RequestURI),
-			attribute.String("parsedURL", parsedURL.String()),
-			attribute.String("validatorID", validatorID),
-			attribute.String("accountID", accountID),
-			attribute.String("authHeader", authHeader),
-			attribute.String("traceID", span.SpanContext().TraceID().String()),
-			attribute.String("getPayloadStartTimeUnixMS", boostSendTime),
-			attribute.Int64("latency", latency),
-			attribute.String("cluster", cluster),
-			attribute.String("userAgent", userAgent),
-			attribute.Bool("sszRequest", sszRequest),
-			attribute.Bool("sszResponse", sszResponse),
-			attribute.StringSlice("headers", headers),
-			attribute.String("slotUID", headerSlotUID),
-		},
+		[]attribute.KeyValue{},
 	)
-	span.SetAttributes(logMetric.GetAttributes()...)
+	span.SetAttributes(
+		attribute.String("reqHost", r.Host),
+		attribute.String("method", r.Method),
+		attribute.String("clientIP", clientIP),
+		attribute.String("remoteAddr", r.RemoteAddr),
+		attribute.String("requestURI", r.RequestURI),
+		attribute.String("parsedURL", parsedURL.String()),
+		attribute.String("validatorID", validatorID),
+		attribute.String("accountID", accountID),
+		attribute.String("authHeader", authHeader),
+		attribute.String("traceID", span.SpanContext().TraceID().String()),
+		attribute.String("getPayloadStartTimeUnixMS", boostSendTime),
+		attribute.Int64("latency", latency),
+		attribute.String("cluster", cluster),
+		attribute.String("userAgent", userAgent),
+		attribute.Bool("sszRequest", sszRequest),
+		attribute.Bool("sszResponse", sszResponse),
+		attribute.StringSlice("headers", headers),
+		attribute.String("slotUID", headerSlotUID),
+	)
 
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
 		logMetric.String("proxyError", err.Error())
 		logMetric.Error(errors.New("could not read registration"))
-		respondError(getPayloadCtx, getPayload, w, toErrorResp(http.StatusInternalServerError, "could not read registration", logMetric.GetFields()), s.logger, s.tracer, logMetric)
+		respondError(getPayloadCtx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "could not read registration", logMetric.GetFields()), s.logger, s.tracer, logMetric)
 		return
 	}
 	signedBlindedBeaconBlock := new(common.VersionedSignedBlindedBeaconBlock)
@@ -749,7 +753,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		err := signedBlindedBeaconBlock.UnmarshalSSZ(bodyBytes)
 		if err != nil {
 			decodeSSZSpan.End()
-			respondError(getPayloadCtx, getPayload, w, toErrorResp(http.StatusInternalServerError, "failed to decode request payload", logMetric.GetFields()), s.logger, s.tracer, logMetric)
+			respondError(getPayloadCtx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "failed to decode request payload", logMetric.GetFields()), s.logger, s.tracer, logMetric)
 			return
 		}
 		decodeSSZSpan.End()
@@ -757,7 +761,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		bodyBytes, err = signedBlindedBeaconBlock.MarshalJSON()
 		if err != nil {
 			encodeJSONSpan.End()
-			respondError(getPayloadCtx, getPayload, w, toErrorResp(http.StatusInternalServerError, "failed to marshal to json", logMetric.GetFields()), s.logger, s.tracer, logMetric)
+			respondError(getPayloadCtx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "failed to marshal to json", logMetric.GetFields()), s.logger, s.tracer, logMetric)
 			return
 		}
 		encodeJSONSpan.End()
@@ -801,7 +805,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	logMetric.Merge(lm)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
-		respondError(getPayloadCtx, method, w, err, s.logger, s.tracer, logMetric)
+		respondError(getPayloadCtx, span, method, w, err, s.logger, s.tracer, logMetric)
 		return
 	}
 	mergeLogMetric.End()
@@ -826,7 +830,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 
 	// Return response
 	if !sszResponse {
-		respondOK(getPayloadCtx, method, w, versionedPayloadInfo.GetResponse(), s.logger, s.tracer, logMetric)
+		respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), s.logger, s.tracer, logMetric)
 		return
 	}
 	_, marshalUnmarshalSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-marshalUnmarshal")
@@ -834,29 +838,26 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	if err := payloadResponse.UnmarshalJSON(versionedPayloadInfo.GetResponse()); err != nil {
 		span.SetStatus(codes.Error, err.Error())
 		success.Store(false)
-		respondError(getPayloadCtx, method, w, toErrorResp(http.StatusInternalServerError, err.Error(), logMetric.GetFields()), s.logger, s.tracer, logMetric)
+		respondError(getPayloadCtx, span, method, w, toErrorResp(http.StatusInternalServerError, err.Error(), logMetric.GetFields()), s.logger, s.tracer, logMetric)
 		return
 	}
 	outByte, err := payloadResponse.MarshalSSZ()
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal getHeader to ssz")
 		span.SetStatus(codes.Error, err.Error())
-		respondOK(getPayloadCtx, method, w, versionedPayloadInfo.GetResponse(), s.logger, s.tracer, logMetric)
+		respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), s.logger, s.tracer, logMetric)
 		return
 	}
 	marshalUnmarshalSpan.End()
 	w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
-	s.respondOKWithContextSSZMarshalled(getPayloadCtx, method, w, outByte, s.logger, s.tracer, logMetric)
+	s.respondOKWithContextSSZMarshalled(getPayloadCtx, span, method, w, outByte, s.logger, s.tracer, logMetric)
 }
-func respondOK(ctx context.Context, method string, w http.ResponseWriter, response any, log zerolog.Logger, tracer trace.Tracer, logMetric *LogMetric) {
+func respondOK(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, response any, log zerolog.Logger, tracer trace.Tracer, logMetric *LogMetric) {
 	_, span := tracer.Start(ctx, "respondOK-"+method)
 	defer span.End()
-	logMetric.Attributes(
-		attribute.String("method", method),
+	parentSpan.SetAttributes(
 		attribute.Int("responseCode", 200),
-		attribute.String("traceID", span.SpanContext().TraceID().String()),
 	)
-	span.SetAttributes(logMetric.GetAttributes()...)
 
 	w.Header().Set(common.HeaderContentType, common.MediaTypeJSON)
 
@@ -870,19 +871,16 @@ func respondOK(ctx context.Context, method string, w http.ResponseWriter, respon
 
 }
 
-func respondError(ctx context.Context, method string, w http.ResponseWriter, err error, log zerolog.Logger, tracer trace.Tracer, logMetric *LogMetric) {
+func respondError(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, err error, log zerolog.Logger, tracer trace.Tracer, logMetric *LogMetric) {
 
 	_, span := tracer.Start(ctx, "respondError-"+method)
 	defer span.End()
-	logMetric.Attributes(
-		attribute.String("method", method),
-		attribute.String("Err", err.Error()),
-		attribute.String("traceID", span.SpanContext().TraceID().String()),
-	)
-	span.SetAttributes(logMetric.GetAttributes()...)
 
 	resp, ok := err.(*ErrorResp)
-	span.SetAttributes(attribute.Int("responseCode", resp.ErrorCode()))
+	parentSpan.SetAttributes(
+		attribute.String("Err", err.Error()),
+		attribute.Int("responseCode", resp.ErrorCode()),
+	)
 	if !ok {
 		log.Error().Fields(logMetric.GetFields()).Str("method", method).Err(err).Msg("failed to typecast error response")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -902,54 +900,47 @@ func respondError(ctx context.Context, method string, w http.ResponseWriter, err
 }
 func GetProposerMevProtectQueryAny(parsedURL *url.URL, log zerolog.Logger, logMetric *LogMetric) (bool, error) {
 	proposerMevProtectQuery := parsedURL.Query().Get("proposer_mev_protect")
-	proposerMevProtect, err := parseQuery("proposer_mev_protect", proposerMevProtectQuery, log, logMetric)
+	proposerMevProtect, err := parseQuery("proposer_mev_protect", proposerMevProtectQuery, log)
 	if err != nil {
 		return false, err
 	}
 	mevProtectQuery := parsedURL.Query().Get("mev_protect")
-	mevProtect, parseErr := parseQuery("mev_protect", mevProtectQuery, log, logMetric)
+	mevProtect, parseErr := parseQuery("mev_protect", mevProtectQuery, log)
 	if parseErr != nil {
 		log.Error().Err(err).Msg("failed to parse mev_protect")
 		return false, err
 	}
 	mevGuardQuery := parsedURL.Query().Get("mev_guard")
-	mevGuard, parseErr := parseQuery("mev_guard", mevGuardQuery, log, logMetric)
+	mevGuard, parseErr := parseQuery("mev_guard", mevGuardQuery, log)
 	if parseErr != nil {
 		log.Error().Err(err).Msg("failed to parse mev_guard")
 		return false, err
 	}
 	proposerMevGuardQuery := parsedURL.Query().Get("proposer_mev_guard")
-	proposerMevGuard, parseErr := parseQuery("proposer_mev_guard", proposerMevGuardQuery, log, logMetric)
+	proposerMevGuard, parseErr := parseQuery("proposer_mev_guard", proposerMevGuardQuery, log)
 	if parseErr != nil {
 		log.Error().Err(err).Msg("failed to parse mev_guard")
 		return false, err
 	}
 	return proposerMevProtect || mevProtect || mevGuard || proposerMevGuard, nil
 }
-func parseQuery(query string, value string, log zerolog.Logger, logMetric *LogMetric) (bool, error) {
+func parseQuery(query string, value string, log zerolog.Logger) (bool, error) {
 	if value == "" {
 		return false, nil
 	}
-	logMetric.Attributes(
-		attribute.String("query", query),
-		attribute.String("value", value),
-	)
 	proposerMevProtect, err := strconv.ParseBool(value)
 	if err != nil {
-		log.With().Fields(logMetric.GetFields()).Err(err).Str("reason", "failed to parse proposer-mev-protect, setting proposer-mev-protect to false by default")
+		log.With().Str("query", query).Str("value", value).Err(err).Str("reason", "failed to parse proposer-mev-protect, setting proposer-mev-protect to false by default")
 	}
 	return proposerMevProtect, err
 }
 
-func (s *Server) respondOKWithContextSSZMarshalled(ctx context.Context, method string, w http.ResponseWriter, resBytes []byte, log zerolog.Logger, tracer trace.Tracer, logMetric *LogMetric) {
+func (s *Server) respondOKWithContextSSZMarshalled(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, resBytes []byte, log zerolog.Logger, tracer trace.Tracer, logMetric *LogMetric) {
 	_, span := tracer.Start(ctx, fmt.Sprintf("respondOKSSZ-%s", method))
 	defer span.End()
-	logMetric.Attributes(
-		attribute.String("method", method),
+	parentSpan.SetAttributes(
 		attribute.Int("responseCode", 200),
-		attribute.String("traceID", span.SpanContext().TraceID().String()),
 	)
-	span.SetAttributes(logMetric.GetAttributes()...)
 
 	w.Header().Set(common.HeaderContentType, common.MediaTypeOctetStream)
 

@@ -58,14 +58,12 @@ func (l *LogMetric) Int64(k string, v int64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.fields[k] = v
-	l.attributes[k] = attribute.Int64(k, v)
 }
 
 func (l *LogMetric) Time(k string, v time.Time) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.fields[k] = v
-	l.attributes[k] = attribute.Int64(k, v.Unix())
 }
 
 func (l *LogMetric) Error(err error) {
