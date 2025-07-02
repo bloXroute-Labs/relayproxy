@@ -767,8 +767,10 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		versionedPayloadInfo *common.VersionedPayloadInfo
 		lm                   *LogMetric
 	)
+	method := getPayload
 	if s.accountsLists.AccountIDToInfo[accountID] != nil &&
 		s.accountsLists.AccountIDToInfo[accountID].IsTrusted {
+		method = getPayloadTrusted
 		versionedPayloadInfo, lm, err = s.svc.GetPayloadTrusted(getPayloadCtx, &PayloadRequestParams{
 			ReceivedAt:                receivedAt,
 			Payload:                   bodyBytes,
@@ -799,7 +801,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	logMetric.Merge(lm)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
-		respondError(getPayloadCtx, getPayload, w, err, s.logger, s.tracer, logMetric)
+		respondError(getPayloadCtx, method, w, err, s.logger, s.tracer, logMetric)
 		return
 	}
 	mergeLogMetric.End()
@@ -824,7 +826,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 
 	// Return response
 	if !sszResponse {
-		respondOK(getPayloadCtx, getPayload, w, versionedPayloadInfo.GetResponse(), s.logger, s.tracer, logMetric)
+		respondOK(getPayloadCtx, method, w, versionedPayloadInfo.GetResponse(), s.logger, s.tracer, logMetric)
 		return
 	}
 	_, marshalUnmarshalSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-marshalUnmarshal")
@@ -832,19 +834,19 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	if err := payloadResponse.UnmarshalJSON(versionedPayloadInfo.GetResponse()); err != nil {
 		span.SetStatus(codes.Error, err.Error())
 		success.Store(false)
-		respondError(getPayloadCtx, getPayload, w, toErrorResp(http.StatusInternalServerError, err.Error(), logMetric.GetFields()), s.logger, s.tracer, logMetric)
+		respondError(getPayloadCtx, method, w, toErrorResp(http.StatusInternalServerError, err.Error(), logMetric.GetFields()), s.logger, s.tracer, logMetric)
 		return
 	}
 	outByte, err := payloadResponse.MarshalSSZ()
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal getHeader to ssz")
 		span.SetStatus(codes.Error, err.Error())
-		respondOK(getPayloadCtx, getPayload, w, versionedPayloadInfo.GetResponse(), s.logger, s.tracer, logMetric)
+		respondOK(getPayloadCtx, method, w, versionedPayloadInfo.GetResponse(), s.logger, s.tracer, logMetric)
 		return
 	}
 	marshalUnmarshalSpan.End()
 	w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
-	s.respondOKWithContextSSZMarshalled(getPayloadCtx, getPayload, w, outByte, s.logger, s.tracer, logMetric)
+	s.respondOKWithContextSSZMarshalled(getPayloadCtx, method, w, outByte, s.logger, s.tracer, logMetric)
 }
 func respondOK(ctx context.Context, method string, w http.ResponseWriter, response any, log zerolog.Logger, tracer trace.Tracer, logMetric *LogMetric) {
 	_, span := tracer.Start(ctx, "respondOK-"+method)

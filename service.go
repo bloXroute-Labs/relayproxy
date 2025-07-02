@@ -120,6 +120,10 @@ type Service struct {
 	accountsLists       *AccountsLists
 	walletAccounts      *map[string]*common.WalletAccount
 	miniProposerSlotMap *SyncMap[uint64, *common.MiniValidatorLatency]
+
+	blockPublishingGatewayClient interface{}
+	gatewayAuthKey               string
+	blockPublishFunc             func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, blockPublishingGatewayClient interface{}, authKey string)
 }
 
 type slotStatsEvent struct {
@@ -1749,8 +1753,15 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParam
 		attribute.String("blockValue", payloadInfo.BlockValue),
 		attribute.String("uniqueKey", uKey),
 	)
-
 	span.SetAttributes(logMetric.GetAttributes()...)
+
+	// publish block to gateway
+	go func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, client interface{}, authKey string) {
+		if s.blockPublishFunc != nil {
+			s.blockPublishFunc(tracer, logger, payloadInfo, signedBeaconBlock, client, authKey)
+		}
+	}(s.tracer, s.logger, payloadInfo, blindedBeaconBlock, s.blockPublishingGatewayClient, s.gatewayAuthKey)
+
 	return payloadInfo, logMetric, nil
 }
 
