@@ -9,10 +9,8 @@ import (
 	builderApiElectra "github.com/attestantio/go-builder-client/api/electra"
 	builderSpec "github.com/attestantio/go-builder-client/spec"
 	eth2Api "github.com/attestantio/go-eth2-client/api"
-	eth2ApiV1Deneb "github.com/attestantio/go-eth2-client/api/v1/deneb"
 	eth2ApiV1Electra "github.com/attestantio/go-eth2-client/api/v1/electra"
 	"github.com/attestantio/go-eth2-client/spec"
-	"github.com/attestantio/go-eth2-client/spec/deneb"
 	"github.com/attestantio/go-eth2-client/spec/electra"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/flashbots/go-boost-utils/bls"
@@ -473,6 +471,8 @@ func SignedBlindedBeaconBlockToBeaconBlock(signedBlindedBeaconBlock *VersionedSi
 		signedBeaconBlock.Electra = ElectraUnblindSignedBlock(electraBlindedBlock, blockPayload.Electra)
 	case spec.DataVersionUnknown, spec.DataVersionPhase0, spec.DataVersionAltair, spec.DataVersionBellatrix:
 		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", signedBlindedBeaconBlock.Version))
+	default:
+		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", signedBlindedBeaconBlock.Version))
 	}
 	return &signedBeaconBlock, nil
 }
@@ -508,36 +508,6 @@ func ElectraUnblindSignedBlock(blindedBlock *eth2ApiV1Electra.SignedBlindedBeaco
 	}
 }
 
-func DenebUnblindSignedBlock(blindedBlock *eth2ApiV1Deneb.SignedBlindedBeaconBlock, blockPayload *builderApiDeneb.ExecutionPayloadAndBlobsBundle) *eth2ApiV1Deneb.SignedBlockContents {
-	return &eth2ApiV1Deneb.SignedBlockContents{
-		SignedBlock: &deneb.SignedBeaconBlock{
-			Message: &deneb.BeaconBlock{
-				Slot:          blindedBlock.Message.Slot,
-				ProposerIndex: blindedBlock.Message.ProposerIndex,
-				ParentRoot:    blindedBlock.Message.ParentRoot,
-				StateRoot:     blindedBlock.Message.StateRoot,
-				Body: &deneb.BeaconBlockBody{
-					RANDAOReveal:          blindedBlock.Message.Body.RANDAOReveal,
-					ETH1Data:              blindedBlock.Message.Body.ETH1Data,
-					Graffiti:              blindedBlock.Message.Body.Graffiti,
-					ProposerSlashings:     blindedBlock.Message.Body.ProposerSlashings,
-					AttesterSlashings:     blindedBlock.Message.Body.AttesterSlashings,
-					Attestations:          blindedBlock.Message.Body.Attestations,
-					Deposits:              blindedBlock.Message.Body.Deposits,
-					VoluntaryExits:        blindedBlock.Message.Body.VoluntaryExits,
-					SyncAggregate:         blindedBlock.Message.Body.SyncAggregate,
-					ExecutionPayload:      blockPayload.ExecutionPayload,
-					BLSToExecutionChanges: blindedBlock.Message.Body.BLSToExecutionChanges,
-					BlobKZGCommitments:    blindedBlock.Message.Body.BlobKZGCommitments,
-				},
-			},
-			Signature: blindedBlock.Signature,
-		},
-		KZGProofs: blockPayload.BlobsBundle.Proofs,
-		Blobs:     blockPayload.BlobsBundle.Blobs,
-	}
-}
-
 type VersionedSignedProposal struct {
 	eth2Api.VersionedSignedProposal
 }
@@ -546,8 +516,6 @@ func (r *VersionedSignedProposal) MarshalSSZ() ([]byte, error) {
 	switch r.Version { //nolint:exhaustive
 	case spec.DataVersionElectra:
 		return r.Electra.MarshalSSZ()
-	case spec.DataVersionDeneb:
-		return r.Deneb.MarshalSSZ()
 	default:
 		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
 	}
@@ -569,8 +537,6 @@ func (r *VersionedSignedProposal) MarshalJSON() ([]byte, error) {
 	switch r.Version { //nolint:exhaustive
 	case spec.DataVersionElectra:
 		return json.Marshal(r.Electra)
-	case spec.DataVersionDeneb:
-		return json.Marshal(r.Deneb)
 	default:
 		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
 	}
