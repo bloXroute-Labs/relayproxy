@@ -6,7 +6,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
@@ -23,9 +23,16 @@ var (
 func InitTracer(ctx context.Context, enableTracer bool, sampleRate float64, env, tempoEndpoint, nodeID, appName, version string) (trace.Tracer, func()) {
 	otelEnabled = enableTracer
 	// Create the primary OTLP exporter (e.g., to Tempo)
-	tempoExporter, err := otlptracegrpc.New(ctx,
-		otlptracegrpc.WithEndpoint(tempoEndpoint),
-		otlptracegrpc.WithInsecure(),
+	headers := map[string]string{
+		"X-Scope-OrgID": "default", // if using multi-tenant Tempo
+		// "Authorization": "Bearer <token>", // if needed
+	}
+
+	tempoExporter, err := otlptracehttp.New(ctx,
+		// otlptracegrpc.WithEndpoint(tempoEndpoint),
+		otlptracehttp.WithEndpoint(tempoEndpoint),
+		otlptracehttp.WithHeaders(headers),
+		otlptracehttp.WithInsecure(),
 	)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create Tempo OTLP gRPC exporter")
