@@ -120,6 +120,10 @@ type Service struct {
 	accountsLists       *AccountsLists
 	walletAccounts      *map[string]*common.WalletAccount
 	miniProposerSlotMap *SyncMap[uint64, *common.MiniValidatorLatency]
+
+	blockPublishingGatewayClient interface{}
+	gatewayAuthKey               string
+	blockPublishFunc             func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, blockPublishingGatewayClient interface{}, authKey string)
 }
 
 type slotStatsEvent struct {
@@ -178,7 +182,7 @@ func (s *Service) RegisterValidator(ctx context.Context, outgoingCtx context.Con
 	logMetric := NewLogMetric(
 		map[string]any{
 			"method":             "registerValidator",
-			"in.ClientIP":        in.ClientIP,
+			"clientIP":           in.ClientIP,
 			"reqID":              id,
 			"traceID":            parentSpan.SpanContext().TraceID().String(),
 			"receivedAt":         in.ReceivedAt,
@@ -190,7 +194,7 @@ func (s *Service) RegisterValidator(ctx context.Context, outgoingCtx context.Con
 		},
 		[]attribute.KeyValue{
 			attribute.String("method", "registerValidator"),
-			attribute.String("in.ClientIP", in.ClientIP),
+			attribute.String("clientIP", in.ClientIP),
 			attribute.String("reqID", id),
 			attribute.String("in.ValidatorID", in.ValidatorID),
 			attribute.String("traceID", parentSpan.SpanContext().TraceID().String()),
@@ -949,7 +953,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		map[string]any{
 			"method":      preFetchPayload,
 			"receivedAt":  startTime,
-			"in.ClientIP": fields.clientIP,
+			"clientIP":    fields.clientIP,
 			"clientURL":   clientURL,
 			"reqID":       id,
 			"traceID":     parentSpan.SpanContext().TraceID().String(),
@@ -961,7 +965,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		},
 		[]attribute.KeyValue{
 			attribute.String("method", preFetchPayload),
-			attribute.String("in.ClientIP", fields.clientIP),
+			attribute.String("clientIP", fields.clientIP),
 			attribute.String("clientURL", clientURL),
 			attribute.String("reqID", id),
 			attribute.Int64("receivedAt", startTime.Unix()),
@@ -1448,7 +1452,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (*co
 		map[string]any{
 			"method":                    getPayload,
 			"receivedAt":                in.ReceivedAt,
-			"in.ClientIP":               in.ClientIP,
+			"clientIP":                  in.ClientIP,
 			"reqID":                     id,
 			"in.ValidatorID":            in.ValidatorID,
 			"accountID":                 in.AccountID,
@@ -1463,7 +1467,7 @@ func (s *Service) GetPayload(ctx context.Context, in *PayloadRequestParams) (*co
 		},
 		[]attribute.KeyValue{
 			attribute.String("method", getPayload),
-			attribute.String("in.ClientIP", in.ClientIP),
+			attribute.String("clientIP", in.ClientIP),
 			attribute.String("reqID", id),
 			attribute.String("in.ValidatorID", in.ValidatorID),
 			attribute.String("accountID", in.AccountID),
@@ -1749,8 +1753,15 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, in *PayloadRequestParam
 		attribute.String("blockValue", payloadInfo.BlockValue),
 		attribute.String("uniqueKey", uKey),
 	)
-
 	span.SetAttributes(logMetric.GetAttributes()...)
+
+	// publish block to gateway
+	go func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, client interface{}, authKey string) {
+		if s.blockPublishFunc != nil {
+			s.blockPublishFunc(tracer, logger, payloadInfo, signedBeaconBlock, client, authKey)
+		}
+	}(s.tracer, s.logger, payloadInfo, blindedBeaconBlock, s.blockPublishingGatewayClient, s.gatewayAuthKey)
+
 	return payloadInfo, logMetric, nil
 }
 
