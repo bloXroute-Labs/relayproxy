@@ -78,19 +78,19 @@ func TestService_RegisterValidator(t *testing.T) {
 			f: func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
 				return nil, fmt.Errorf("error")
 			},
-			wantErr: toErrorResp(http.StatusInternalServerError, "relays returned error", map[string]any{}),
+			wantErr: toErrorResp(http.StatusInternalServerError, "relays returned error"),
 		},
 		"If registerValidator returns empty output": {
 			f: func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
 				return nil, nil
 			},
-			wantErr: toErrorResp(http.StatusInternalServerError, "empty response from relay", map[string]any{}),
+			wantErr: toErrorResp(http.StatusInternalServerError, "empty response from relay"),
 		},
 		"If registerValidator returns error output": {
 			f: func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
 				return &relaygrpc.RegisterValidatorResponse{Code: 2, Message: "failed"}, nil
 			},
-			wantErr: toErrorResp(http.StatusInternalServerError, "relay returned failure response code", map[string]any{}),
+			wantErr: toErrorResp(http.StatusInternalServerError, "relay returned failure response code"),
 		},
 	}
 
@@ -108,7 +108,7 @@ func TestService_RegisterValidator(t *testing.T) {
 				tracer:              noop.NewTracerProvider().Tracer("test"),
 				fluentD:             fluentstats.NewStats(true, "0.0.0.0:24224"),
 			}
-			got, _, err := s.RegisterValidator(context.Background(), context.Background(), &RegistrationParams{})
+			got, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{})
 			if err == nil {
 				assert.Equal(t, got, tt.wantSuccess)
 				return
@@ -201,7 +201,7 @@ func TestService_GetHeader(t *testing.T) {
 			}
 
 			accountID := tt.accountID
-			_, _, err := svc.GetHeader(context.Background(), &HeaderRequestParams{
+			_, err := svc.GetHeader(context.Background(), &zerolog.Logger{}, &HeaderRequestParams{
 				ReceivedAt: slotStartTime,
 				Slot:       tt.slot,
 				AccountID:  accountID,
@@ -232,13 +232,13 @@ func TestService_getPayload(t *testing.T) {
 			f: func(ctx context.Context, req *relaygrpc.GetPayloadRequest, opts ...grpc.CallOption) (*relaygrpc.GetPayloadResponse, error) {
 				return nil, fmt.Errorf("error")
 			},
-			wantErr: toErrorResp(http.StatusInternalServerError, "relay returned error", map[string]any{}),
+			wantErr: toErrorResp(http.StatusInternalServerError, "relay returned error"),
 		},
 		"If getPayload returns empty output": {
 			f: func(ctx context.Context, req *relaygrpc.GetPayloadRequest, opts ...grpc.CallOption) (*relaygrpc.GetPayloadResponse, error) {
 				return nil, nil
 			},
-			wantErr: toErrorResp(http.StatusInternalServerError, "empty response from relay", map[string]any{}),
+			wantErr: toErrorResp(http.StatusInternalServerError, "empty response from relay"),
 		},
 	}
 	for testName, tt := range tests {
@@ -257,7 +257,7 @@ func TestService_getPayload(t *testing.T) {
 			s := NewService(svcOpts...)
 			s.accountsLists = &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 				AccountNameToInfo: make(map[AccountName]*AccountInfo)}
-			got, _, err := s.GetPayload(context.Background(), &PayloadRequestParams{AuthHeader: TestAuthHeader})
+			got, err := s.GetPayload(context.Background(), &zerolog.Logger{}, &PayloadRequestParams{AuthHeader: TestAuthHeader})
 			if err == nil {
 				assert.Equal(t, string(got.GetResponse()), string(tt.wantSuccess))
 				return
@@ -590,7 +590,7 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	}
 	for testName, tt := range tests {
 		t.Run(testName, func(t *testing.T) {
-			got, _, err := service.GetHeader(ctx, &HeaderRequestParams{
+			got, err := service.GetHeader(ctx, &zerolog.Logger{}, &HeaderRequestParams{
 				ReceivedAt: time.Now(),
 				AuthHeader: TestAuthHeader,
 				Slot:       strconv.FormatUint(tt.in.Slot, 10),
@@ -940,36 +940,18 @@ func TestGetPayloadWithRetry(t *testing.T) {
 			expectedNoOfTimesCalled: 1,
 		},
 		{
-			name:     "Fail with could not find requested payload",
-			mockResp: &relaygrpc.GetPayloadResponse{Code: uint32(codes.Unavailable), Message: "could not find requested payload"},
-			mockReq:  &relaygrpc.GetPayloadRequest{},
-			expectedErr: toErrorResp(http.StatusBadRequest, "relay returned failure response code",
-				map[string]any{
-					"relayError":    "could not find requested payload",
-					"url":           "",
-					"slot":          0,
-					"BlockHash":     "",
-					"in.ParentHash": "",
-					"BlockValue":    "",
-					"uniqueKey":     "slot_0_bHash__pHash_",
-				}),
+			name:                    "Fail with could not find requested payload",
+			mockResp:                &relaygrpc.GetPayloadResponse{Code: uint32(codes.Unavailable), Message: "could not find requested payload"},
+			mockReq:                 &relaygrpc.GetPayloadRequest{},
+			expectedErr:             toErrorResp(http.StatusBadRequest, "relay returned failure response code"),
 			expectedResult:          "could not find requested payload",
 			expectedNoOfTimesCalled: 3,
 		},
 		{
-			name:     "Fail with invalid signature",
-			mockResp: &relaygrpc.GetPayloadResponse{Code: uint32(codes.Unavailable), Message: "invalid signature"},
-			mockReq:  &relaygrpc.GetPayloadRequest{},
-			expectedErr: toErrorResp(http.StatusBadRequest, "relay returned error",
-				map[string]any{
-					"relayError":    "could not find requested payload",
-					"url":           "",
-					"slot":          0,
-					"BlockHash":     "",
-					"in.ParentHash": "",
-					"BlockValue":    "",
-					"uniqueKey":     "slot_0_bHash__pHash_",
-				}),
+			name:                    "Fail with invalid signature",
+			mockResp:                &relaygrpc.GetPayloadResponse{Code: uint32(codes.Unavailable), Message: "invalid signature"},
+			mockReq:                 &relaygrpc.GetPayloadRequest{},
+			expectedErr:             toErrorResp(http.StatusBadRequest, "relay returned error"),
 			expectedResult:          "invalid signature",
 			expectedNoOfTimesCalled: 1,
 		},
@@ -978,7 +960,7 @@ func TestGetPayloadWithRetry(t *testing.T) {
 			mockResp:                nil,
 			mockReq:                 &relaygrpc.GetPayloadRequest{},
 			mockErr:                 fmt.Errorf("context cancelled"),
-			expectedErr:             toErrorResp(http.StatusInternalServerError, "relay returned error", map[string]any{"relayError": "context cancelled", "url": ""}),
+			expectedErr:             toErrorResp(http.StatusInternalServerError, "relay returned error"),
 			expectedResult:          "",
 			expectedNoOfTimesCalled: 3,
 		},
@@ -987,7 +969,7 @@ func TestGetPayloadWithRetry(t *testing.T) {
 			mockResp:                nil,
 			mockReq:                 &relaygrpc.GetPayloadRequest{},
 			mockErr:                 nil,
-			expectedErr:             toErrorResp(http.StatusInternalServerError, "empty response from relay", map[string]any{"url": ""}),
+			expectedErr:             toErrorResp(http.StatusInternalServerError, "empty response from relay"),
 			expectedResult:          "",
 			expectedNoOfTimesCalled: 3,
 		},

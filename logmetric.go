@@ -9,22 +9,17 @@ import (
 )
 
 type LogMetric struct {
-	mu         sync.RWMutex
-	fields     map[string]any
-	attributes map[string]attribute.KeyValue
+	mu     sync.RWMutex
+	fields map[string]any
 }
 
 // NewLogMetric initializes a LogMetric instance
-func NewLogMetric(initialFields map[string]any, attributes []attribute.KeyValue) *LogMetric {
+func NewLogMetric(initialFields map[string]any) *LogMetric {
 	lm := &LogMetric{
-		fields:     make(map[string]any, len(initialFields)),
-		attributes: make(map[string]attribute.KeyValue, len(attributes)),
+		fields: make(map[string]any, len(initialFields)),
 	}
 	for k, v := range initialFields {
 		lm.fields[k] = v
-	}
-	for _, attr := range attributes {
-		lm.attributes[string(attr.Key)] = attr
 	}
 	return lm
 }
@@ -35,14 +30,10 @@ func (l *LogMetric) Copy() *LogMetric {
 	defer l.mu.RUnlock()
 
 	copy := &LogMetric{
-		fields:     make(map[string]any, len(l.fields)),
-		attributes: make(map[string]attribute.KeyValue, len(l.attributes)),
+		fields: make(map[string]any, len(l.fields)),
 	}
 	for k, v := range l.fields {
 		copy.fields[k] = v
-	}
-	for k, v := range l.attributes {
-		copy.attributes[k] = v
 	}
 	return copy
 }
@@ -51,21 +42,18 @@ func (l *LogMetric) String(k, v string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.fields[k] = v
-	l.attributes[k] = attribute.String(k, v)
 }
 
 func (l *LogMetric) Int64(k string, v int64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.fields[k] = v
-	l.attributes[k] = attribute.Int64(k, v)
 }
 
 func (l *LogMetric) Time(k string, v time.Time) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.fields[k] = v
-	l.attributes[k] = attribute.Int64(k, v.Unix())
 }
 
 func (l *LogMetric) Error(err error) {
@@ -75,7 +63,6 @@ func (l *LogMetric) Error(err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.fields["Err"] = err.Error()
-	l.attributes["Err"] = attribute.String("Err", err.Error())
 }
 
 func (l *LogMetric) Fields(fields map[string]any) {
@@ -89,9 +76,6 @@ func (l *LogMetric) Fields(fields map[string]any) {
 func (l *LogMetric) Attributes(attrs ...attribute.KeyValue) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	for _, attr := range attrs {
-		l.attributes[string(attr.Key)] = attr
-	}
 }
 
 func (l *LogMetric) Merge(m *LogMetric) {
@@ -101,12 +85,8 @@ func (l *LogMetric) Merge(m *LogMetric) {
 
 	m.mu.RLock()
 	mFields := make(map[string]any, len(m.fields))
-	mAttributes := make(map[string]attribute.KeyValue, len(m.attributes))
 	for k, v := range m.fields {
 		mFields[k] = v
-	}
-	for k, v := range m.attributes {
-		mAttributes[k] = v
 	}
 	m.mu.RUnlock()
 
@@ -115,11 +95,6 @@ func (l *LogMetric) Merge(m *LogMetric) {
 	for k, v := range mFields {
 		if _, exists := l.fields[k]; !exists {
 			l.fields[k] = v
-		}
-	}
-	for k, v := range mAttributes {
-		if _, exists := l.attributes[k]; !exists {
-			l.attributes[k] = v
 		}
 	}
 }
@@ -133,17 +108,6 @@ func (l *LogMetric) GetFields() map[string]any {
 		fields[k] = v
 	}
 	return fields
-}
-
-func (l *LogMetric) GetAttributes() []attribute.KeyValue {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-
-	attrs := make([]attribute.KeyValue, 0, len(l.attributes))
-	for _, v := range l.attributes {
-		attrs = append(attrs, v)
-	}
-	return attrs
 }
 
 func (l *LogMetric) ApplyToLoggerWithLevel(logger zerolog.Logger, level zerolog.Level) *zerolog.Event {
