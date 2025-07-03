@@ -663,39 +663,25 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 
 	*log = log.With().
 		Str("method", getHeader).
-		Str("clientIP", in.ClientIP).
 		Str("reqID", id).
-		Str("validatorID", in.ValidatorID).
-		Str("accountID", in.AccountID).
 		Str("key", k).
-		Str("traceID", parentSpan.SpanContext().TraceID().String()).
 		Str("slot", in.Slot).
 		Int64("slotStartTimeUnix", slotStartTime.Unix()).
 		Str("slotStartTime", slotStartTime.UTC().String()).
 		Int64("sleep", sleep).
 		Int64("maxSleep", maxSleep).
-		Int64("latency", latency).
-		Str("authHeader", in.AuthHeader).
-		Str("slotUID", in.SlotUID).
 		Logger()
 
 	parentSpan.SetAttributes(
 		attribute.String("method", getHeader),
-		attribute.String("clientIP", in.ClientIP),
 		attribute.String("req", id),
-		attribute.String("validatorID", in.ValidatorID),
-		attribute.String("accountID", in.AccountID),
 		attribute.Int64("receivedAt", in.ReceivedAt.Unix()),
 		attribute.String("key", k),
-		attribute.String("traceID", parentSpan.SpanContext().TraceID().String()),
 		attribute.String("slot", in.Slot),
 		attribute.Int64("slotStartTimeUnix", slotStartTime.Unix()),
 		attribute.String("slotStartTime", slotStartTime.UTC().String()),
 		attribute.Int64("sleep", sleep),
 		attribute.Int64("maxSleep", maxSleep),
-		attribute.Int64("latency", latency),
-		attribute.String("authHeader", in.AuthHeader),
-		attribute.String("slotUID", in.SlotUID),
 	)
 
 	log.Info().Msg("received getHeader")
@@ -1388,35 +1374,15 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 	*log = log.With().
 		Str("method", getPayload).
 		Str("receivedAt", in.ReceivedAt.String()).
-		Str("clientIP", in.ClientIP).
 		Str("reqID", id).
-		Str("in.ValidatorID", in.ValidatorID).
-		Str("accountID", in.AccountID).
-		Int64("latency", latency).
-		Str("traceID", parentSpan.SpanContext().TraceID().String()).
-		Str("authHeader", aKey).
 		Bool("isAuthHeaderProvided", in.AuthHeader != "").
-		Str("cluster", in.Cluster).
-		Str("userAgent", in.UserAgent).
-		Str("slotUID", in.SlotUID).
-		Str("getPayloadStartTimeUnixMS", in.GetPayloadStartTimeUnixMS).
 		Logger()
 
 	log.Info().Msg("received getPayload")
 	parentSpan.SetAttributes(
 		attribute.String("method", getPayload),
-		attribute.String("clientIP", in.ClientIP),
 		attribute.String("reqID", id),
-		attribute.String("in.ValidatorID", in.ValidatorID),
-		attribute.String("accountID", in.AccountID),
 		attribute.Int64("receivedAt", in.ReceivedAt.Unix()),
-		attribute.Int64("latency", latency),
-		attribute.String("traceID", parentSpan.SpanContext().TraceID().String()),
-		attribute.String("authHeader", aKey),
-		attribute.String("cluster", in.Cluster),
-		attribute.String("userAgent", in.UserAgent),
-		attribute.String("slotUID", in.SlotUID),
-		attribute.String("getPayloadStartTimeUnixMS", in.GetPayloadStartTimeUnixMS),
 	)
 	logTimingSpan.End()
 
@@ -1613,34 +1579,14 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 	*log = log.With().
 		Str("method", getPayloadTrusted).
 		Time("receivedAt", in.ReceivedAt).
-		Str("clientIP", in.ClientIP).
 		Str("reqID", id).
-		Str("validatorID", in.ValidatorID).
-		Str("accountID", in.AccountID).
-		Int64("latency", latency).
-		Str("traceID", parentSpan.SpanContext().TraceID().String()).
-		Str("authHeader", authKey).
 		Bool("isAuthHeaderProvided", in.AuthHeader != "").
-		Str("cluster", in.Cluster).
-		Str("userAgent", in.UserAgent).
-		Str("slotUID", in.SlotUID).
-		Str("getPayloadStartTimeUnixMS", in.GetPayloadStartTimeUnixMS).
 		Logger()
 	log.Info().Msg("received getPayloadTrusted")
 	parentSpan.SetAttributes(
 		attribute.String("method", getPayload),
-		attribute.String("clientIP", in.ClientIP),
 		attribute.String("reqID", id),
-		attribute.String("validatorID", in.ValidatorID),
-		attribute.String("accountID", in.AccountID),
 		attribute.Int64("receivedAt", in.ReceivedAt.Unix()),
-		attribute.Int64("latency", latency),
-		attribute.String("traceID", parentSpan.SpanContext().TraceID().String()),
-		attribute.String("authHeader", authKey),
-		attribute.String("cluster", in.Cluster),
-		attribute.String("userAgent", in.UserAgent),
-		attribute.String("slotUID", in.SlotUID),
-		attribute.String("getPayloadStartTimeUnixMS", in.GetPayloadStartTimeUnixMS),
 	)
 	logTimingSpan.End()
 
