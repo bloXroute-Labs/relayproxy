@@ -2896,8 +2896,10 @@ func (s *Service) prefetchPayload(
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 5 && !exitSignal; i++ {
-			_, childSpan := s.tracer.Start(spanctx, "PreFetchGetPayload")
+			childCtx, childSpan := s.tracer.Start(spanctx, "PreFetchGetPayload")
+			_, reqSpan := s.tracer.Start(childCtx, "PreFetchGetPayload-request")
 			out, err := client.PreFetchGetPayload(clientCtx, req)
+			reqSpan.End()
 			if exitSignal {
 				childSpan.End()
 				return
@@ -2954,8 +2956,8 @@ func (s *Service) prefetchPayload(
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 5 && !exitSignal; i++ {
-			_, childSpan := s.tracer.Start(spanctx, "PreFetchGetPayloadPlaceHTTPRequest")
-			out, err := s.PreFetchGetPayloadPlaceHTTPRequest(clientCtx, req, client.URL, client.NodeID)
+			reqCtx, childSpan := s.tracer.Start(spanctx, "PreFetchGetPayloadPlaceHTTPRequest")
+			out, err := s.PreFetchGetPayloadPlaceHTTPRequest(clientCtx, reqCtx, req, client.URL, client.NodeID)
 			if exitSignal {
 				childSpan.End()
 				return
@@ -3016,7 +3018,7 @@ func (s *Service) prefetchPayload(
 	errChan <- toErrorResp(http.StatusInternalServerError, "relay failed all attempts")
 }
 
-func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origReq *relaygrpc.PreFetchGetPayloadRequest, url string, nodeID string) (*relaygrpc.PreFetchGetPayloadResponse, error) {
+func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, reqCtx context.Context, origReq *relaygrpc.PreFetchGetPayloadRequest, url string, nodeID string) (*relaygrpc.PreFetchGetPayloadResponse, error) {
 	reqData := common.PreFetchGetPayloadRequestHTTP{
 		Slot:       origReq.GetSlot(),
 		ParentHash: origReq.GetParentHash(),
@@ -3025,7 +3027,9 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origRe
 		ClientIp:   origReq.GetClientIp(),
 		ReceivedAt: origReq.GetReceivedAt(),
 	}
+	_, marshalSpan := s.tracer.Start(reqCtx, "PreFetchGetPayloadPlaceHTTPRequest-marshal")
 	reqJSON, err := json.Marshal(reqData)
+	marshalSpan.End()
 	if err != nil {
 		return nil, err
 	}
@@ -3052,16 +3056,21 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, origRe
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}
+	_, requestSpan := s.tracer.Start(reqCtx, "PreFetchGetPayloadPlaceHTTPRequest-request")
 	resp, err := client.Do(req)
+	requestSpan.End()
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
+	_, unmarshalSpan := s.tracer.Start(reqCtx, "PreFetchGetPayloadPlaceHTTPRequest-unmarshal")
 	var respData common.PreFetchGetPayloadResponseHTTP
 	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil && err != io.EOF {
+		unmarshalSpan.End()
 		return nil, err
 	}
+	unmarshalSpan.End()
 	return &relaygrpc.PreFetchGetPayloadResponse{
 		Code:                      respData.Code,
 		Message:                   respData.Message,
