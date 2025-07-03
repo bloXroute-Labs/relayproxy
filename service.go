@@ -22,7 +22,6 @@ import (
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/ssz"
-	"github.com/flashbots/go-boost-utils/utils"
 	"github.com/google/uuid"
 	"github.com/patrickmn/go-cache"
 	"github.com/rs/zerolog"
@@ -89,7 +88,6 @@ type Service struct {
 	builderBidsForProxySlot        *cache.Cache
 	builderExistingBlockHash       *cache.Cache
 	getPayloadResponseForProxySlot *cache.Cache
-	pubKeysBySlots                 *cache.Cache
 	preFetchPayloadChan            chan preFetcherFields
 
 	beaconGenesisTime  int64
@@ -148,7 +146,6 @@ type preFetcherFields struct {
 func NewService(opts ...ServiceOption) *Service {
 
 	svc := &Service{
-		pubKeysBySlots:                cache.New(ExecutionPayloadCleanupInterval, ExecutionPayloadCleanupInterval),
 		preFetchPayloadChan:           make(chan preFetcherFields, preFetchPayloadChanBufSize),
 		slotStats:                     cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
 		slotStatsEvent:                cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
@@ -1087,7 +1084,6 @@ func (s *Service) prefetchPayloadGRPC(
 			s.logger.Error().Fields(logMetric.GetFields()).Interface("error", _err).Msg("PreFetchGetPayload :: Received error")
 		case out := <-respChan:
 			proxyCacheKey := common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey)
-			s.pubKeysBySlots.Set(fmt.Sprintf("%d", fields.slot), fields.proposerPubKey, cache.DefaultExpiration)
 
 			payloadResponse := &common.PayloadResponseForProxy{
 				MarshalledPayloadResponse: out.VersionedExecutionPayload,
@@ -1245,7 +1241,6 @@ func (s *Service) processGetPayloadV3Responses(
 
 			getPayloadResponse := common.VersionedSubmitBlindedBlockResponse{VersionedSubmitBlindedBlockResponse: *getPayloadResponseSpec}
 			proxyCacheKey := common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey)
-			s.pubKeysBySlots.Set(fmt.Sprintf("%d", fields.slot), fields.proposerPubKey, cache.DefaultExpiration)
 
 			payloadResponse := &common.PayloadResponseForProxy{
 				PayloadResponse: getPayloadResponse,
@@ -1343,29 +1338,19 @@ func (s *Service) validateAndFetchPayload(ctx context.Context, logMetric *LogMet
 	checkRequestTimingSpan.End(trace.WithTimestamp(time.Now()))
 
 	_, fetchProposerForSlotSpan := s.tracer.Start(ctx, "validateAndFetchPayload-fetchProposerForSlot")
-	proposerKey, ok := s.pubKeysBySlots.Get(fmt.Sprintf("%d", uint64(slot)))
-	if !ok {
+	miniSlotDuty, err := s.IDataService.GetSlotDuty(uint64(slot))
+	if err != nil || miniSlotDuty == nil {
 		logMetric.String("proxyError", fmt.Sprintf("slot %v not found in memory", slot))
 		return nil, toErrorResp(http.StatusBadRequest, fmt.Sprintf("slot %v not found in memory", slot), logMetric.GetFields())
 	}
-	pubKey, ok := proposerKey.(string)
-	if !ok {
-		s.logger.Error().Fields(logMetric.GetFields()).Msg("ERROR::validateAndFetchPayload: pubKeysBySlots error")
-		return nil, toErrorResp(http.StatusBadRequest, fmt.Sprintf("invalid pubkey %v stored in slot %v ", proposerKey, slot), logMetric.GetFields())
-	}
-	pub, err := utils.HexToPubkey(pubKey)
-	if err != nil {
-		s.logger.Error().Fields(logMetric.GetFields()).Msg("ERROR::validateAndFetchPayload: HexToPubkey(pubKey) error")
-		fetchProposerForSlotSpan.End(trace.WithTimestamp(time.Now()))
-		logMetric.String("proxyError", "invalid public key")
-		return nil, toErrorResp(http.StatusBadRequest, "invalid public key", logMetric.GetFields())
-	}
+	pub := miniSlotDuty.Registration.Message.Pubkey
+	pubkeyStr := pub.String()
 
 	fetchProposerForSlotSpan.End(trace.WithTimestamp(time.Now()))
-	logMetric.String("pubKey", pub.String())
+	logMetric.String("pubKey", pubkeyStr)
 
 	_, verifySignatureSpan := s.tracer.Start(ctx, "validateAndFetchPayload-verifySignature")
-	ok, err = fastjson.CheckProposerSignature(s.ethNetworkDetails, signedBlindedBeaconBlock, pub[:])
+	ok, err := fastjson.CheckProposerSignature(s.ethNetworkDetails, signedBlindedBeaconBlock, pub[:])
 	if !ok || err != nil {
 		verifySignatureSpan.End(trace.WithTimestamp(time.Now()))
 		if err != nil {
@@ -1377,7 +1362,7 @@ func (s *Service) validateAndFetchPayload(ctx context.Context, logMetric *LogMet
 	verifySignatureSpan.End(trace.WithTimestamp(time.Now()))
 
 	_, fetchPayloadFromCacheSpan := s.tracer.Start(ctx, "validateAndFetchPayload-fetchPayloadFromCache")
-	proxyCacheKey := common.GetKeyForCachingPayload(uint64(slot), parentHash.String(), blockHashString, pubKey)
+	proxyCacheKey := common.GetKeyForCachingPayload(uint64(slot), parentHash.String(), blockHashString, pubkeyStr)
 	defer fetchPayloadFromCacheSpan.End()
 
 	var payloadResponse *common.PayloadResponseForProxy
@@ -1398,7 +1383,7 @@ func (s *Service) validateAndFetchPayload(ctx context.Context, logMetric *LogMet
 		time.Sleep(50 * time.Millisecond)
 	}
 	if found {
-		versionedPayloadInfo, err := payloadResponse.BuildVersionedPayloadInfo(uint64(slot), parentHash.String(), blockHashString, pubKey)
+		versionedPayloadInfo, err := payloadResponse.BuildVersionedPayloadInfo(uint64(slot), parentHash.String(), blockHashString, pubkeyStr)
 		if err != nil {
 			logMetric.Error(err)
 			s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to build versioned payload info")
@@ -1413,7 +1398,7 @@ func (s *Service) validateAndFetchPayload(ctx context.Context, logMetric *LogMet
 		Slot:       uint64(slot),
 		ParentHash: parentHash.String(),
 		BlockHash:  blockHashString,
-		Pubkey:     pubKey,
+		Pubkey:     pubkeyStr,
 	}, toErrorResp(http.StatusOK, "pre fetch payload not available in cache after retries", logMetric.GetFields())
 
 }
