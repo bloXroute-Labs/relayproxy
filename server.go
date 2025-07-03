@@ -75,7 +75,7 @@ type Server struct {
 	AdminAccountID string
 
 	// Callback
-	OnPayloadDelivered func(slot uint64, blockHash string, parentHash string, proposerPubkey string, getPayloadRequestClientIP string) error
+	OnPayloadDelivered func(slot uint64, blockHash string, parentHash string, proposerPubkey string) error
 }
 
 type GetHeaderRateLimitInfo struct {
@@ -819,7 +819,6 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 			versionedPayloadInfo.GetBlockHash(),
 			versionedPayloadInfo.GetParentHash(),
 			versionedPayloadInfo.GetPubkey(),
-			clientIP,
 		); err != nil {
 			log.Error().Err(err).Msg("Failed to call OnPayloadDelivered callback")
 		}
