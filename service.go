@@ -1584,6 +1584,7 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 		attribute.String("reqID", id),
 		attribute.Int64("receivedAt", in.ReceivedAt.Unix()),
 	)
+	log.Info().Msg("added spans getPayloadTrusted")
 	logTimingSpan.End()
 
 	req := &relaygrpc.GetPayloadRequest{
