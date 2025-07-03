@@ -939,7 +939,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
-	_, span := s.tracer.Start(ctx, "preFetchGetPayload-start")
+	spanctx, span := s.tracer.Start(ctx, "preFetchGetPayload-start")
 	defer span.End()
 
 	if fields.client != nil {
@@ -981,15 +981,16 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 
 	// If necessary, fetch the Optimistic V3 payload directly from the specified builder URL(s)
 	if fields.payloadFetchUrl != "" {
-		s.prefetchPayloadFromBuilder(ctx, &fields, logMetric)
+		s.prefetchPayloadFromBuilder(ctx, spanctx, &fields, logMetric)
 		return
 	}
 
-	s.prefetchPayloadGRPC(ctx, &fields, logMetric, span, id, startTime)
+	s.prefetchPayloadGRPC(ctx, spanctx, &fields, logMetric, span, id, startTime)
 }
 
 func (s *Service) prefetchPayloadGRPC(
 	ctx context.Context,
+	spanctx context.Context,
 	fields *preFetcherFields,
 	logMetric *LogMetric,
 	span trace.Span,
@@ -1063,7 +1064,7 @@ func (s *Service) prefetchPayloadGRPC(
 			go func(client *common.ParentClient) {
 				defer wg.Done()
 				prefetchLogger := s.logger.With().Fields(logMetric.GetFields()).Logger()
-				s.prefetchPayload(ctx, client.SafeClient, req, span, errChan, respChan, prefetchLogger)
+				s.prefetchPayload(ctx, spanctx, client.SafeClient, req, span, errChan, respChan, prefetchLogger)
 			}(client)
 		}
 	}
@@ -1103,7 +1104,7 @@ func (s *Service) prefetchPayloadGRPC(
 	}
 }
 
-func (s *Service) prefetchPayloadFromBuilder(ctx context.Context, fields *preFetcherFields, logMetric *LogMetric) {
+func (s *Service) prefetchPayloadFromBuilder(ctx context.Context, spanCtx context.Context, fields *preFetcherFields, logMetric *LogMetric) {
 	_, span := s.tracer.Start(ctx, "prefetchPayloadFromBuilder")
 	var success atomic.Bool
 
@@ -2959,6 +2960,7 @@ func (s *Service) logRecord(record SlotStatsRecord, slotKey string, userAgent st
 
 func (s *Service) prefetchPayload(
 	ctx context.Context,
+	spanctx context.Context,
 	client *common.Client,
 	req *relaygrpc.PreFetchGetPayloadRequest,
 	span trace.Span,
@@ -2975,8 +2977,10 @@ func (s *Service) prefetchPayload(
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 5 && !exitSignal; i++ {
+			_, childSpan := s.tracer.Start(spanctx, "PreFetchGetPayload")
 			out, err := client.PreFetchGetPayload(clientCtx, req)
 			if exitSignal {
+				childSpan.End()
 				return
 			}
 			if err != nil {
@@ -2986,6 +2990,7 @@ func (s *Service) prefetchPayload(
 					Msg("prefetchPayload: error fetching payload")
 				span.SetStatus(otelcodes.Error, err.Error())
 				time.Sleep(100 * time.Millisecond)
+				childSpan.End()
 				continue
 			}
 
@@ -2995,6 +3000,7 @@ func (s *Service) prefetchPayload(
 					Msg("prefetchPayload: received nil payload from relay")
 				span.SetStatus(otelcodes.Error, "nil payload")
 				time.Sleep(100 * time.Millisecond)
+				childSpan.End()
 				continue
 			}
 
@@ -3006,6 +3012,7 @@ func (s *Service) prefetchPayload(
 					Msg("prefetchPayload: invalid payload or failure response code")
 				span.SetStatus(otelcodes.Error, out.Message)
 				time.Sleep(100 * time.Millisecond)
+				childSpan.End()
 				continue
 			}
 
@@ -3019,6 +3026,7 @@ func (s *Service) prefetchPayload(
 				cancel()
 			}
 			mu.Unlock()
+			childSpan.End()
 			return
 		}
 	}()
@@ -3027,8 +3035,10 @@ func (s *Service) prefetchPayload(
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 5 && !exitSignal; i++ {
+			_, childSpan := s.tracer.Start(spanctx, "PreFetchGetPayloadPlaceHTTPRequest")
 			out, err := s.PreFetchGetPayloadPlaceHTTPRequest(clientCtx, req, client.URL, client.NodeID)
 			if exitSignal {
+				childSpan.End()
 				return
 			}
 			if err != nil {
@@ -3038,6 +3048,7 @@ func (s *Service) prefetchPayload(
 					Msg("prefetchPayload: error fetching payload")
 				span.SetStatus(otelcodes.Error, err.Error())
 				time.Sleep(100 * time.Millisecond)
+				childSpan.End()
 				continue
 			}
 
@@ -3047,6 +3058,7 @@ func (s *Service) prefetchPayload(
 					Msg("prefetchPayload: received nil payload from relay")
 				span.SetStatus(otelcodes.Error, "nil payload")
 				time.Sleep(100 * time.Millisecond)
+				childSpan.End()
 				continue
 			}
 
@@ -3058,6 +3070,7 @@ func (s *Service) prefetchPayload(
 					Msg("prefetchPayload: invalid payload or failure response code")
 				span.SetStatus(otelcodes.Error, out.Message)
 				time.Sleep(100 * time.Millisecond)
+				childSpan.End()
 				continue
 			}
 
@@ -3071,6 +3084,7 @@ func (s *Service) prefetchPayload(
 				cancel()
 			}
 			mu.Unlock()
+			childSpan.End()
 			return
 		}
 	}()
