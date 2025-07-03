@@ -981,11 +981,11 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 
 	// If necessary, fetch the Optimistic V3 payload directly from the specified builder URL(s)
 	if fields.payloadFetchUrl != "" {
-		s.prefetchPayloadFromBuilder(ctx, spanctx, &fields, logMetric)
+		s.prefetchPayloadFromBuilder(ctx, spanctx, &fields, logMetric.Copy())
 		return
 	}
 
-	s.prefetchPayloadGRPC(ctx, spanctx, &fields, logMetric, span, id, startTime)
+	s.prefetchPayloadGRPC(ctx, spanctx, &fields, logMetric.Copy(), span, id, startTime)
 }
 
 func (s *Service) prefetchPayloadGRPC(
