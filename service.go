@@ -1459,13 +1459,24 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 			errChan <- ErrorRespWithPayload{err: toErrorResp(http.StatusBadRequest, "failed to get parent hash"), resp: nil}
 			return
 		}
-		parentSpan.SetAttributes(
-			attribute.Int64("slot", int64(slot)),
-			attribute.String("blockHash", blockHash.String()),
-			attribute.String("parentHash", parentHash.String()),
-		)
+		slotInt := int64(slot)
+		blockHashStr := blockHash.String()
+		parentHashStr := parentHash.String()
+		uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", slotInt, blockHashStr, parentHashStr)
 
-		log.Info().Str("version", blindedBeaconBlock.Version.String()).Msg("validateAndFetchPayload prefetching payload")
+		parentSpan.SetAttributes(
+			attribute.Int64("slot", slotInt),
+			attribute.String("blockHash", blockHashStr),
+			attribute.String("parentHash", parentHashStr),
+			attribute.String("uniqueKey", uKey),
+		)
+		*log = log.With().
+			Int64("slot", slotInt).
+			Str("blockHash", blockHashStr).
+			Str("parentHash", parentHashStr).
+			Str("uniqueKey", uKey).
+			Logger()
+
 		payloadInfo, errRes := s.validateAndFetchPayload(ctx, blindedBeaconBlock)
 
 		if errRes != nil {
@@ -1675,12 +1686,23 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 	if err != nil {
 		return nil, toErrorResp(http.StatusBadRequest, "failed to get parent hash")
 	}
+	slotInt := int64(slot)
+	blockHashStr := blockHash.String()
+	parentHashStr := parentHash.String()
+	uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", slotInt, blockHashStr, parentHashStr)
 
 	parentSpan.SetAttributes(
-		attribute.Int64("slot", int64(slot)),
-		attribute.String("blockHash", blockHash.String()),
-		attribute.String("parentHash", parentHash.String()),
+		attribute.Int64("slot", slotInt),
+		attribute.String("blockHash", blockHashStr),
+		attribute.String("parentHash", parentHashStr),
+		attribute.String("uniqueKey", uKey),
 	)
+	*log = log.With().
+		Int64("slot", slotInt).
+		Str("blockHash", blockHashStr).
+		Str("parentHash", parentHashStr).
+		Str("uniqueKey", uKey).
+		Logger()
 
 	payloadInfo, errRes := s.validateAndFetchPayload(ctx, blindedBeaconBlock)
 	if errRes != nil {
@@ -1696,27 +1718,18 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 
 	go s.sendPayloadStats(in.Payload, log, true, payloadInfo, in.ReceivedAt, startTime, slotStartTime, msIntoSlot, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
 
-	uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", payloadInfo.Slot, payloadInfo.BlockHash, payloadInfo.ParentHash)
 	*log = log.With().
 		Dur("duration", duration).
-		Int64("slot", int64(payloadInfo.Slot)).
 		Int64("slotStartTime", slotStartTime.UnixMilli()).
 		Int64("msIntoSlot", msIntoSlot).
-		Str("parentHash", payloadInfo.ParentHash).
-		Str("blockHash", payloadInfo.BlockHash).
 		Str("blockValue", payloadInfo.BlockValue).
-		Str("uniqueKey", uKey).
 		Logger()
 
 	parentSpan.SetAttributes(
 		attribute.String("duration", duration.String()),
-		attribute.String("slot", fmt.Sprintf("%v", payloadInfo.Slot)),
 		attribute.Int64("slotStartTime", slotStartTime.UnixMilli()),
 		attribute.Int64("msIntoSlot", msIntoSlot),
-		attribute.String("parentHash", payloadInfo.ParentHash),
-		attribute.String("blockHash", payloadInfo.BlockHash),
 		attribute.String("blockValue", payloadInfo.BlockValue),
-		attribute.String("uniqueKey", uKey),
 	)
 
 	// publish block to gateway
