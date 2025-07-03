@@ -2898,6 +2898,10 @@ func (s *Service) prefetchPayload(
 		for i := 0; i < 5 && !exitSignal; i++ {
 			childCtx, childSpan := s.tracer.Start(spanctx, "PreFetchGetPayload")
 			_, reqSpan := s.tracer.Start(childCtx, "PreFetchGetPayload-request")
+			childSpan.SetAttributes(
+				attribute.String("url", client.URL),
+				attribute.String("nodeID", client.NodeID),
+			)
 			out, err := client.PreFetchGetPayload(clientCtx, req)
 			reqSpan.End()
 			if exitSignal {
@@ -2957,6 +2961,10 @@ func (s *Service) prefetchPayload(
 		defer wg.Done()
 		for i := 0; i < 5 && !exitSignal; i++ {
 			reqCtx, childSpan := s.tracer.Start(spanctx, "PreFetchGetPayloadPlaceHTTPRequest")
+			childSpan.SetAttributes(
+				attribute.String("url", client.URL),
+				attribute.String("nodeID", client.NodeID),
+			)
 			out, err := s.PreFetchGetPayloadPlaceHTTPRequest(clientCtx, reqCtx, req, client.URL, client.NodeID)
 			if exitSignal {
 				childSpan.End()
