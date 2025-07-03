@@ -721,7 +721,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 	msIntoSlotIncludingDelay := time.Since(slotStartTime).Milliseconds()
 	msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds() // without sleep and using received at
 	*log = log.With().
-		Int64("msTntoSlot", msIntoSlot).
+		Int64("msIntoSlot", msIntoSlot).
 		Int64("msIntoSlotIncludingDelay", msIntoSlotIncludingDelay).
 		Logger()
 
