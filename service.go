@@ -1348,10 +1348,6 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
 
-	aKey := s.authKey
-	if in.AuthHeader != "" {
-		aKey = in.AuthHeader
-	}
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
 
 	ctx, span := s.tracer.Start(ctx, "getPayload-start")
