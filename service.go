@@ -1595,20 +1595,7 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 		ReceivedAt:  timestamppb.New(in.ReceivedAt),
 		SecretToken: s.secretToken,
 	}
-	for _, client := range s.clients {
-		go func(c *common.ParentClient) {
-			_, err := s.getPayloadWithRetry(ctx, c.SafeClient, span, req, maxGetPayloadRetry)
-			if err != nil {
-				log.Error().Err(err).Msg("getPayloadWithRetry")
-				return
-			}
-			log.Info().Msg("getPayloadWithRetry success")
-		}(client)
-	}
 	timeToRelayRequestSpan.End()
-
-	_, payloadResponseSpan := s.tracer.Start(ctx, "getPayload-fastPath")
-	defer payloadResponseSpan.End()
 
 	blindedBeaconBlock, errRes := s.prefetchPayloadToSignedBlindedBeaconBlock(ctx, in.Payload)
 	if errRes != nil {
@@ -1617,72 +1604,61 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 		return nil, errRes
 	}
 
-	slot, err := blindedBeaconBlock.Slot()
-	if err != nil {
-		return nil, toErrorResp(http.StatusBadRequest, "failed to get slot")
-	}
-	blockHash, err := blindedBeaconBlock.ExecutionBlockHash()
-	if err != nil {
-		return nil, toErrorResp(http.StatusBadRequest, "failed to get block hash")
-	}
-	parentHash, err := blindedBeaconBlock.ExecutionParentHash()
-	if err != nil {
-		return nil, toErrorResp(http.StatusBadRequest, "failed to get parent hash")
-	}
-	slotInt := int64(slot)
-	blockHashStr := blockHash.String()
-	parentHashStr := parentHash.String()
-	uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", slotInt, blockHashStr, parentHashStr)
+	payloadInfoChan := make(chan *common.VersionedPayloadInfo, 1)
 
-	parentSpan.SetAttributes(
-		attribute.Int64("slot", slotInt),
-		attribute.String("blockHash", blockHashStr),
-		attribute.String("parentHash", parentHashStr),
-		attribute.String("uniqueKey", uKey),
-	)
-	*log = log.With().
-		Int64("slot", slotInt).
-		Str("blockHash", blockHashStr).
-		Str("parentHash", parentHashStr).
-		Str("uniqueKey", uKey).
-		Logger()
-
-	payloadInfo, errRes := s.validateAndFetchPayload(ctx, blindedBeaconBlock)
-	if errRes != nil {
-		// TODO: wait for relay response
-		go s.sendPayloadStats(in.Payload, log, false, payloadInfo, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
-		return nil, errRes
-	}
-
-	// return immediately
-	slotStartTime := GetSlotStartTime(s.beaconGenesisTime, int64(payloadInfo.Slot), s.secondsPerSlot)
-	msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds()
-	duration := time.Since(startTime)
-
-	go s.sendPayloadStats(in.Payload, log, true, payloadInfo, in.ReceivedAt, startTime, slotStartTime, msIntoSlot, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
-
-	*log = log.With().
-		Dur("duration", duration).
-		Int64("slotStartTime", slotStartTime.UnixMilli()).
-		Int64("msIntoSlot", msIntoSlot).
-		Str("blockValue", payloadInfo.BlockValue).
-		Logger()
-
-	parentSpan.SetAttributes(
-		attribute.String("duration", duration.String()),
-		attribute.Int64("slotStartTime", slotStartTime.UnixMilli()),
-		attribute.Int64("msIntoSlot", msIntoSlot),
-		attribute.String("blockValue", payloadInfo.BlockValue),
-	)
-
-	// publish block to gateway
-	go func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, client interface{}, authKey string) {
-		if s.blockPublishFunc != nil {
-			s.blockPublishFunc(tracer, logger, payloadInfo, signedBeaconBlock, client, authKey)
+	// Start validateAndFetchPayload
+	go func() {
+		payloadInfo, err := s.validateAndFetchPayload(ctx, blindedBeaconBlock)
+		if err == nil {
+			select {
+			case payloadInfoChan <- payloadInfo:
+			default:
+			}
 		}
-	}(s.tracer, s.logger, payloadInfo, blindedBeaconBlock, s.blockPublishingGatewayClient, s.gatewayAuthKey)
+	}()
 
-	return payloadInfo, nil
+	// Send getPayloadWithRetry requests to all clients
+	for _, client := range s.clients {
+		go func(c *common.ParentClient) {
+			resp, err := s.getPayloadWithRetry(ctx, c.SafeClient, span, req, maxGetPayloadRetry)
+			if err == nil && resp != nil {
+				select {
+				case payloadInfoChan <- resp:
+				default:
+				}
+			}
+		}(client)
+	}
+
+	select {
+	case payloadInfo := <-payloadInfoChan:
+		slotStartTime := GetSlotStartTime(s.beaconGenesisTime, int64(payloadInfo.Slot), s.secondsPerSlot)
+		msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds()
+		duration := time.Since(startTime)
+		go s.sendPayloadStats(in.Payload, log, true, payloadInfo, in.ReceivedAt, startTime, slotStartTime, msIntoSlot, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
+		*log = log.With().
+			Dur("duration", duration).
+			Int64("slotStartTime", slotStartTime.UnixMilli()).
+			Int64("msIntoSlot", msIntoSlot).
+			Str("blockValue", payloadInfo.BlockValue).
+			Logger()
+		parentSpan.SetAttributes(
+			attribute.String("duration", duration.String()),
+			attribute.Int64("slotStartTime", slotStartTime.UnixMilli()),
+			attribute.Int64("msIntoSlot", msIntoSlot),
+			attribute.String("blockValue", payloadInfo.BlockValue),
+		)
+		go func() {
+			if s.blockPublishFunc != nil {
+				s.blockPublishFunc(s.tracer, s.logger, payloadInfo, blindedBeaconBlock, s.blockPublishingGatewayClient, s.gatewayAuthKey)
+			}
+		}()
+		return payloadInfo, nil
+	case <-time.After(1 * time.Second):
+	}
+	log.Error().Msg("timeout waiting for payload response")
+	go s.sendPayloadStats(in.Payload, log, false, nil, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
+	return nil, toErrorResp(http.StatusOK, "pre fetch payload not available in cache after retries")
 }
 
 type ErrorRespWithPayload struct {
