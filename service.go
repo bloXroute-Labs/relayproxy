@@ -539,25 +539,25 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 
 		s.logger.Debug().Fields(lm.GetFields()).Msg("received header")
 
-		_ = HeaderStreamReceivedRecord{
-			RelayReceivedAt:   header.GetRelayReceiveTime().AsTime(),
-			ReceivedAt:        receivedAt,
-			SentAt:            header.GetSendTime().AsTime(),
-			StreamLatencyInMS: latency,
-			Slot:              int64(header.GetSlot()),
-			ParentHash:        header.GetParentHash(),
-			PubKey:            header.GetPubkey(),
-			BlockHash:         header.GetBlockHash(),
-			BlockValue:        weiToEther(new(big.Int).SetBytes(header.GetValue())),
-			BuilderPubKey:     header.GetBuilderPubkey(),
-			BuilderExtraData:  header.GetBuilderExtraData(),
-			PaidBLXR:          header.GetPaidBlxr(),
-			ClientIP:          GetHost(client.URL),
-			NodeID:            s.nodeID,
-			AccountID:         header.GetAccountId(),
-			Method:            method,
-			PayloadFetchUrl:   header.GetPayloadFetchUrl(),
-		}
+		//_ = HeaderStreamReceivedRecord{
+		//	RelayReceivedAt:   header.GetRelayReceiveTime().AsTime(),
+		//	ReceivedAt:        receivedAt,
+		//	SentAt:            header.GetSendTime().AsTime(),
+		//	StreamLatencyInMS: latency,
+		//	Slot:              int64(header.GetSlot()),
+		//	ParentHash:        header.GetParentHash(),
+		//	PubKey:            header.GetPubkey(),
+		//	BlockHash:         header.GetBlockHash(),
+		//	BlockValue:        weiToEther(new(big.Int).SetBytes(header.GetValue())),
+		//	BuilderPubKey:     header.GetBuilderPubkey(),
+		//	BuilderExtraData:  header.GetBuilderExtraData(),
+		//	PaidBLXR:          header.GetPaidBlxr(),
+		//	ClientIP:          GetHost(client.URL),
+		//	NodeID:            s.nodeID,
+		//	AccountID:         header.GetAccountId(),
+		//	Method:            method,
+		//	PayloadFetchUrl:   header.GetPayloadFetchUrl(),
+		//}
 
 		//go func(streamCopy HeaderStreamReceivedRecord) {
 		//	s.fluentD.LogToFluentD(fluentstats.Record{
@@ -2470,32 +2470,32 @@ func (s *Service) handleStreamBlockResponse(
 	s.setBuilderBidForProxySlot(k, block.GetBuilderPubkey(), bid, block.GetSlot())
 	storeBidsSpan.End(trace.WithTimestamp(time.Now()))
 
-	go func() {
-		headerStream := HeaderStreamReceivedRecord{
-			RelayReceivedAt:   block.GetRelayReceiveTime().AsTime(),
-			ReceivedAt:        receivedAt,
-			SentAt:            block.GetSendTime().AsTime(),
-			StreamLatencyInMS: latency,
-			Slot:              int64(block.GetSlot()),
-			ParentHash:        block.GetParentHash(),
-			PubKey:            block.GetPubkey(),
-			BlockHash:         block.GetBlockHash(),
-			BlockValue:        weiToEther(new(big.Int).SetBytes(block.GetValue())),
-			BuilderPubKey:     block.GetBuilderPubkey(),
-			BuilderExtraData:  extraData,
-			PaidBLXR:          block.GetPaidBlxr(),
-			ClientIP:          clientIP,
-			NodeID:            s.nodeID,
-			AccountID:         block.GetAccountId(),
-			Method:            method + "-" + payloadType,
-			PayloadFetchUrl:   "",
-		}
-		s.fluentD.LogToFluentD(fluentstats.Record{
-			//UniqueKey: "block_hash__node_id",
-			Type: TypeRelayProxyHeaderStreamReceived,
-			Data: headerStream,
-		}, time.Now().UTC(), s.nodeID, StatsRelayProxyHeaderStreamReceived)
-	}()
+	//go func() {
+	//	headerStream := HeaderStreamReceivedRecord{
+	//		RelayReceivedAt:   block.GetRelayReceiveTime().AsTime(),
+	//		ReceivedAt:        receivedAt,
+	//		SentAt:            block.GetSendTime().AsTime(),
+	//		StreamLatencyInMS: latency,
+	//		Slot:              int64(block.GetSlot()),
+	//		ParentHash:        block.GetParentHash(),
+	//		PubKey:            block.GetPubkey(),
+	//		BlockHash:         block.GetBlockHash(),
+	//		BlockValue:        weiToEther(new(big.Int).SetBytes(block.GetValue())),
+	//		BuilderPubKey:     block.GetBuilderPubkey(),
+	//		BuilderExtraData:  extraData,
+	//		PaidBLXR:          block.GetPaidBlxr(),
+	//		ClientIP:          clientIP,
+	//		NodeID:            s.nodeID,
+	//		AccountID:         block.GetAccountId(),
+	//		Method:            method + "-" + payloadType,
+	//		PayloadFetchUrl:   "",
+	//	}
+	//	s.fluentD.LogToFluentD(fluentstats.Record{
+	//		//UniqueKey: "block_hash__node_id",
+	//		Type: TypeRelayProxyHeaderStreamReceived,
+	//		Data: headerStream,
+	//	}, time.Now().UTC(), s.nodeID, StatsRelayProxyHeaderStreamReceived)
+	//}()
 }
 
 func (s *Service) logBlockReceivedStream(block *relaygrpc.StreamBlockResponse, receivedAt time.Time, latency int64, clientIP string, method string, payloadType string, processLatency int64, diff int64, handleLatency int64, payloadSize int64, extraData string) {
