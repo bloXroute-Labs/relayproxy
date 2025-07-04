@@ -1397,11 +1397,6 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		Logger()
 
 	log.Info().Msg("received getPayload")
-	parentSpan.SetAttributes(
-		attribute.String("method", getPayload),
-		attribute.String("reqID", id),
-		attribute.Int64("receivedAt", in.ReceivedAt.Unix()),
-	)
 	logTimingSpan.End()
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -1515,22 +1510,22 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 
 		case resp := <-respChan:
 			//cancel() // Cancel other goroutines on success
-			slotStartTime := GetSlotStartTime(s.beaconGenesisTime, int64(resp.Slot), s.secondsPerSlot)
+			slotStartTime := GetSlotStartTime(s.beaconGenesisTime, int64(resp.GetSlot()), s.secondsPerSlot)
 			msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds()
 			duration := time.Since(startTime)
 
 			go s.sendPayloadStats(in.Payload, log, true, resp, in.ReceivedAt, startTime, slotStartTime, msIntoSlot, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
 
-			uKey = fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", resp.Slot, resp.BlockHash, resp.ParentHash)
+			uKey = fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", resp.GetSlot(), resp.GetBlockHash(), resp.GetParentHash())
 			blockValueStr = resp.BlockValue
 			*log = log.With().
 				Dur("duration", duration).
-				Int64("slot", int64(resp.Slot)).
+				Int64("slot", int64(resp.GetSlot())).
 				Int64("slotStartTime", slotStartTime.UnixMilli()).
 				Int64("msIntoSlot", msIntoSlot).
-				Str("parentHash", resp.ParentHash).
-				Str("blockHash", resp.BlockHash).
-				Str("blockValue", resp.BlockValue).
+				Str("parentHash", resp.GetParentHash()).
+				Str("blockHash", resp.GetBlockHash()).
+				Str("blockValue", resp.GetBlockValue()).
 				Str("uniqueKey", uKey).
 				Logger()
 			payloadResponseSpan.End()
