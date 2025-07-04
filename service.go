@@ -521,7 +521,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 				"source":     source,
 			})
 
-			s.logger.Warn().Fields(lm.GetFields()).Msg("block hash already exist")
+			s.logger.Debug().Fields(lm.GetFields()).Msg("block hash already exist")
 			continue
 		}
 		// update block hash map if not seen already
@@ -537,9 +537,9 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			"streamLatencyInMs": time.Since(header.GetSendTime().AsTime()).Milliseconds(),
 		})
 
-		s.logger.Info().Fields(lm.GetFields()).Msg("received header")
+		s.logger.Debug().Fields(lm.GetFields()).Msg("received header")
 
-		headerStream := HeaderStreamReceivedRecord{
+		_ = HeaderStreamReceivedRecord{
 			RelayReceivedAt:   header.GetRelayReceiveTime().AsTime(),
 			ReceivedAt:        receivedAt,
 			SentAt:            header.GetSendTime().AsTime(),
@@ -559,12 +559,12 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			PayloadFetchUrl:   header.GetPayloadFetchUrl(),
 		}
 
-		go func(streamCopy HeaderStreamReceivedRecord) {
-			s.fluentD.LogToFluentD(fluentstats.Record{
-				Type: TypeRelayProxyHeaderStreamReceived,
-				Data: streamCopy,
-			}, time.Now().UTC(), s.nodeID, StatsRelayProxyHeaderStreamReceived)
-		}(headerStream)
+		//go func(streamCopy HeaderStreamReceivedRecord) {
+		//	s.fluentD.LogToFluentD(fluentstats.Record{
+		//		Type: TypeRelayProxyHeaderStreamReceived,
+		//		Data: streamCopy,
+		//	}, time.Now().UTC(), s.nodeID, StatsRelayProxyHeaderStreamReceived)
+		//}(headerStream)
 
 		// Store the bid for builder pubkey
 		_, storeBidsSpan := s.tracer.Start(streamReceiveCtx, "StreamHeader-storeBids")
