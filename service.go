@@ -1683,6 +1683,11 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 
 	select {
 	case payloadInfo := <-payloadInfoChan:
+		go func() {
+			if s.blockPublishFunc != nil {
+				s.blockPublishFunc(s.tracer, s.logger, payloadInfo, blindedBeaconBlock, s.blockPublishingGatewayClient, s.gatewayAuthKey)
+			}
+		}()
 		slotStartTime := GetSlotStartTime(s.beaconGenesisTime, int64(payloadInfo.Slot), s.secondsPerSlot)
 		msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds()
 		duration := time.Since(startTime)
@@ -1695,11 +1700,7 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 			Int64("msIntoSlot", msIntoSlot).
 			Str("blockValue", blockValueStr).
 			Logger()
-		go func() {
-			if s.blockPublishFunc != nil {
-				s.blockPublishFunc(s.tracer, s.logger, payloadInfo, blindedBeaconBlock, s.blockPublishingGatewayClient, s.gatewayAuthKey)
-			}
-		}()
+
 		return payloadInfo, nil
 	case <-time.After(1500 * time.Millisecond):
 	}
