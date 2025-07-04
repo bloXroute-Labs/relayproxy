@@ -1313,7 +1313,7 @@ func (s *Service) validateAndFetchPayload(ctx context.Context, signedBlindedBeac
 	var payloadResponse *common.PayloadResponseForProxy
 	var found bool
 
-	for i := 0; i < 20; i++ { // try for 1s with 50ms interval
+	for i := 0; i < 30; i++ { // try for 1.5s with 50ms interval
 		if val, ok := s.getPayloadResponseForProxySlot.Get(proxyCacheKey); ok {
 			casted, castOk := val.(*common.PayloadResponseForProxy)
 			if castOk {
@@ -1652,7 +1652,7 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 		defer childSpan.End()
 
 		payloadInfo, err := s.validateAndFetchPayload(ctx, blindedBeaconBlock)
-		if payloadInfo != nil {
+		if err == nil && payloadInfo != nil {
 			select {
 			case payloadInfoChan <- payloadInfo:
 			default:
@@ -1701,7 +1701,7 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 			}
 		}()
 		return payloadInfo, nil
-	case <-time.After(1 * time.Second):
+	case <-time.After(1500 * time.Millisecond):
 	}
 	log.Error().Msg("timeout waiting for payload response")
 	go s.sendPayloadStats(in.Payload, log, false, nil, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
