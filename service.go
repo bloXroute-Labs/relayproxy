@@ -908,13 +908,27 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
 	spanctx, span := s.tracer.Start(ctx, "preFetchGetPayload-start")
-	defer span.End()
+	uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", fields.slot, fields.blockHash, fields.parentHash)
+	defer func() {
+		span.SetAttributes(
+			attribute.String("method", preFetchPayload),
+			attribute.String("clientIP", fields.clientIP),
+			attribute.String("clientURL", clientURL),
+			attribute.String("reqID", id),
+			attribute.Int64("receivedAt", startTime.Unix()),
+			attribute.String("traceID", parentSpan.SpanContext().TraceID().String()),
+			attribute.String("authHeader", fields.authHeader),
+			attribute.String("secretToken", s.secretToken),
+			attribute.String("uKey", uKey),
+			attribute.Int64("slot", int64(fields.slot)),
+			attribute.String("blockHash", fields.blockHash),
+		)
+		span.End()
+	}()
 
 	if fields.client != nil {
 		clientURL = fields.client.SafeClient.URL
 	}
-
-	uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", fields.slot, fields.blockHash, fields.parentHash)
 
 	logMetric := NewLogMetric(
 		map[string]any{
@@ -933,19 +947,6 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	)
 
 	s.logger.Info().Fields(logMetric.GetFields()).Msg("received preFetchGetPayload")
-	span.SetAttributes(
-		attribute.String("method", preFetchPayload),
-		attribute.String("clientIP", fields.clientIP),
-		attribute.String("clientURL", clientURL),
-		attribute.String("reqID", id),
-		attribute.Int64("receivedAt", startTime.Unix()),
-		attribute.String("traceID", parentSpan.SpanContext().TraceID().String()),
-		attribute.String("authHeader", fields.authHeader),
-		attribute.String("secretToken", s.secretToken),
-		attribute.String("uKey", uKey),
-		attribute.Int64("slot", int64(fields.slot)),
-		attribute.String("blockHash", fields.blockHash),
-	)
 
 	// If necessary, fetch the Optimistic V3 payload directly from the specified builder URL(s)
 	if fields.payloadFetchUrl != "" {
@@ -1123,15 +1124,16 @@ func (s *Service) clientPreFetchGetPayloadHTTP(
 	payloadUrls []string,
 ) bool {
 	_, fetchSpan := s.tracer.Start(ctx, "clientPreFetchGetPayloadHTTP")
-	defer fetchSpan.End()
-
-	fetchSpan.SetAttributes(
-		attribute.Int64("slot", int64(fields.slot)),
-		attribute.String("blockHash", fields.blockHash),
-		attribute.String("parentHash", fields.parentHash),
-		attribute.String("proposerPubkey", fields.proposerPubKey),
-		attribute.String("builderPubkey", fields.builderPubKey),
-	)
+	defer func() {
+		fetchSpan.SetAttributes(
+			attribute.Int64("slot", int64(fields.slot)),
+			attribute.String("blockHash", fields.blockHash),
+			attribute.String("parentHash", fields.parentHash),
+			attribute.String("proposerPubkey", fields.proposerPubKey),
+			attribute.String("builderPubkey", fields.builderPubKey),
+		)
+		fetchSpan.End()
+	}()
 
 	payload, err := s.prepareGetPayloadV3Request(fields.blockHash)
 	if err != nil {
@@ -1351,7 +1353,26 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
 
 	ctx, span := s.tracer.Start(ctx, "getPayload-start")
-	defer span.End()
+	var (
+		slotInt       int64
+		blockHashStr  string
+		parentHashStr string
+		uKey          string
+	)
+	defer func() {
+		_, logTimingSpan := s.tracer.Start(ctx, "getPayload-logTimingSpan")
+		parentSpan.SetAttributes(
+			attribute.String("method", getPayload),
+			attribute.String("reqID", id),
+			attribute.Int64("receivedAt", in.ReceivedAt.Unix()),
+			attribute.Int64("slot", slotInt),
+			attribute.String("blockHash", blockHashStr),
+			attribute.String("parentHash", parentHashStr),
+			attribute.String("uniqueKey", uKey),
+		)
+		logTimingSpan.End()
+		span.End()
+	}()
 
 	_, timeToRelayRequestSpan := s.tracer.Start(ctx, "getPayload-TimeToRelayRequest")
 
@@ -1365,8 +1386,6 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		}
 	}
 
-	_, logTimingSpan := s.tracer.Start(ctx, "getPayload-logTimingSpan")
-
 	*log = log.With().
 		Str("method", getPayload).
 		Str("receivedAt", in.ReceivedAt.String()).
@@ -1375,12 +1394,6 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		Logger()
 
 	log.Info().Msg("received getPayload")
-	parentSpan.SetAttributes(
-		attribute.String("method", getPayload),
-		attribute.String("reqID", id),
-		attribute.Int64("receivedAt", in.ReceivedAt.Unix()),
-	)
-	logTimingSpan.End()
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -1421,17 +1434,11 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 			errChan <- ErrorRespWithPayload{err: toErrorResp(http.StatusBadRequest, "failed to get parent hash"), resp: nil}
 			return
 		}
-		slotInt := int64(slot)
-		blockHashStr := blockHash.String()
-		parentHashStr := parentHash.String()
-		uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", slotInt, blockHashStr, parentHashStr)
+		slotInt = int64(slot)
+		blockHashStr = blockHash.String()
+		parentHashStr = parentHash.String()
+		uKey = fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", slotInt, blockHashStr, parentHashStr)
 
-		parentSpan.SetAttributes(
-			attribute.Int64("slot", slotInt),
-			attribute.String("blockHash", blockHashStr),
-			attribute.String("parentHash", parentHashStr),
-			attribute.String("uniqueKey", uKey),
-		)
 		*log = log.With().
 			Int64("slot", slotInt).
 			Str("blockHash", blockHashStr).
@@ -1558,7 +1565,27 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", authKey)
 
 	ctx, span := s.tracer.Start(ctx, "getPayload-start")
-	defer span.End()
+	var (
+		slotInt       int64
+		blockHashStr  string
+		parentHashStr string
+		uKey          string
+	)
+	defer func() {
+		_, logTimingSpan := s.tracer.Start(ctx, "getPayload-logTimingSpan")
+		parentSpan.SetAttributes(
+			attribute.String("method", getPayload),
+			attribute.String("reqID", id),
+			attribute.Int64("receivedAt", in.ReceivedAt.Unix()),
+			attribute.Int64("slot", slotInt),
+			attribute.String("blockHash", blockHashStr),
+			attribute.String("parentHash", parentHashStr),
+			attribute.String("uniqueKey", uKey),
+		)
+		log.Info().Msg("added spans getPayloadTrusted")
+		logTimingSpan.End()
+		span.End()
+	}()
 
 	_, timeToRelayRequestSpan := s.tracer.Start(ctx, "getPayload-TimeToRelayRequest")
 
@@ -1571,7 +1598,6 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 		}
 	}
 
-	_, logTimingSpan := s.tracer.Start(ctx, "getPayload-logTimingSpan")
 	*log = log.With().
 		Str("method", getPayloadTrusted).
 		Time("receivedAt", in.ReceivedAt).
@@ -1579,13 +1605,6 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 		Bool("isAuthHeaderProvided", in.AuthHeader != "").
 		Logger()
 	log.Info().Msg("received getPayloadTrusted")
-	parentSpan.SetAttributes(
-		attribute.String("method", getPayload),
-		attribute.String("reqID", id),
-		attribute.Int64("receivedAt", in.ReceivedAt.Unix()),
-	)
-	log.Info().Msg("added spans getPayloadTrusted")
-	logTimingSpan.End()
 
 	req := &relaygrpc.GetPayloadRequest{
 		ReqId:       id,
@@ -1629,17 +1648,11 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 	if err != nil {
 		return nil, toErrorResp(http.StatusBadRequest, "failed to get parent hash")
 	}
-	slotInt := int64(slot)
-	blockHashStr := blockHash.String()
-	parentHashStr := parentHash.String()
-	uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", slotInt, blockHashStr, parentHashStr)
+	slotInt = int64(slot)
+	blockHashStr = blockHash.String()
+	parentHashStr = parentHash.String()
+	uKey = fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", slotInt, blockHashStr, parentHashStr)
 
-	parentSpan.SetAttributes(
-		attribute.Int64("slot", slotInt),
-		attribute.String("blockHash", blockHashStr),
-		attribute.String("parentHash", parentHashStr),
-		attribute.String("uniqueKey", uKey),
-	)
 	*log = log.With().
 		Int64("slot", slotInt).
 		Str("blockHash", blockHashStr).
@@ -1668,19 +1681,18 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 		Str("blockValue", payloadInfo.BlockValue).
 		Logger()
 
-	parentSpan.SetAttributes(
-		attribute.String("duration", duration.String()),
-		attribute.Int64("slotStartTime", slotStartTime.UnixMilli()),
-		attribute.Int64("msIntoSlot", msIntoSlot),
-		attribute.String("blockValue", payloadInfo.BlockValue),
-	)
-
 	// publish block to gateway
 	go func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, client interface{}, authKey string) {
 		if s.blockPublishFunc != nil {
 			s.blockPublishFunc(tracer, logger, payloadInfo, signedBeaconBlock, client, authKey)
 		}
 	}(s.tracer, s.logger, payloadInfo, blindedBeaconBlock, s.blockPublishingGatewayClient, s.gatewayAuthKey)
+	parentSpan.SetAttributes(
+		attribute.String("duration", duration.String()),
+		attribute.Int64("slotStartTime", slotStartTime.UnixMilli()),
+		attribute.Int64("msIntoSlot", msIntoSlot),
+		attribute.String("blockValue", payloadInfo.BlockValue),
+	)
 
 	return payloadInfo, nil
 }
