@@ -1597,37 +1597,50 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 	}
 	timeToRelayRequestSpan.End()
 
+	_, prefetchPayloadToSignedBlindedBeaconBlockSpan := s.tracer.Start(ctx, "getPayload-prefetchPayloadToSignedBlindedBeaconBlockSpan")
 	blindedBeaconBlock, errRes := s.prefetchPayloadToSignedBlindedBeaconBlock(ctx, in.Payload)
 	if errRes != nil {
 		log.Error().Err(errRes).Msg("prefetchPayloadToSignedBlindedBeaconBlock failed")
 		go s.sendPayloadStats(in.Payload, log, false, nil, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
 		return nil, errRes
 	}
+	prefetchPayloadToSignedBlindedBeaconBlockSpan.End()
 
 	payloadInfoChan := make(chan *common.VersionedPayloadInfo, 1)
 
-	// Start validateAndFetchPayload
-	go func() {
+	// validate and  fetch payload from cache
+	go func(ctx context.Context, l zerolog.Logger, parent trace.Span) {
+		ctx, childSpan := s.tracer.Start(ctx, "validateAndFetchPayload")
+		defer childSpan.End()
+
 		payloadInfo, err := s.validateAndFetchPayload(ctx, blindedBeaconBlock)
-		if err == nil {
+		if payloadInfo != nil {
 			select {
 			case payloadInfoChan <- payloadInfo:
 			default:
 			}
+			if err != nil {
+				l.Warn().Err(err).Msg("validateAndFetchPayload returned payload with partial error")
+			}
+		} else {
+			l.Warn().Err(err).Msg("validateAndFetchPayload returned no payload")
 		}
-	}()
+	}(ctx, *log, parentSpan)
 
-	// Send getPayloadWithRetry requests to all clients
+	// fetch payload relay
 	for _, client := range s.clients {
-		go func(c *common.ParentClient) {
-			resp, err := s.getPayloadWithRetry(ctx, c.SafeClient, span, req, maxGetPayloadRetry)
+		go func(c *common.ParentClient, parent trace.Span) {
+			ctx, childSpan := s.tracer.Start(ctx, "getPayloadWithRetry")
+			defer childSpan.End()
+
+			resp, err := s.getPayloadWithRetry(ctx, c.SafeClient, childSpan, req, maxGetPayloadRetry)
 			if err == nil && resp != nil {
 				select {
 				case payloadInfoChan <- resp:
 				default:
 				}
 			}
-		}(client)
+		}(client, parentSpan)
 	}
 
 	select {
