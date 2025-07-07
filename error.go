@@ -1,9 +1,8 @@
 package relayproxy
 
 type ErrorResp struct {
-	Code    int            `json:"code"`
-	Message string         `json:"message"`
-	Fields  map[string]any `json:"-"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
 }
 
 func (e *ErrorResp) Error() string {
@@ -20,10 +19,9 @@ func (e *ErrorResp) ErrorCode() int {
 	return e.Code
 }
 
-func toErrorResp(code int, msg string, fields map[string]any) *ErrorResp {
+func toErrorResp(code int, msg string) *ErrorResp {
 	return &ErrorResp{
 		Code:    code,
 		Message: msg,
-		Fields:  fields,
 	}
 }

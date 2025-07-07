@@ -12,6 +12,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// ---------------- service options ----------------------
+
 type ServerOption func(*Server)
 
 func WithLogger(logger zerolog.Logger) ServerOption {
@@ -292,6 +294,25 @@ func WithDataService(ds *DataService) ServiceOption {
 		s.IDataService = ds
 	}
 }
+
+func WithBlockPublishingGatewayClient(client interface{}) ServiceOption {
+	return func(s *Service) {
+		s.blockPublishingGatewayClient = client
+	}
+}
+
+func WithBlockPublishFunc(blockPublishFunc func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, blockPublishingGatewayClient interface{}, authKey string)) ServiceOption {
+	return func(s *Service) {
+		s.blockPublishFunc = blockPublishFunc
+	}
+}
+func WithGatewayAuthKey(key string) ServiceOption {
+	return func(s *Service) {
+		s.gatewayAuthKey = key
+	}
+}
+
+// ---------------- Data service options ----------------------
 
 type DataServiceOption func(s *DataService)
 

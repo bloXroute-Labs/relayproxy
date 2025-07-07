@@ -1,13 +1,17 @@
 package common
 
 import (
+	"encoding/json"
 	"fmt"
 
 	builderApi "github.com/attestantio/go-builder-client/api"
 	builderApiDeneb "github.com/attestantio/go-builder-client/api/deneb"
 	builderApiElectra "github.com/attestantio/go-builder-client/api/electra"
 	builderSpec "github.com/attestantio/go-builder-client/spec"
+	eth2Api "github.com/attestantio/go-eth2-client/api"
+	eth2ApiV1Electra "github.com/attestantio/go-eth2-client/api/v1/electra"
 	"github.com/attestantio/go-eth2-client/spec"
+	"github.com/attestantio/go-eth2-client/spec/electra"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/ssz"
@@ -450,4 +454,102 @@ func SignExecutionPayloadHeader(headerSubmissionV3 *HeaderSubmissionV3, sk *bls.
 	default:
 		return nil, errors.Wrap(errInvalidVersion, fmt.Sprintf("%s is not supported", header.Version))
 	}
+}
+func SignedBlindedBeaconBlockToBeaconBlock(signedBlindedBeaconBlock *VersionedSignedBlindedBeaconBlock, blockPayload *builderApi.VersionedSubmitBlindedBlockResponse) (*VersionedSignedProposal, error) {
+	signedBeaconBlock := VersionedSignedProposal{
+		eth2Api.VersionedSignedProposal{ //nolint:exhaustruct
+			Version: signedBlindedBeaconBlock.Version,
+		},
+	}
+	switch signedBlindedBeaconBlock.Version {
+	case spec.DataVersionElectra:
+		electraBlindedBlock := signedBlindedBeaconBlock.Electra
+		if len(electraBlindedBlock.Message.Body.BlobKZGCommitments) != len(blockPayload.Electra.BlobsBundle.Blobs) {
+			return nil, errors.New("number of blinded blobs does not match blobs bundle length")
+		}
+
+		signedBeaconBlock.Electra = ElectraUnblindSignedBlock(electraBlindedBlock, blockPayload.Electra)
+	case spec.DataVersionUnknown, spec.DataVersionPhase0, spec.DataVersionAltair, spec.DataVersionBellatrix:
+		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", signedBlindedBeaconBlock.Version))
+	default:
+		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", signedBlindedBeaconBlock.Version))
+	}
+	return &signedBeaconBlock, nil
+}
+
+func ElectraUnblindSignedBlock(blindedBlock *eth2ApiV1Electra.SignedBlindedBeaconBlock, blockPayload *builderApiDeneb.ExecutionPayloadAndBlobsBundle) *eth2ApiV1Electra.SignedBlockContents {
+	return &eth2ApiV1Electra.SignedBlockContents{
+		SignedBlock: &electra.SignedBeaconBlock{
+			Message: &electra.BeaconBlock{
+				Slot:          blindedBlock.Message.Slot,
+				ProposerIndex: blindedBlock.Message.ProposerIndex,
+				ParentRoot:    blindedBlock.Message.ParentRoot,
+				StateRoot:     blindedBlock.Message.StateRoot,
+				Body: &electra.BeaconBlockBody{
+					RANDAOReveal:          blindedBlock.Message.Body.RANDAOReveal,
+					ETH1Data:              blindedBlock.Message.Body.ETH1Data,
+					Graffiti:              blindedBlock.Message.Body.Graffiti,
+					ProposerSlashings:     blindedBlock.Message.Body.ProposerSlashings,
+					AttesterSlashings:     blindedBlock.Message.Body.AttesterSlashings,
+					Attestations:          blindedBlock.Message.Body.Attestations,
+					Deposits:              blindedBlock.Message.Body.Deposits,
+					VoluntaryExits:        blindedBlock.Message.Body.VoluntaryExits,
+					SyncAggregate:         blindedBlock.Message.Body.SyncAggregate,
+					ExecutionPayload:      blockPayload.ExecutionPayload,
+					BLSToExecutionChanges: blindedBlock.Message.Body.BLSToExecutionChanges,
+					BlobKZGCommitments:    blindedBlock.Message.Body.BlobKZGCommitments,
+					ExecutionRequests:     blindedBlock.Message.Body.ExecutionRequests,
+				},
+			},
+			Signature: blindedBlock.Signature,
+		},
+		KZGProofs: blockPayload.BlobsBundle.Proofs,
+		Blobs:     blockPayload.BlobsBundle.Blobs,
+	}
+}
+
+type VersionedSignedProposal struct {
+	eth2Api.VersionedSignedProposal
+}
+
+func (r *VersionedSignedProposal) MarshalSSZ() ([]byte, error) {
+	switch r.Version { //nolint:exhaustive
+	case spec.DataVersionElectra:
+		return r.Electra.MarshalSSZ()
+	default:
+		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
+	}
+}
+
+func (r *VersionedSignedProposal) UnmarshalSSZ(input []byte) error {
+	var err error
+
+	electraRequest := new(eth2ApiV1Electra.SignedBlockContents)
+	if err = electraRequest.UnmarshalSSZ(input); err == nil {
+		r.Version = spec.DataVersionElectra
+		r.Electra = electraRequest
+		return nil
+	}
+	return errors.Wrap(err, "failed to unmarshal SubmitBlockRequest SSZ")
+}
+
+func (r *VersionedSignedProposal) MarshalJSON() ([]byte, error) {
+	switch r.Version { //nolint:exhaustive
+	case spec.DataVersionElectra:
+		return json.Marshal(r.Electra)
+	default:
+		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
+	}
+}
+
+func (r *VersionedSignedProposal) UnmarshalJSON(input []byte) error {
+	var err error
+
+	electraContents := new(eth2ApiV1Electra.SignedBlockContents)
+	if err = electraContents.UnmarshalJSON(input); err == nil {
+		r.Version = spec.DataVersionElectra
+		r.Electra = electraContents
+		return nil
+	}
+	return errors.Wrap(err, "failed to unmarshal SignedProposal")
 }
