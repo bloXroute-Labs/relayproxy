@@ -618,7 +618,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		attribute.String("slotUID", headerSlotUID),
 	)
 	span.AddEvent("handleGetHeader-svcGetHeader")
-	out, onHeaderDeliveredParams, lm, err := s.svc.GetHeader(handleGetHeaderCtx, &log, &HeaderRequestParams{
+	out, onHeaderDeliveredParams, err := s.svc.GetHeader(handleGetHeaderCtx, &log, &HeaderRequestParams{
 		ReceivedAt:               receivedAt,
 		GetHeaderStartTimeUnixMS: boostSendTime,
 		Latency:                  latency,
@@ -643,12 +643,12 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	}
 	go func() {
 		if onHeaderDeliveredParams == nil || s.OnHeaderDelivered == nil {
-			s.logger.Warn().Fields(logMetric.GetFields()).Msg("skipping callback")
+			log.Warn().Msg("skipping callback")
 			return
 		}
 		versionedBid := new(common.VersionedSignedBuilderBid)
 		if err = versionedBid.UnmarshalJSON(onHeaderDeliveredParams.SignedHeaderResponse); err != nil {
-			s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to unmarshal signed header response")
+			log.Error().Err(err).Msg("failed to unmarshal signed header response")
 			return
 		}
 		err := s.OnHeaderDelivered(
@@ -660,7 +660,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 			onHeaderDeliveredParams.ExtraData,
 		)
 		if err != nil {
-			s.logger.Error().Fields(logMetric.GetFields()).Err(err).Msg("failed to call OnHeaderDelivered")
+			s.logger.Error().Err(err).Msg("failed to call OnHeaderDelivered")
 		}
 
 	}()
