@@ -69,11 +69,10 @@ var (
 type IService interface {
 	IDataService
 	RegisterValidator(ctx context.Context, log *zerolog.Logger, outgoingCtx context.Context, in *RegistrationParams) (any, error)
-	GetHeader(ctx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error)
+	GetHeader(ctx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, error)
 	GetPayload(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) (*common.VersionedPayloadInfo, error)
 	GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) (*common.VersionedPayloadInfo, error)
 }
-
 type Service struct {
 	// data service
 	IDataService
@@ -630,7 +629,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 	return nil, nil
 }
 
-func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
+func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, error) {
 	id := uuid.NewString()
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
@@ -688,7 +687,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 	log.Info().Msg("received getHeader")
 	if err != nil {
 		preStoringHeaderSpan.End(trace.WithTimestamp(time.Now()))
-		return nil, nil, toErrorResp(http.StatusNoContent, err.Error())
+		return nil, toErrorResp(http.StatusNoContent, err.Error())
 	}
 
 	_, parseUintHeaderSpan := s.tracer.Start(ctx, "getHeader-parseUint")
@@ -696,7 +695,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 	if err != nil {
 		parseUintHeaderSpan.End(trace.WithTimestamp(time.Now()))
 		preStoringHeaderSpan.End(trace.WithTimestamp(time.Now()))
-		return nil, nil, toErrorResp(http.StatusNoContent, errInvalidSlot.Error())
+		return nil, toErrorResp(http.StatusNoContent, errInvalidSlot.Error())
 	}
 
 	parseUintHeaderSpan.End(trace.WithTimestamp(time.Now()))
@@ -723,12 +722,12 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 
 	if len(in.PubKey) != 98 {
 		storingHeaderSpan.End(trace.WithTimestamp(time.Now()))
-		return nil, nil, toErrorResp(http.StatusNoContent, errInvalidPubkey.Error())
+		return nil, toErrorResp(http.StatusNoContent, errInvalidPubkey.Error())
 	}
 
 	if len(in.ParentHash) != 66 {
 		storingHeaderSpan.End(trace.WithTimestamp(time.Now()))
-		return nil, nil, toErrorResp(http.StatusNoContent, errInvalidHash.Error())
+		return nil, toErrorResp(http.StatusNoContent, errInvalidHash.Error())
 	}
 
 	fetchGetHeaderStartTime := time.Now().UTC()
@@ -770,7 +769,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 				Data: headerStats,
 			}, time.Now().UTC(), s.nodeID, StatsRelayProxyGetHeader)
 		}()
-		return nil, nil, toErrorResp(http.StatusNoContent, "Header value is not present")
+		return nil, toErrorResp(http.StatusNoContent, "Header value is not present")
 	}
 	if slotBestHeader.AccountID != "" {
 		in.AccountID = slotBestHeader.AccountID
@@ -888,17 +887,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 	} else {
 		log.Debug().Msg("newly signed header")
 	}
-
-	onHeaderDeliveredParams := &common.OnHeaderDeliveredParams{
-		SignedHeaderResponse:     signedHeaderResponse,
-		Slot:                     _slot,
-		GetHeaderRequestID:       in.SlotUID,
-		ProposerPubkey:           in.PubKey,
-		GetHeaderStartTimeUnixMS: in.GetHeaderStartTimeUnixMS,
-		ExtraData:                slotBestHeader.BuilderExtraData,
-	}
-
-	return json.RawMessage(signedHeaderResponse), onHeaderDeliveredParams, nil
+	return json.RawMessage(signedHeaderResponse), nil
 }
 
 func (s *Service) StartPreFetcher(ctx context.Context) {
