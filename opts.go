@@ -270,7 +270,6 @@ func WithForwardedBlockCh(ch *chan common.ForwardedBlockInfo) ServiceOption {
 		s.forwardedBlockCh = ch
 	}
 }
-
 func WithAccountList(accountsLists *AccountsLists) ServiceOption {
 	return func(s *Service) {
 		s.accountsLists = accountsLists

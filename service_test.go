@@ -201,7 +201,7 @@ func TestService_GetHeader(t *testing.T) {
 			}
 
 			accountID := tt.accountID
-			_, _, err := svc.GetHeader(context.Background(), &zerolog.Logger{}, &HeaderRequestParams{
+			_, err := svc.GetHeader(context.Background(), &zerolog.Logger{}, &HeaderRequestParams{
 				ReceivedAt: slotStartTime,
 				Slot:       tt.slot,
 				AccountID:  accountID,
@@ -590,7 +590,7 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	}
 	for testName, tt := range tests {
 		t.Run(testName, func(t *testing.T) {
-			got, _, err := service.GetHeader(ctx, &zerolog.Logger{}, &HeaderRequestParams{
+			got, err := service.GetHeader(ctx, &zerolog.Logger{}, &HeaderRequestParams{
 				ReceivedAt: time.Now(),
 				AuthHeader: TestAuthHeader,
 				Slot:       strconv.FormatUint(tt.in.Slot, 10),
