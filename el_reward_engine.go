@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -175,6 +176,7 @@ func (r *RewardEngine) calculateElRewardInfo(slotStats SlotStatsRecord, groupedB
 			if bid.BlockHash == slotStats.PayloadDeliveredBlockHash {
 				// this could be empty if max profit or regulated r-proxy delivered the bid
 				elInfo.OnchainBidDeliveredRelay = append(elInfo.OnchainBidDeliveredRelay, bid.RelayURL)
+				elInfo.BlockNumber = bid.BlockNumber
 			}
 			if bid.ProposerSendTimestampMs == slotStats.HeaderStartTimeUnixMs {
 				matchedBids = append(matchedBids, bid)
@@ -182,15 +184,13 @@ func (r *RewardEngine) calculateElRewardInfo(slotStats SlotStatsRecord, groupedB
 		}
 	}
 
-	// If relay proxy lost the block, no need calculate el reward increase
+	// If relay proxy lost a block, el reward increase calculation not needed
 	if !elInfo.IsProxyWin {
-		winVal := new(big.Float)
-		if _, ok := winVal.SetString(slotStats.PayloadBlockValue); !ok {
+		winVal, ok := new(big.Float).SetString(slotStats.PayloadBlockValue)
+		if !ok {
 			errBuf = append(errBuf, "invalid payloadBlockValue")
-			r.logger.Warn().
-				Uint64("slot", slotStats.Slot).
-				Str("blockValue", slotStats.PayloadBlockValue).
-				Msg("invalid payloadBlockValue")
+			r.logger.Warn().Uint64("slot", slotStats.Slot).Str("blockValue", slotStats.PayloadBlockValue).Msg("invalid payloadBlockValue")
+			elInfo.Error = fmt.Sprint(errBuf)
 			return elInfo
 		}
 		onchainFloat, _ := winVal.Float64()
@@ -200,48 +200,45 @@ func (r *RewardEngine) calculateElRewardInfo(slotStats SlotStatsRecord, groupedB
 	}
 
 	if len(matchedBids) < 2 {
+		elInfo.Error = "not enough matched bids"
 		return elInfo
 	}
 
-	sort.SliceStable(matchedBids, func(i, j int) bool {
-		iVal, iOk := new(big.Float).SetString(matchedBids[i].ValueEth)
-		if !iOk {
-			errBuf = append(errBuf, fmt.Sprintf("invalid iVal.ValueEth: %s", matchedBids[i].ValueEth))
+	type sortableBid struct {
+		DataHeader
+		Value *big.Float
+	}
+	var sortable []sortableBid
+	for _, bid := range matchedBids {
+		val, ok := new(big.Float).SetString(bid.ValueEth)
+		if !ok {
+			errBuf = append(errBuf, fmt.Sprintf("invalid bid valueEth: %s", bid.ValueEth))
+			continue
 		}
-		jVal, jOk := new(big.Float).SetString(matchedBids[j].ValueEth)
-		if !jOk {
-			errBuf = append(errBuf, fmt.Sprintf("invalid jVal.ValueEth: %s", matchedBids[j].ValueEth))
-		}
-		return iVal.Cmp(jVal) < 0
+		sortable = append(sortable, sortableBid{bid, val})
+	}
+	if len(sortable) < 1 {
+		elInfo.Error = "no valid matched bids with numeric value"
+		return elInfo
+	}
+	sort.SliceStable(sortable, func(i, j int) bool {
+		return sortable[i].Value.Cmp(sortable[j].Value) < 0
 	})
 
-	secondHighest := matchedBids[len(matchedBids)-1]
-
-	winVal := new(big.Float)
-	if _, ok := winVal.SetString(slotStats.PayloadBlockValue); !ok {
+	secondHighest := sortable[len(sortable)-1]
+	winVal, ok := new(big.Float).SetString(slotStats.PayloadBlockValue)
+	if !ok {
 		errBuf = append(errBuf, "invalid payloadBlockValue")
-		r.logger.Warn().
-			Uint64("slot", slotStats.Slot).
-			Str("payloadBlockValue", slotStats.PayloadBlockValue).
-			Msg("invalid payloadBlockValue")
+		r.logger.Warn().Uint64("slot", slotStats.Slot).Str("payloadBlockValue", slotStats.PayloadBlockValue).Msg("invalid payloadBlockValue")
+		elInfo.Error = fmt.Sprint(errBuf)
 		return elInfo
 	}
 
-	secondVal := new(big.Float)
-	if _, ok := secondVal.SetString(secondHighest.ValueEth); !ok {
-		errBuf = append(errBuf, fmt.Sprintf("invalid secondHighest.ValueEth: %s", secondHighest.ValueEth))
-		r.logger.Warn().
-			Uint64("slot", slotStats.Slot).
-			Str("secondHighestValueEth", secondHighest.ValueEth).
-			Msg("invalid secondHighestValueEth")
-		return elInfo
-	}
-
-	increase := new(big.Float).Sub(winVal, secondVal)
+	increase := new(big.Float).Sub(winVal, secondHighest.Value)
 	percentPrecise := new(big.Float).Quo(increase, winVal)
 	percentPrecise.Mul(percentPrecise, big.NewFloat(100))
 
-	isEqual := winVal.Cmp(secondVal) == 0
+	isEqual := winVal.Cmp(secondHighest.Value) == 0
 	elInfo.IsEqualToProxyBid = isEqual
 	if isEqual {
 		elInfo.IsProxyWin = false
@@ -249,7 +246,7 @@ func (r *RewardEngine) calculateElRewardInfo(slotStats SlotStatsRecord, groupedB
 	}
 
 	onchainFloat, _ := winVal.Float64()
-	secondFloat, _ := secondVal.Float64()
+	secondFloat, _ := secondHighest.Value.Float64()
 	incFloat, _ := increase.Float64()
 	percentFloat, _ := percentPrecise.Float64()
 
@@ -257,45 +254,49 @@ func (r *RewardEngine) calculateElRewardInfo(slotStats SlotStatsRecord, groupedB
 	elInfo.SecondHighestBidValue = secondFloat
 	elInfo.ElRewardIncreaseEth = incFloat
 	elInfo.ElRewardIncreasePercentPrecise = percentFloat
-	elInfo.ElRewardIncreasePercentage = uint64(percentFloat + 0.5)
-
+	elInfo.ElRewardIncreasePercentage = uint64(math.Round(percentFloat))
 	elInfo.SecondHighestBidDeliveredRelay = append(elInfo.SecondHighestBidDeliveredRelay, secondHighest.RelayURL)
 
 	weiFactor := new(big.Float).SetFloat64(1e18)
 	elRewardWei := new(big.Float).Mul(increase, weiFactor)
 	elRewardWei.Int(elInfo.ElRewardIncreaseWei)
 
+	elInfo.FeePerBlock = feeFor(elInfo.ElRewardIncreasePercentage, elInfo.ElRewardIncreaseEth)
+	elInfo.IsWinningBidHighest = len(sortable) > 0 && winVal.Cmp(sortable[len(sortable)-1].Value) >= 0
+	elInfo.Error = fmt.Sprint(errBuf)
+	return elInfo
+}
+
+func feeFor(percent uint64, uplift float64) float64 {
 	switch {
-	case elInfo.ElRewardIncreasePercentage <= 1:
-		elInfo.FeePerBlock = 0.0
-	case elInfo.ElRewardIncreasePercentage <= 5:
-		if elInfo.ElRewardIncreaseEth >= 0.0015 {
-			elInfo.FeePerBlock = 0.0015
+	case percent <= 1:
+		return 0.0
+	case percent <= 5:
+		if uplift >= 0.0015 {
+			return 0.0015
 		}
-	case elInfo.ElRewardIncreasePercentage <= 9:
+	case percent <= 9:
 		switch {
-		case elInfo.ElRewardIncreaseEth > 0.003:
-			elInfo.FeePerBlock = 0.003
-		case elInfo.ElRewardIncreaseEth > 0.0015:
-			elInfo.FeePerBlock = 0.0015
+		case uplift > 0.003:
+			return 0.003
+		case uplift > 0.0015:
+			return 0.0015
 		default:
-			elInfo.FeePerBlock = 0.0
+			return 0.0
 		}
 	default:
 		switch {
-		case elInfo.ElRewardIncreaseEth > 0.005:
-			elInfo.FeePerBlock = 0.005
-		case elInfo.ElRewardIncreaseEth > 0.003:
-			elInfo.FeePerBlock = 0.003
-		case elInfo.ElRewardIncreaseEth > 0.0015:
-			elInfo.FeePerBlock = 0.0015
+		case uplift > 0.005:
+			return 0.005
+		case uplift > 0.003:
+			return 0.003
+		case uplift > 0.0015:
+			return 0.0015
 		default:
-			elInfo.FeePerBlock = 0.0
+			return 0.0
 		}
 	}
-
-	elInfo.Error = fmt.Sprint(errBuf)
-	return elInfo
+	return 0.0
 }
 
 func (r *RewardEngine) logRecord(record ElRewardInfo) {
