@@ -46,6 +46,8 @@ type DataHeader struct {
 }
 
 type ElRewardInfo struct {
+	ValidatorID                     string                  `json:"validator_id"`
+	AccountID                       string                  `json:"account_id"`
 	Slot                            string                  `json:"slot"`
 	SlotUID                         string                  `json:"slot_uid"`
 	BlockNumber                     string                  `json:"block_number"`
@@ -83,7 +85,7 @@ func (r *RewardEngine) Start(ctx context.Context) {
 		case slotStats := <-r.slotStartRecordCh:
 			bids := r.collectExternalRelayBids(slotStats.Slot)
 			reward := r.calculateElRewardInfo(slotStats, bids)
-			r.logRecord(reward)
+			r.logRecord(reward, slotStats.HeaderStartTimeUnixMs)
 		case <-ctx.Done():
 			return
 		}
@@ -156,6 +158,8 @@ func (r *RewardEngine) collectExternalRelayBids(slot uint64) map[string][]DataHe
 // TODO: Recovery option, move as a standalone script to calculate based on db and endpoints
 func (r *RewardEngine) calculateElRewardInfo(slotStats SlotStatsRecord, groupedBids map[string][]DataHeader) ElRewardInfo {
 	elInfo := ElRewardInfo{
+		ValidatorID:                     slotStats.ValidatorID,
+		AccountID:                       slotStats.AccountID,
 		Slot:                            fmt.Sprintf("%d", slotStats.Slot),
 		SlotUID:                         slotStats.HeaderSlotUID,
 		BlockHash:                       slotStats.PayloadDeliveredBlockHash,
@@ -299,9 +303,13 @@ func feeFor(percent uint64, uplift float64) float64 {
 	return 0.0
 }
 
-func (r *RewardEngine) logRecord(record ElRewardInfo) {
+func (r *RewardEngine) logRecord(record ElRewardInfo, proposerSendTimeUnixMS string) {
 	r.logger.Info().
 		Str("slotKey", record.Slot).
+		Str("validatorID", record.ValidatorID).
+		Str("accountID", record.AccountID).
+		Str("proposerSendTimeUnixMS", proposerSendTimeUnixMS).
+		Str("err", record.Error).
 		Str("blockHash", record.BlockHash).
 		Float64("elRewardIncreaseEth", record.ElRewardIncreaseEth).
 		Bool("isProxyWin", record.IsProxyWin).
