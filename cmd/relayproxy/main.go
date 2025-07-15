@@ -303,7 +303,7 @@ func main() {
 	if err != nil {
 		l.Fatal().Err(err).Msg("failed to compute builder signing domain")
 	}
-	rewardEngineCh := make(chan relayproxy.SlotStatsRecord, 100) // channel to review slot starts record for reward calculation
+	rewardEngineCh := make(chan relayproxy.SlotStatsRecord, 100) // channel to receive slot starts record for reward calculation
 	var externalRelayUrlsWithApiKeys map[string]string
 	if err = json.Unmarshal([]byte(*externalRelayURLWithAPIKeyJSON), externalRelayUrlsWithApiKeys); err != nil {
 		l.Fatal().Err(err).Msg("failed to unmarshal external relays with api keys json object")

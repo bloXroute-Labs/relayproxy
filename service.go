@@ -123,7 +123,7 @@ type Service struct {
 	gatewayAuthKey               string
 	blockPublishFunc             func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, blockPublishingGatewayClient interface{}, authKey string)
 	// slot stats record channel for reward engine
-	slotStatsRecordCh chan SlotStatsRecord
+	slotStatsRecordForElRewardEngineCh chan SlotStatsRecord
 }
 
 type slotStatsEvent struct {
@@ -2841,6 +2841,17 @@ func (s *Service) handleStreamBuilderInfoResponse(
 }
 
 func (s *Service) logRecord(record SlotStatsRecord, slotKey string, userAgent string) {
+	go func() {
+		for {
+			select {
+			case s.slotStatsRecordForElRewardEngineCh <- record:
+				return
+			default:
+				// retry after a second
+				time.Sleep(time.Second)
+			}
+		}
+	}()
 	s.slotStats.Get(slotKey)
 	s.logger.Info().
 		Str("slotKey", slotKey).

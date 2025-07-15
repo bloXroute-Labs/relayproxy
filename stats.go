@@ -21,6 +21,7 @@ const (
 	TypeRelayProxyHeaderStreamReceived   = "relay_proxy_header_stream_received"
 	TypeRelayProxyGetHeaderExternalRelay = "relay_proxy_external_relay_header"
 	TypeRelayProxyBlockStreamReceived    = "relay_proxy_block_stream_received"
+	TypeRelayProxyElReward               = "relay_proxy_el_reward"
 )
 
 type HeaderStreamReceivedRecord struct {

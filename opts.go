@@ -291,7 +291,7 @@ func WithMiniProposerSlotMapSvc(miniProposerSlotMap *SyncMap[uint64, *common.Min
 
 func WithSlotStatsRecordCh(ch chan SlotStatsRecord) ServiceOption {
 	return func(s *Service) {
-		s.slotStatsRecordCh = ch
+		s.slotStatsRecordForElRewardEngineCh = ch
 	}
 }
 
