@@ -447,6 +447,15 @@ type ForwardedBlockInfo struct {
 	ProcessTime int64
 }
 
+type OnHeaderDeliveredParams struct {
+	SignedHeaderResponse     []byte
+	Slot                     uint64
+	GetHeaderRequestID       string
+	ProposerPubkey           string
+	GetHeaderStartTimeUnixMS string
+	ExtraData                string
+}
+
 type BuilderInfo struct {
 	BuilderPubkey                           phase0.BLSPubKey `json:"builder_pubkey"`
 	IsOptimistic                            bool             `json:"is_optimistic"`

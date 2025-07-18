@@ -22,9 +22,8 @@ import (
 type MockService struct {
 	logger                    *zap.Logger
 	RegisterValidatorFunc     func(ctx context.Context, outgoingctx context.Context, in *RegistrationParams) (any, error)
-	GetHeaderFunc             func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, error)
+	GetHeaderFunc             func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error)
 	GetPayloadFunc            func(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, error)
-	GetPayloadTrustedFunc     func(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, error)
 	GetAccountsFunc           func(ctx context.Context) map[string]interface{}
 	SetAccountsFunc           func(ctx context.Context)
 	SendAccountFunc           func(accountID, validatorID string)
@@ -103,11 +102,11 @@ func (m *MockService) RegisterValidator(ctx context.Context, log *zerolog.Logger
 	}
 	return nil, nil
 }
-func (m *MockService) GetHeader(ctx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, error) {
+func (m *MockService) GetHeader(ctx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
 	if m.GetHeaderFunc != nil {
 		return m.GetHeaderFunc(ctx, in)
 	}
-	return nil, nil
+	return nil, nil, nil
 }
 
 func (m *MockService) GetPayload(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) (*common.VersionedPayloadInfo, error) {
@@ -116,12 +115,7 @@ func (m *MockService) GetPayload(ctx context.Context, log *zerolog.Logger, in *P
 	}
 	return nil, nil
 }
-func (m *MockService) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) (*common.VersionedPayloadInfo, error) {
-	if m.GetPayloadFunc != nil {
-		return m.GetPayloadTrustedFunc(ctx, in)
-	}
-	return nil, nil
-}
+
 func TestServer_HandleRegistration(t *testing.T) {
 	testCases := map[string]struct {
 		requestBody  []byte
@@ -199,9 +193,9 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk123",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, error) {
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
 
-					return json.RawMessage("getHeader"), nil
+					return json.RawMessage("getHeader"), nil, nil
 				},
 			},
 			expectedCode:   http.StatusOK,
@@ -214,8 +208,8 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk456",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, error) {
-					return nil, &ErrorResp{Code: http.StatusNoContent}
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
+					return nil, nil, &ErrorResp{Code: http.StatusNoContent}
 				},
 			},
 			expectedCode:   http.StatusNoContent,
@@ -228,8 +222,8 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk456",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, error) {
-					return nil, &ErrorResp{Code: http.StatusNoContent, Message: "header value is not present for the requested key slot"}
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
+					return nil, nil, &ErrorResp{Code: http.StatusNoContent, Message: "header value is not present for the requested key slot"}
 				},
 			},
 			expectedCode:   http.StatusNoContent,
@@ -242,8 +236,8 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			pubKey:     "pk456b",
 			mockService: &MockService{
 				logger: zap.NewNop(),
-				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, error) {
-					return nil, &ErrorResp{Code: http.StatusTooManyRequests, Message: "only one getheader request allowed per slot per validator"}
+				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
+					return nil, nil, &ErrorResp{Code: http.StatusTooManyRequests, Message: "only one getheader request allowed per slot per validator"}
 				},
 			},
 			expectedCode:   http.StatusTooManyRequests,

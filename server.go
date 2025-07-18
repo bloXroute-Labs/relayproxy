@@ -30,11 +30,10 @@ const (
 	AuthHeaderPrefix = "bearer "
 
 	// methods
-	getHeader         = "getHeader"
-	getPayload        = "getPayload"
-	getPayloadTrusted = "getPayloadTrusted"
-	preFetchPayload   = "preFetchPayload"
-	registration      = "registration"
+	getHeader       = "getHeader"
+	getPayload      = "getPayload"
+	preFetchPayload = "preFetchPayload"
+	registration    = "registration"
 
 	MEVBoostStartTimeUnixMS = "X-MEVBoost-StartTimeUnixMS"
 	HeaderDateMilliseconds  = "Date-Milliseconds"
@@ -74,6 +73,13 @@ type Server struct {
 
 	// Callback
 	OnPayloadDelivered func(slot uint64, blockHash string, parentHash string, proposerPubkey string, getPayloadRequestClientIP string) error
+	OnHeaderDelivered  func(
+		VersionedSignedBuilderBid *common.VersionedSignedBuilderBid, Slot uint64,
+		GetHeaderRequestID string,
+		ProposerPubkey string,
+		GetHeaderStartTimeUnixMS string,
+		ExtraData string,
+	) error
 }
 
 type GetHeaderRateLimitInfo struct {
@@ -611,7 +617,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		attribute.String("slotUID", headerSlotUID),
 	)
 	span.AddEvent("handleGetHeader-svcGetHeader")
-	out, err := s.svc.GetHeader(handleGetHeaderCtx, &log, &HeaderRequestParams{
+	out, onHeaderDeliveredParams, err := s.svc.GetHeader(handleGetHeaderCtx, &log, &HeaderRequestParams{
 		ReceivedAt:               receivedAt,
 		GetHeaderStartTimeUnixMS: boostSendTime,
 		Latency:                  latency,
@@ -634,6 +640,29 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		respondError(handleGetHeaderCtx, span, getHeader, w, err, &log, s.tracer)
 		return
 	}
+	go func() {
+		if onHeaderDeliveredParams == nil || s.OnHeaderDelivered == nil {
+			log.Warn().Msg("skipping callback")
+			return
+		}
+		versionedBid := new(common.VersionedSignedBuilderBid)
+		if err = versionedBid.UnmarshalJSON(onHeaderDeliveredParams.SignedHeaderResponse); err != nil {
+			log.Error().Err(err).Msg("failed to unmarshal signed header response")
+			return
+		}
+		err := s.OnHeaderDelivered(
+			versionedBid,
+			onHeaderDeliveredParams.Slot,
+			onHeaderDeliveredParams.GetHeaderRequestID,
+			onHeaderDeliveredParams.ProposerPubkey,
+			onHeaderDeliveredParams.GetHeaderStartTimeUnixMS,
+			onHeaderDeliveredParams.ExtraData,
+		)
+		if err != nil {
+			s.logger.Error().Err(err).Msg("failed to call OnHeaderDelivered")
+		}
+
+	}()
 
 	if !sszResponse {
 		log.Info().Msg("Responding with JSON")
@@ -761,35 +790,18 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		versionedPayloadInfo *common.VersionedPayloadInfo
 	)
 	method := getPayload
-	if s.accountsLists.AccountIDToInfo[accountID] != nil &&
-		s.accountsLists.AccountIDToInfo[accountID].IsTrusted {
-		method = getPayloadTrusted
-		versionedPayloadInfo, err = s.svc.GetPayloadTrusted(getPayloadCtx, &log, &PayloadRequestParams{
-			ReceivedAt:                receivedAt,
-			Payload:                   bodyBytes,
-			ClientIP:                  clientIP,
-			AuthHeader:                authHeader,
-			ValidatorID:               validatorID,
-			AccountID:                 accountID,
-			GetPayloadStartTimeUnixMS: boostSendTime,
-			Cluster:                   cluster,
-			UserAgent:                 userAgent,
-			SlotUID:                   headerSlotUID,
-		})
-	} else {
-		versionedPayloadInfo, err = s.svc.GetPayload(getPayloadCtx, &log, &PayloadRequestParams{
-			ReceivedAt:                receivedAt,
-			Payload:                   bodyBytes,
-			ClientIP:                  clientIP,
-			AuthHeader:                authHeader,
-			ValidatorID:               validatorID,
-			AccountID:                 accountID,
-			GetPayloadStartTimeUnixMS: boostSendTime,
-			Cluster:                   cluster,
-			UserAgent:                 userAgent,
-			SlotUID:                   headerSlotUID,
-		})
-	}
+	versionedPayloadInfo, err = s.svc.GetPayload(getPayloadCtx, &log, &PayloadRequestParams{
+		ReceivedAt:                receivedAt,
+		Payload:                   bodyBytes,
+		ClientIP:                  clientIP,
+		AuthHeader:                authHeader,
+		ValidatorID:               validatorID,
+		AccountID:                 accountID,
+		GetPayloadStartTimeUnixMS: boostSendTime,
+		Cluster:                   cluster,
+		UserAgent:                 userAgent,
+		SlotUID:                   headerSlotUID,
+	})
 	_, mergeLogMetric := s.tracer.Start(getPayloadCtx, "handleGetPayload-mergeLogMetric")
 	if err != nil {
 		log.Error().Err(err).Msg("Error in GetPayload")

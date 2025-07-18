@@ -69,10 +69,10 @@ var (
 type IService interface {
 	IDataService
 	RegisterValidator(ctx context.Context, log *zerolog.Logger, outgoingCtx context.Context, in *RegistrationParams) (any, error)
-	GetHeader(ctx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, error)
+	GetHeader(ctx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error)
 	GetPayload(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) (*common.VersionedPayloadInfo, error)
-	GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) (*common.VersionedPayloadInfo, error)
 }
+
 type Service struct {
 	// data service
 	IDataService
@@ -521,7 +521,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 				"source":     source,
 			})
 
-			s.logger.Warn().Fields(lm.GetFields()).Msg("block hash already exist")
+			s.logger.Debug().Fields(lm.GetFields()).Msg("block hash already exist")
 			continue
 		}
 		// update block hash map if not seen already
@@ -537,34 +537,34 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			"streamLatencyInMs": time.Since(header.GetSendTime().AsTime()).Milliseconds(),
 		})
 
-		s.logger.Info().Fields(lm.GetFields()).Msg("received header")
+		s.logger.Debug().Fields(lm.GetFields()).Msg("received header")
 
-		headerStream := HeaderStreamReceivedRecord{
-			RelayReceivedAt:   header.GetRelayReceiveTime().AsTime(),
-			ReceivedAt:        receivedAt,
-			SentAt:            header.GetSendTime().AsTime(),
-			StreamLatencyInMS: latency,
-			Slot:              int64(header.GetSlot()),
-			ParentHash:        header.GetParentHash(),
-			PubKey:            header.GetPubkey(),
-			BlockHash:         header.GetBlockHash(),
-			BlockValue:        weiToEther(new(big.Int).SetBytes(header.GetValue())),
-			BuilderPubKey:     header.GetBuilderPubkey(),
-			BuilderExtraData:  header.GetBuilderExtraData(),
-			PaidBLXR:          header.GetPaidBlxr(),
-			ClientIP:          GetHost(client.URL),
-			NodeID:            s.nodeID,
-			AccountID:         header.GetAccountId(),
-			Method:            method,
-			PayloadFetchUrl:   header.GetPayloadFetchUrl(),
-		}
+		//_ = HeaderStreamReceivedRecord{
+		//	RelayReceivedAt:   header.GetRelayReceiveTime().AsTime(),
+		//	ReceivedAt:        receivedAt,
+		//	SentAt:            header.GetSendTime().AsTime(),
+		//	StreamLatencyInMS: latency,
+		//	Slot:              int64(header.GetSlot()),
+		//	ParentHash:        header.GetParentHash(),
+		//	PubKey:            header.GetPubkey(),
+		//	BlockHash:         header.GetBlockHash(),
+		//	BlockValue:        weiToEther(new(big.Int).SetBytes(header.GetValue())),
+		//	BuilderPubKey:     header.GetBuilderPubkey(),
+		//	BuilderExtraData:  header.GetBuilderExtraData(),
+		//	PaidBLXR:          header.GetPaidBlxr(),
+		//	ClientIP:          GetHost(client.URL),
+		//	NodeID:            s.nodeID,
+		//	AccountID:         header.GetAccountId(),
+		//	Method:            method,
+		//	PayloadFetchUrl:   header.GetPayloadFetchUrl(),
+		//}
 
-		go func(streamCopy HeaderStreamReceivedRecord) {
-			s.fluentD.LogToFluentD(fluentstats.Record{
-				Type: TypeRelayProxyHeaderStreamReceived,
-				Data: streamCopy,
-			}, time.Now().UTC(), s.nodeID, StatsRelayProxyHeaderStreamReceived)
-		}(headerStream)
+		//go func(streamCopy HeaderStreamReceivedRecord) {
+		//	s.fluentD.LogToFluentD(fluentstats.Record{
+		//		Type: TypeRelayProxyHeaderStreamReceived,
+		//		Data: streamCopy,
+		//	}, time.Now().UTC(), s.nodeID, StatsRelayProxyHeaderStreamReceived)
+		//}(headerStream)
 
 		// Store the bid for builder pubkey
 		_, storeBidsSpan := s.tracer.Start(streamReceiveCtx, "StreamHeader-storeBids")
@@ -629,7 +629,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 	return nil, nil
 }
 
-func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, error) {
+func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
 	id := uuid.NewString()
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
@@ -687,7 +687,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 	log.Info().Msg("received getHeader")
 	if err != nil {
 		preStoringHeaderSpan.End(trace.WithTimestamp(time.Now()))
-		return nil, toErrorResp(http.StatusNoContent, err.Error())
+		return nil, nil, toErrorResp(http.StatusNoContent, err.Error())
 	}
 
 	_, parseUintHeaderSpan := s.tracer.Start(ctx, "getHeader-parseUint")
@@ -695,7 +695,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 	if err != nil {
 		parseUintHeaderSpan.End(trace.WithTimestamp(time.Now()))
 		preStoringHeaderSpan.End(trace.WithTimestamp(time.Now()))
-		return nil, toErrorResp(http.StatusNoContent, errInvalidSlot.Error())
+		return nil, nil, toErrorResp(http.StatusNoContent, errInvalidSlot.Error())
 	}
 
 	parseUintHeaderSpan.End(trace.WithTimestamp(time.Now()))
@@ -722,12 +722,12 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 
 	if len(in.PubKey) != 98 {
 		storingHeaderSpan.End(trace.WithTimestamp(time.Now()))
-		return nil, toErrorResp(http.StatusNoContent, errInvalidPubkey.Error())
+		return nil, nil, toErrorResp(http.StatusNoContent, errInvalidPubkey.Error())
 	}
 
 	if len(in.ParentHash) != 66 {
 		storingHeaderSpan.End(trace.WithTimestamp(time.Now()))
-		return nil, toErrorResp(http.StatusNoContent, errInvalidHash.Error())
+		return nil, nil, toErrorResp(http.StatusNoContent, errInvalidHash.Error())
 	}
 
 	fetchGetHeaderStartTime := time.Now().UTC()
@@ -769,7 +769,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 				Data: headerStats,
 			}, time.Now().UTC(), s.nodeID, StatsRelayProxyGetHeader)
 		}()
-		return nil, toErrorResp(http.StatusNoContent, "Header value is not present")
+		return nil, nil, toErrorResp(http.StatusNoContent, "Header value is not present")
 	}
 	if slotBestHeader.AccountID != "" {
 		in.AccountID = slotBestHeader.AccountID
@@ -887,7 +887,17 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 	} else {
 		log.Debug().Msg("newly signed header")
 	}
-	return json.RawMessage(signedHeaderResponse), nil
+
+	onHeaderDeliveredParams := &common.OnHeaderDeliveredParams{
+		SignedHeaderResponse:     signedHeaderResponse,
+		Slot:                     _slot,
+		GetHeaderRequestID:       in.SlotUID,
+		ProposerPubkey:           in.PubKey,
+		GetHeaderStartTimeUnixMS: in.GetHeaderStartTimeUnixMS,
+		ExtraData:                slotBestHeader.BuilderExtraData,
+	}
+
+	return json.RawMessage(signedHeaderResponse), onHeaderDeliveredParams, nil
 }
 
 func (s *Service) StartPreFetcher(ctx context.Context) {
@@ -908,13 +918,27 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
 	spanctx, span := s.tracer.Start(ctx, "preFetchGetPayload-start")
-	defer span.End()
+	uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", fields.slot, fields.blockHash, fields.parentHash)
+	defer func() {
+		span.SetAttributes(
+			attribute.String("method", preFetchPayload),
+			attribute.String("clientIP", fields.clientIP),
+			attribute.String("clientURL", clientURL),
+			attribute.String("reqID", id),
+			attribute.Int64("receivedAt", startTime.Unix()),
+			attribute.String("traceID", parentSpan.SpanContext().TraceID().String()),
+			attribute.String("authHeader", fields.authHeader),
+			attribute.String("secretToken", s.secretToken),
+			attribute.String("uKey", uKey),
+			attribute.Int64("slot", int64(fields.slot)),
+			attribute.String("blockHash", fields.blockHash),
+		)
+		span.End()
+	}()
 
 	if fields.client != nil {
 		clientURL = fields.client.SafeClient.URL
 	}
-
-	uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", fields.slot, fields.blockHash, fields.parentHash)
 
 	logMetric := NewLogMetric(
 		map[string]any{
@@ -933,19 +957,6 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	)
 
 	s.logger.Info().Fields(logMetric.GetFields()).Msg("received preFetchGetPayload")
-	span.SetAttributes(
-		attribute.String("method", preFetchPayload),
-		attribute.String("clientIP", fields.clientIP),
-		attribute.String("clientURL", clientURL),
-		attribute.String("reqID", id),
-		attribute.Int64("receivedAt", startTime.Unix()),
-		attribute.String("traceID", parentSpan.SpanContext().TraceID().String()),
-		attribute.String("authHeader", fields.authHeader),
-		attribute.String("secretToken", s.secretToken),
-		attribute.String("uKey", uKey),
-		attribute.Int64("slot", int64(fields.slot)),
-		attribute.String("blockHash", fields.blockHash),
-	)
 
 	// If necessary, fetch the Optimistic V3 payload directly from the specified builder URL(s)
 	if fields.payloadFetchUrl != "" {
@@ -1123,15 +1134,16 @@ func (s *Service) clientPreFetchGetPayloadHTTP(
 	payloadUrls []string,
 ) bool {
 	_, fetchSpan := s.tracer.Start(ctx, "clientPreFetchGetPayloadHTTP")
-	defer fetchSpan.End()
-
-	fetchSpan.SetAttributes(
-		attribute.Int64("slot", int64(fields.slot)),
-		attribute.String("blockHash", fields.blockHash),
-		attribute.String("parentHash", fields.parentHash),
-		attribute.String("proposerPubkey", fields.proposerPubKey),
-		attribute.String("builderPubkey", fields.builderPubKey),
-	)
+	defer func() {
+		fetchSpan.SetAttributes(
+			attribute.Int64("slot", int64(fields.slot)),
+			attribute.String("blockHash", fields.blockHash),
+			attribute.String("parentHash", fields.parentHash),
+			attribute.String("proposerPubkey", fields.proposerPubKey),
+			attribute.String("builderPubkey", fields.builderPubKey),
+		)
+		fetchSpan.End()
+	}()
 
 	payload, err := s.prepareGetPayloadV3Request(fields.blockHash)
 	if err != nil {
@@ -1311,7 +1323,7 @@ func (s *Service) validateAndFetchPayload(ctx context.Context, signedBlindedBeac
 	var payloadResponse *common.PayloadResponseForProxy
 	var found bool
 
-	for i := 0; i < 20; i++ { // try for 1s with 50ms interval
+	for i := 0; i < 30; i++ { // try for 1.5s with 50ms interval
 		if val, ok := s.getPayloadResponseForProxySlot.Get(proxyCacheKey); ok {
 			casted, castOk := val.(*common.PayloadResponseForProxy)
 			if castOk {
@@ -1348,221 +1360,48 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
 
-	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
-
-	ctx, span := s.tracer.Start(ctx, "getPayload-start")
-	defer span.End()
-
-	_, timeToRelayRequestSpan := s.tracer.Start(ctx, "getPayload-TimeToRelayRequest")
-
-	var latency int64
-	if in.GetPayloadStartTimeUnixMS != "" {
-		getPayloadStartTime, err := strconv.ParseInt(in.GetPayloadStartTimeUnixMS, 10, 64)
-		if err != nil {
-			s.logger.Warn().Err(err).Msg("failed to parse getPayloadStartTimeUnixMS")
-		} else {
-			latency = in.ReceivedAt.Sub(time.UnixMilli(getPayloadStartTime)).Milliseconds()
-		}
-	}
-
-	_, logTimingSpan := s.tracer.Start(ctx, "getPayload-logTimingSpan")
-
-	*log = log.With().
-		Str("method", getPayload).
-		Str("receivedAt", in.ReceivedAt.String()).
-		Str("reqID", id).
-		Bool("isAuthHeaderProvided", in.AuthHeader != "").
-		Logger()
-
-	log.Info().Msg("received getPayload")
-	parentSpan.SetAttributes(
-		attribute.String("method", getPayload),
-		attribute.String("reqID", id),
-		attribute.Int64("receivedAt", in.ReceivedAt.Unix()),
-	)
-	logTimingSpan.End()
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	var (
-		errResp  ErrorRespWithPayload
-		errChan  = make(chan ErrorRespWithPayload, len(s.clients)+1)
-		respChan = make(chan *common.VersionedPayloadInfo, len(s.clients)+1)
-		wg       sync.WaitGroup
-	)
-
-	// Prefetch goroutine
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		blindedBeaconBlock, errRes := s.prefetchPayloadToSignedBlindedBeaconBlock(ctx, in.Payload)
-		if errRes != nil {
-			log.Info().Err(errRes).Msg("validateAndFetchPayload failed")
-			errChan <- ErrorRespWithPayload{err: errRes, resp: nil}
-			return
-		}
-
-		slot, err := blindedBeaconBlock.Slot()
-		if err != nil {
-			log.Error().Err(err).Msg("validateAndFetchPayload: failed to decode slot")
-			errChan <- ErrorRespWithPayload{err: toErrorResp(http.StatusBadRequest, "failed to get slot"), resp: nil}
-			return
-		}
-		blockHash, err := blindedBeaconBlock.ExecutionBlockHash()
-		if err != nil {
-			log.Error().Err(err).Msg("validateAndFetchPayload: failed to decode block hash")
-			errChan <- ErrorRespWithPayload{err: toErrorResp(http.StatusBadRequest, "failed to get block hash"), resp: nil}
-			return
-		}
-		parentHash, err := blindedBeaconBlock.ExecutionParentHash()
-		if err != nil {
-			log.Error().Err(err).Msg("validateAndFetchPayload: failed to decode parent hash")
-			errChan <- ErrorRespWithPayload{err: toErrorResp(http.StatusBadRequest, "failed to get parent hash"), resp: nil}
-			return
-		}
-		slotInt := int64(slot)
-		blockHashStr := blockHash.String()
-		parentHashStr := parentHash.String()
-		uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", slotInt, blockHashStr, parentHashStr)
-
-		parentSpan.SetAttributes(
-			attribute.Int64("slot", slotInt),
-			attribute.String("blockHash", blockHashStr),
-			attribute.String("parentHash", parentHashStr),
-			attribute.String("uniqueKey", uKey),
-		)
-		*log = log.With().
-			Int64("slot", slotInt).
-			Str("blockHash", blockHashStr).
-			Str("parentHash", parentHashStr).
-			Str("uniqueKey", uKey).
-			Logger()
-
-		payloadInfo, errRes := s.validateAndFetchPayload(ctx, blindedBeaconBlock)
-
-		if errRes != nil {
-			errChan <- ErrorRespWithPayload{err: errRes, resp: payloadInfo}
-			log.Info().Err(errRes).Msg("validateAndFetchPayload failed")
-			return
-		}
-
-		log.Info().Msg("validateAndFetchPayload success (prefetch)")
-		respChan <- payloadInfo
-	}()
-
-	// Relay requests
-	req := &relaygrpc.GetPayloadRequest{
-		ReqId:       id,
-		Payload:     in.Payload,
-		ClientIp:    in.ClientIP,
-		Version:     s.version,
-		ReceivedAt:  timestamppb.New(in.ReceivedAt),
-		SecretToken: s.secretToken,
-	}
-
-	timeToRelayRequestSpan.End()
-	ctx, payloadResponseSpan := s.tracer.Start(ctx, "getPayload-payloadResponseFromRelay")
-
-	for _, client := range s.clients {
-		wg.Add(1)
-		go func(c *common.ParentClient) {
-			defer wg.Done()
-			out, err := s.getPayloadWithRetry(ctx, c.SafeClient, span, req, maxGetPayloadRetry)
-			if err != nil {
-				log.Error().Err(err).Msg("getPayloadWithRetry")
-				errChan <- ErrorRespWithPayload{err: err, resp: out}
-				return
-			}
-			log.Info().Msg("getPayloadWithRetry success")
-			respChan <- out
-		}(client)
-	}
-
-	// Channel closer
-	go func() {
-		wg.Wait()
-		close(errChan)
-		close(respChan)
-	}()
-
-	expected := len(s.clients) + 1
-	responses := 0
-
-	for responses < expected {
-		select {
-		case <-ctx.Done():
-			go s.sendPayloadStats(in.Payload, log, false, nil, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
-			log.Error().Msg("failed to getPayload")
-			payloadResponseSpan.End()
-			return nil, toErrorResp(http.StatusInternalServerError, ctx.Err().Error())
-
-		case resp := <-respChan:
-			//cancel() // Cancel other goroutines on success
-			slotStartTime := GetSlotStartTime(s.beaconGenesisTime, int64(resp.Slot), s.secondsPerSlot)
-			msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds()
-			duration := time.Since(startTime)
-
-			go s.sendPayloadStats(in.Payload, log, true, resp, in.ReceivedAt, startTime, slotStartTime, msIntoSlot, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
-
-			uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", resp.Slot, resp.BlockHash, resp.ParentHash)
-			*log = log.With().
-				Dur("duration", duration).
-				Int64("slot", int64(resp.Slot)).
-				Int64("slotStartTime", slotStartTime.UnixMilli()).
-				Int64("msIntoSlot", msIntoSlot).
-				Str("parentHash", resp.ParentHash).
-				Str("blockHash", resp.BlockHash).
-				Str("blockValue", resp.BlockValue).
-				Str("uniqueKey", uKey).
-				Logger()
-			parentSpan.SetAttributes(
-				attribute.String("duration", duration.String()),
-				attribute.Int64("slot", int64(resp.Slot)),
-				attribute.Int64("slotStartTime", slotStartTime.UnixMilli()),
-				attribute.Int64("msIntoSlot", msIntoSlot),
-				attribute.String("parentHash", resp.ParentHash),
-				attribute.String("blockHash", resp.BlockHash),
-				attribute.String("blockValue", resp.BlockValue),
-				attribute.String("uniqueKey", uKey),
-			)
-			payloadResponseSpan.End()
-			return resp, nil
-
-		case errResp = <-errChan:
-			// if multiple client return errors, first error gets replaced by the subsequent errors
-			responses++
-		}
-	}
-
-	// All responses failed
-	go s.sendPayloadStats(in.Payload, log, false, errResp.resp, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
-	payloadResponseSpan.End(trace.WithTimestamp(time.Now()))
-	parentSpan.SetAttributes(
-		attribute.String("getPayloadErr", errResp.err.Message),
-	)
-	return nil, errResp.err
-}
-
-func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) (*common.VersionedPayloadInfo, error) {
-	startTime := time.Now().UTC()
-	id := uuid.NewString()
-
-	parentSpan := trace.SpanFromContext(ctx)
-	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
-
 	authKey := s.authKey
 	if in.AuthHeader != "" {
 		authKey = in.AuthHeader
 	}
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", authKey)
 
+	*log = log.With().
+		Str("method", getPayload).
+		Time("receivedAt", in.ReceivedAt).
+		Str("reqID", id).
+		Bool("isAuthHeaderProvided", in.AuthHeader != "").
+		Logger()
+	log.Info().Msg("received getPayloadTrusted")
 	ctx, span := s.tracer.Start(ctx, "getPayload-start")
-	defer span.End()
+	var (
+		slotInt       int64
+		blockHashStr  string
+		parentHashStr string
+		blockValueStr string
+		uKey          string
+		latency       int64
+	)
+	defer func() {
+		_, logTimingSpan := s.tracer.Start(ctx, "getPayload-logTimingSpan")
+		parentSpan.SetAttributes(
+			attribute.String("method", getPayload),
+			attribute.String("reqID", id),
+			attribute.Int64("receivedAt", in.ReceivedAt.Unix()),
+			attribute.Int64("slot", slotInt),
+			attribute.String("blockHash", blockHashStr),
+			attribute.String("parentHash", parentHashStr),
+			attribute.String("blockValue", blockValueStr),
+			attribute.String("uniqueKey", uKey),
+			attribute.Int64("latency", latency),
+		)
+		log.Info().Msg("added spans getPayloadTrusted")
+		logTimingSpan.End()
+		span.End()
+	}()
 
 	_, timeToRelayRequestSpan := s.tracer.Start(ctx, "getPayload-TimeToRelayRequest")
 
-	var latency int64
 	if in.GetPayloadStartTimeUnixMS != "" {
 		if getPayloadStartTime, err := strconv.ParseInt(in.GetPayloadStartTimeUnixMS, 10, 64); err == nil {
 			latency = in.ReceivedAt.Sub(time.UnixMilli(getPayloadStartTime)).Milliseconds()
@@ -1571,22 +1410,6 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 		}
 	}
 
-	_, logTimingSpan := s.tracer.Start(ctx, "getPayload-logTimingSpan")
-	*log = log.With().
-		Str("method", getPayloadTrusted).
-		Time("receivedAt", in.ReceivedAt).
-		Str("reqID", id).
-		Bool("isAuthHeaderProvided", in.AuthHeader != "").
-		Logger()
-	log.Info().Msg("received getPayloadTrusted")
-	parentSpan.SetAttributes(
-		attribute.String("method", getPayload),
-		attribute.String("reqID", id),
-		attribute.Int64("receivedAt", in.ReceivedAt.Unix()),
-	)
-	log.Info().Msg("added spans getPayloadTrusted")
-	logTimingSpan.End()
-
 	req := &relaygrpc.GetPayloadRequest{
 		ReqId:       id,
 		Payload:     in.Payload,
@@ -1595,28 +1418,15 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 		ReceivedAt:  timestamppb.New(in.ReceivedAt),
 		SecretToken: s.secretToken,
 	}
-	for _, client := range s.clients {
-		go func(c *common.ParentClient) {
-			_, err := s.getPayloadWithRetry(ctx, c.SafeClient, span, req, maxGetPayloadRetry)
-			if err != nil {
-				log.Error().Err(err).Msg("getPayloadWithRetry")
-				return
-			}
-			log.Info().Msg("getPayloadWithRetry success")
-		}(client)
-	}
 	timeToRelayRequestSpan.End()
 
-	_, payloadResponseSpan := s.tracer.Start(ctx, "getPayload-fastPath")
-	defer payloadResponseSpan.End()
-
+	_, prefetchPayloadToSignedBlindedBeaconBlockSpan := s.tracer.Start(ctx, "getPayload-prefetchPayloadToSignedBlindedBeaconBlockSpan")
 	blindedBeaconBlock, errRes := s.prefetchPayloadToSignedBlindedBeaconBlock(ctx, in.Payload)
 	if errRes != nil {
 		log.Error().Err(errRes).Msg("prefetchPayloadToSignedBlindedBeaconBlock failed")
 		go s.sendPayloadStats(in.Payload, log, false, nil, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
 		return nil, errRes
 	}
-
 	slot, err := blindedBeaconBlock.Slot()
 	if err != nil {
 		return nil, toErrorResp(http.StatusBadRequest, "failed to get slot")
@@ -1629,60 +1439,81 @@ func (s *Service) GetPayloadTrusted(ctx context.Context, log *zerolog.Logger, in
 	if err != nil {
 		return nil, toErrorResp(http.StatusBadRequest, "failed to get parent hash")
 	}
-	slotInt := int64(slot)
-	blockHashStr := blockHash.String()
-	parentHashStr := parentHash.String()
-	uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", slotInt, blockHashStr, parentHashStr)
-
-	parentSpan.SetAttributes(
-		attribute.Int64("slot", slotInt),
-		attribute.String("blockHash", blockHashStr),
-		attribute.String("parentHash", parentHashStr),
-		attribute.String("uniqueKey", uKey),
-	)
+	slotInt = int64(slot)
+	blockHashStr = blockHash.String()
+	parentHashStr = parentHash.String()
+	uKey = fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", slotInt, blockHashStr, parentHashStr)
 	*log = log.With().
-		Int64("slot", slotInt).
+		Int64("Slot", slotInt).
 		Str("blockHash", blockHashStr).
 		Str("parentHash", parentHashStr).
-		Str("uniqueKey", uKey).
+		Str("uKey", uKey).
 		Logger()
+	prefetchPayloadToSignedBlindedBeaconBlockSpan.End()
 
-	payloadInfo, errRes := s.validateAndFetchPayload(ctx, blindedBeaconBlock)
-	if errRes != nil {
-		// TODO: wait for relay response
-		go s.sendPayloadStats(in.Payload, log, false, payloadInfo, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
-		return nil, errRes
+	payloadInfoChan := make(chan *common.VersionedPayloadInfo, 1)
+
+	// validate and  fetch payload from cache
+	go func(ctx context.Context, l zerolog.Logger, parent trace.Span) {
+		ctx, childSpan := s.tracer.Start(ctx, "validateAndFetchPayload")
+		defer childSpan.End()
+
+		payloadInfo, err := s.validateAndFetchPayload(ctx, blindedBeaconBlock)
+		if err == nil && payloadInfo != nil {
+			select {
+			case payloadInfoChan <- payloadInfo:
+			default:
+			}
+			if err != nil {
+				l.Warn().Err(err).Msg("validateAndFetchPayload returned payload with partial error")
+			}
+		} else {
+			l.Warn().Err(err).Msg("validateAndFetchPayload returned no payload")
+		}
+	}(ctx, *log, parentSpan)
+
+	// fetch payload relay
+	for _, client := range s.clients {
+		go func(c *common.ParentClient, parent trace.Span) {
+			ctx, childSpan := s.tracer.Start(ctx, "getPayloadWithRetry")
+			defer childSpan.End()
+
+			resp, err := s.getPayloadWithRetry(ctx, c.SafeClient, childSpan, req, maxGetPayloadRetry)
+			if err == nil && resp != nil {
+				select {
+				case payloadInfoChan <- resp:
+				default:
+				}
+			}
+		}(client, parentSpan)
 	}
 
-	// return immediately
-	slotStartTime := GetSlotStartTime(s.beaconGenesisTime, int64(payloadInfo.Slot), s.secondsPerSlot)
-	msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds()
-	duration := time.Since(startTime)
+	select {
+	case payloadInfo := <-payloadInfoChan:
+		go func() {
+			if s.blockPublishFunc != nil {
+				s.blockPublishFunc(s.tracer, s.logger, payloadInfo, blindedBeaconBlock, s.blockPublishingGatewayClient, s.gatewayAuthKey)
+			}
+		}()
+		slotStartTime := GetSlotStartTime(s.beaconGenesisTime, int64(payloadInfo.Slot), s.secondsPerSlot)
+		msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds()
+		duration := time.Since(startTime)
+		go s.sendPayloadStats(in.Payload, log, true, payloadInfo, in.ReceivedAt, startTime, slotStartTime, msIntoSlot, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
+		blockValueStr = payloadInfo.GetBlockValue()
+		*log = log.With().
+			Int64("latency", latency).
+			Dur("duration", duration).
+			Int64("slotStartTime", slotStartTime.UnixMilli()).
+			Int64("msIntoSlot", msIntoSlot).
+			Str("blockValue", blockValueStr).
+			Logger()
 
-	go s.sendPayloadStats(in.Payload, log, true, payloadInfo, in.ReceivedAt, startTime, slotStartTime, msIntoSlot, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
-
-	*log = log.With().
-		Dur("duration", duration).
-		Int64("slotStartTime", slotStartTime.UnixMilli()).
-		Int64("msIntoSlot", msIntoSlot).
-		Str("blockValue", payloadInfo.BlockValue).
-		Logger()
-
-	parentSpan.SetAttributes(
-		attribute.String("duration", duration.String()),
-		attribute.Int64("slotStartTime", slotStartTime.UnixMilli()),
-		attribute.Int64("msIntoSlot", msIntoSlot),
-		attribute.String("blockValue", payloadInfo.BlockValue),
-	)
-
-	// publish block to gateway
-	go func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, client interface{}, authKey string) {
-		if s.blockPublishFunc != nil {
-			s.blockPublishFunc(tracer, logger, payloadInfo, signedBeaconBlock, client, authKey)
-		}
-	}(s.tracer, s.logger, payloadInfo, blindedBeaconBlock, s.blockPublishingGatewayClient, s.gatewayAuthKey)
-
-	return payloadInfo, nil
+		return payloadInfo, nil
+	case <-time.After(1500 * time.Millisecond):
+	}
+	log.Error().Msg("timeout waiting for payload response")
+	go s.sendPayloadStats(in.Payload, log, false, nil, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
+	return nil, toErrorResp(http.StatusOK, "pre fetch payload not available in cache after retries")
 }
 
 type ErrorRespWithPayload struct {
@@ -1898,7 +1729,6 @@ func mergeSlotStats(record *SlotStatsRecord, statsRecord *SlotStatsRecord) {
 
 	statsRecord.AccountID = record.AccountID
 	statsRecord.ValidatorID = record.ValidatorID
-	return
 }
 
 func (s *Service) keyForCachingBids(slot uint64, parentHash string, proposerPubkey string) string {
@@ -2447,32 +2277,32 @@ func (s *Service) handleStreamBlockResponse(
 	s.setBuilderBidForProxySlot(k, block.GetBuilderPubkey(), bid, block.GetSlot())
 	storeBidsSpan.End(trace.WithTimestamp(time.Now()))
 
-	go func() {
-		headerStream := HeaderStreamReceivedRecord{
-			RelayReceivedAt:   block.GetRelayReceiveTime().AsTime(),
-			ReceivedAt:        receivedAt,
-			SentAt:            block.GetSendTime().AsTime(),
-			StreamLatencyInMS: latency,
-			Slot:              int64(block.GetSlot()),
-			ParentHash:        block.GetParentHash(),
-			PubKey:            block.GetPubkey(),
-			BlockHash:         block.GetBlockHash(),
-			BlockValue:        weiToEther(new(big.Int).SetBytes(block.GetValue())),
-			BuilderPubKey:     block.GetBuilderPubkey(),
-			BuilderExtraData:  extraData,
-			PaidBLXR:          block.GetPaidBlxr(),
-			ClientIP:          clientIP,
-			NodeID:            s.nodeID,
-			AccountID:         block.GetAccountId(),
-			Method:            method + "-" + payloadType,
-			PayloadFetchUrl:   "",
-		}
-		s.fluentD.LogToFluentD(fluentstats.Record{
-			//UniqueKey: "block_hash__node_id",
-			Type: TypeRelayProxyHeaderStreamReceived,
-			Data: headerStream,
-		}, time.Now().UTC(), s.nodeID, StatsRelayProxyHeaderStreamReceived)
-	}()
+	//go func() {
+	//	headerStream := HeaderStreamReceivedRecord{
+	//		RelayReceivedAt:   block.GetRelayReceiveTime().AsTime(),
+	//		ReceivedAt:        receivedAt,
+	//		SentAt:            block.GetSendTime().AsTime(),
+	//		StreamLatencyInMS: latency,
+	//		Slot:              int64(block.GetSlot()),
+	//		ParentHash:        block.GetParentHash(),
+	//		PubKey:            block.GetPubkey(),
+	//		BlockHash:         block.GetBlockHash(),
+	//		BlockValue:        weiToEther(new(big.Int).SetBytes(block.GetValue())),
+	//		BuilderPubKey:     block.GetBuilderPubkey(),
+	//		BuilderExtraData:  extraData,
+	//		PaidBLXR:          block.GetPaidBlxr(),
+	//		ClientIP:          clientIP,
+	//		NodeID:            s.nodeID,
+	//		AccountID:         block.GetAccountId(),
+	//		Method:            method + "-" + payloadType,
+	//		PayloadFetchUrl:   "",
+	//	}
+	//	s.fluentD.LogToFluentD(fluentstats.Record{
+	//		//UniqueKey: "block_hash__node_id",
+	//		Type: TypeRelayProxyHeaderStreamReceived,
+	//		Data: headerStream,
+	//	}, time.Now().UTC(), s.nodeID, StatsRelayProxyHeaderStreamReceived)
+	//}()
 }
 
 func (s *Service) logBlockReceivedStream(block *relaygrpc.StreamBlockResponse, receivedAt time.Time, latency int64, clientIP string, method string, payloadType string, processLatency int64, diff int64, handleLatency int64, payloadSize int64, extraData string) {
