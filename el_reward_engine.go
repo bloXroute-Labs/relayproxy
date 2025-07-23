@@ -193,7 +193,7 @@ func (r *RewardEngine) calculateElRewardInfo(slotStats SlotStatsRecord, groupedB
 		winVal, ok := new(big.Float).SetString(slotStats.PayloadBlockValue)
 		if !ok {
 			errBuf = append(errBuf, "invalid payloadBlockValue")
-			r.logger.Warn().Uint64("slot", slotStats.Slot).Str("blockValue", slotStats.PayloadBlockValue).Msg("invalid payloadBlockValue")
+			r.logger.Warn().Bool("is_proxy_win", elInfo.IsProxyWin).Uint64("slot", slotStats.Slot).Str("blockValue", slotStats.PayloadBlockValue).Msg("invalid payloadBlockValue")
 			elInfo.Error = fmt.Sprint(errBuf)
 			return elInfo
 		}
@@ -230,7 +230,7 @@ func (r *RewardEngine) calculateElRewardInfo(slotStats SlotStatsRecord, groupedB
 	})
 
 	secondHighest := sortable[len(sortable)-1]
-	winVal, ok := new(big.Float).SetString(slotStats.PayloadBlockValue)
+	winVal, ok := new(big.Float).SetString(slotStats.HeaderBlockValue)
 	if !ok {
 		errBuf = append(errBuf, "invalid payloadBlockValue")
 		r.logger.Warn().Uint64("slot", slotStats.Slot).Str("payloadBlockValue", slotStats.PayloadBlockValue).Msg("invalid payloadBlockValue")
@@ -311,6 +311,7 @@ func (r *RewardEngine) logRecord(record ElRewardInfo, proposerSendTimeUnixMS str
 		Str("proposerSendTimeUnixMS", proposerSendTimeUnixMS).
 		Str("err", record.Error).
 		Str("blockHash", record.BlockHash).
+		Float64("blockValue", record.OnchainBidValue).
 		Float64("elRewardIncreaseEth", record.ElRewardIncreaseEth).
 		Bool("isProxyWin", record.IsProxyWin).
 		Msg("emit el reward event")
