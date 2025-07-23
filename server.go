@@ -785,6 +785,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		}
 		encodeJSONSpan.End()
 	}
+
 	span.AddEvent("handleGetPayload-svcGetPayload")
 	var (
 		versionedPayloadInfo *common.VersionedPayloadInfo
