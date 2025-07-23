@@ -289,6 +289,14 @@ func WithMiniProposerSlotMapSvc(miniProposerSlotMap *SyncMap[uint64, *common.Min
 	}
 }
 
+func WithSlotStatsRecordCh(ch chan SlotStatsRecord) ServiceOption {
+	return func(s *Service) {
+		s.slotStatsRecordForElRewardEngineCh = ch
+	}
+}
+
+// data service options
+
 func WithDataService(ds *DataService) ServiceOption {
 	return func(s *Service) {
 		s.IDataService = ds
@@ -414,5 +422,42 @@ func WithPlugin(customDelayer func(accountID string, msIntoSlot int64, cluster s
 func WithMiniProposerSlotMap(miniProposerSlotMap *SyncMap[uint64, *common.MiniValidatorLatency]) DataServiceOption {
 	return func(s *DataService) {
 		s.miniProposerSlotMap = miniProposerSlotMap
+	}
+}
+
+type RewardEngineOpts func(s *RewardEngine)
+
+func WithRewardEngineLogger(l zerolog.Logger) RewardEngineOpts {
+	return func(s *RewardEngine) {
+		s.logger = l
+	}
+}
+
+func WithRewardEngineHttpClient(c *http.Client) RewardEngineOpts {
+	return func(s *RewardEngine) {
+		s.httpClient = c
+	}
+}
+
+func WithRewardEngineSlotStatsRecordCh(ch chan SlotStatsRecord) RewardEngineOpts {
+	return func(s *RewardEngine) {
+		s.slotStartRecordCh = ch
+	}
+}
+
+func WithRewardEngineRelayUrlsWithApiKey(urlWithApiKeys map[string]string) RewardEngineOpts {
+	return func(s *RewardEngine) {
+		s.relayUrlsWithApiKeys = urlWithApiKeys
+	}
+}
+func WithRewardEngineNodeID(nodeID string) RewardEngineOpts {
+	return func(s *RewardEngine) {
+		s.nodeID = nodeID
+	}
+}
+
+func WithRewardEngineFluentd(f fluentstats.Stats) RewardEngineOpts {
+	return func(r *RewardEngine) {
+		r.fluentd = f
 	}
 }
