@@ -112,3 +112,37 @@ func TestSafeSplitSemicolonSeparatedCSV(t *testing.T) {
 		require.Equal(t, test.expected, result)
 	}
 }
+
+func TestReplaceBid(t *testing.T) {
+
+	oldBid := &Bid{
+		Value:      new(big.Int).SetUint64(1000).Bytes(),
+		ReceivedAt: time.Now(),
+	}
+
+	newBidSoonAndBetter := &Bid{
+		Value:      new(big.Int).SetUint64(1100).Bytes(),
+		ReceivedAt: time.Now().Add(50 * time.Millisecond),
+	}
+
+	newBidSoonAndWorse := &Bid{
+		Value:      new(big.Int).SetUint64(900).Bytes(),
+		ReceivedAt: time.Now().Add(50 * time.Millisecond),
+	}
+
+	newBidMuchLaterAndBetter := &Bid{
+		Value:      new(big.Int).SetUint64(1200).Bytes(),
+		ReceivedAt: time.Now().Add(200 * time.Millisecond),
+	}
+
+	newBidMuchLaterAndWorse := &Bid{
+		Value:      new(big.Int).SetUint64(800).Bytes(),
+		ReceivedAt: time.Now().Add(200 * time.Millisecond),
+	}
+
+	require.True(t, ReplaceBid(newBidSoonAndBetter, oldBid), "Should replace bid that is better and received soon")
+	require.False(t, ReplaceBid(newBidSoonAndWorse, oldBid), "Should not replace bid that is worse and received soon")
+	require.True(t, ReplaceBid(newBidMuchLaterAndBetter, oldBid), "Should replace bid that is better and received much later")
+	require.True(t, ReplaceBid(newBidMuchLaterAndWorse, oldBid), "Should replace bid that is worse and received much later")
+
+}

@@ -584,6 +584,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			header.GetAccountId(),
 			parentClient,
 			header.GetPayloadFetchUrl(),
+			header.GetRelayReceiveTime().AsTime(),
 		)
 		s.setBuilderBidForProxySlot(k, header.GetBuilderPubkey(), bid, header.GetSlot())
 		storeBidsSpan.SetAttributes(
@@ -1787,9 +1788,7 @@ func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey strin
 	// disable bid replacement
 	if !replace {
 		if bidEntry, found := builderBidsMap.Load(builderPubkey); found {
-			bidValue := new(big.Int).SetBytes(bid.Value)
-			bidValueExist := new(big.Int).SetBytes(bidEntry.Value)
-			if bidValueExist.Cmp(bidValue) > 0 {
+			if !common.ReplaceBid(bid, bidEntry) {
 				return
 			}
 		}
@@ -2263,6 +2262,7 @@ func (s *Service) handleStreamBlockResponse(
 		block.GetAccountId(),
 		nil,
 		"",
+		block.RelayReceiveTime.AsTime(),
 	)
 
 	// update block hash map if not seen already
