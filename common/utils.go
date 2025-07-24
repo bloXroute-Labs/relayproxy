@@ -180,10 +180,7 @@ func ReplaceBid(newBid *Bid, oldBid *Bid) bool {
 
 	bidValue := new(big.Int).SetBytes(newBid.Value)
 	bidValueExist := new(big.Int).SetBytes(oldBid.Value)
-	//If the new bid value is greater than the existing bid value, we replace it
-	if bidValueExist.Cmp(bidValue) > 0 {
-		return false
-	}
-	return true
+	// If the new bid value is greater than or equal to the existing bid value, we replace it
+	return bidValue.Cmp(bidValueExist) >= 0
 
 }
