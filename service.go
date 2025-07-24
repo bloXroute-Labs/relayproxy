@@ -122,6 +122,7 @@ type Service struct {
 	blockPublishingGatewayClient interface{}
 	gatewayAuthKey               string
 	blockPublishFunc             func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, blockPublishingGatewayClient interface{}, authKey string)
+	OnPayloadDelivered           func(slot uint64, blockHash string, parentHash string, proposerPubkey string, getPayloadRequestClientIP string, receivedAt time.Time, payload []byte, ProposerRequestStartTimeUnixMS, validatorID string) error
 }
 
 type slotStatsEvent struct {
@@ -1451,6 +1452,24 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		Str("uKey", uKey).
 		Logger()
 	prefetchPayloadToSignedBlindedBeaconBlockSpan.End()
+
+	go func() {
+		if s.OnPayloadDelivered == nil {
+			log.Warn().Msg("skipping OnPayloadDelivered")
+			return
+		}
+		var pubkeyStr string
+		miniSlotDuty, err := s.IDataService.GetSlotDuty(uint64(slot))
+		if err == nil {
+			pub := miniSlotDuty.Registration.Message.Pubkey
+			pubkeyStr = pub.String()
+		}
+		err = s.OnPayloadDelivered(uint64(slot), blockHashStr, parentHashStr, pubkeyStr, in.ClientIP, in.ReceivedAt, in.Payload, in.GetPayloadStartTimeUnixMS, in.ValidatorID)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to call OnPayloadDelivered")
+		}
+
+	}()
 
 	payloadInfoChan := make(chan *common.VersionedPayloadInfo, 1)
 
