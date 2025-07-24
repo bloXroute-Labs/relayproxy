@@ -112,3 +112,61 @@ func TestSafeSplitSemicolonSeparatedCSV(t *testing.T) {
 		require.Equal(t, test.expected, result)
 	}
 }
+
+func TestReplaceBid(t *testing.T) {
+
+	oldBid := &Bid{
+		Value:      new(big.Int).SetUint64(1000).Bytes(),
+		ReceivedAt: time.Now(),
+	}
+
+	newBidSoonAndBetter := &Bid{
+		Value:      new(big.Int).SetUint64(1100).Bytes(),
+		ReceivedAt: time.Now().Add(50 * time.Millisecond),
+	}
+
+	newBidSoonAndWorse := &Bid{
+		Value:      new(big.Int).SetUint64(900).Bytes(),
+		ReceivedAt: time.Now().Add(50 * time.Millisecond),
+	}
+
+	newBidMuchLaterAndBetter := &Bid{
+		Value:      new(big.Int).SetUint64(1200).Bytes(),
+		ReceivedAt: time.Now().Add(200 * time.Millisecond),
+	}
+
+	newBidMuchLaterAndWorse := &Bid{
+		Value:      new(big.Int).SetUint64(800).Bytes(),
+		ReceivedAt: time.Now().Add(200 * time.Millisecond),
+	}
+
+	newBidEarlierAndWorse := &Bid{
+		Value:      new(big.Int).SetUint64(900).Bytes(),
+		ReceivedAt: time.Now().Add(-50 * time.Millisecond),
+	}
+
+	newBidEarlierAndBetter := &Bid{
+		Value:      new(big.Int).SetUint64(1100).Bytes(),
+		ReceivedAt: time.Now().Add(-50 * time.Millisecond),
+	}
+
+	newBidSoonAndEqual := &Bid{
+		Value:      new(big.Int).SetUint64(1000).Bytes(),
+		ReceivedAt: time.Now().Add(10 * time.Millisecond),
+	}
+
+	newBidSoonAndMinus1 := &Bid{
+		Value:      new(big.Int).SetUint64(999).Bytes(),
+		ReceivedAt: time.Now().Add(10 * time.Millisecond),
+	}
+	require.True(t, ReplaceBid(newBidSoonAndBetter, oldBid), "Should replace bid that is better and received soon")
+	require.False(t, ReplaceBid(newBidSoonAndWorse, oldBid), "Should not replace bid that is worse and received soon")
+	require.True(t, ReplaceBid(newBidMuchLaterAndBetter, oldBid), "Should replace bid that is better and received much later")
+	require.True(t, ReplaceBid(newBidMuchLaterAndWorse, oldBid), "Should replace bid that is worse and received much later")
+
+	require.False(t, ReplaceBid(newBidEarlierAndWorse, oldBid), "Should not replace bid that is worse and received earlier")
+	require.False(t, ReplaceBid(newBidEarlierAndBetter, oldBid), "Should replace bid that is better and received earlier")
+
+	require.True(t, ReplaceBid(newBidSoonAndEqual, oldBid), "Should replace bid that is equal in value and received soon")
+	require.False(t, ReplaceBid(newBidSoonAndMinus1, oldBid), "Should not replace bid that is -1 in value and received soon")
+}

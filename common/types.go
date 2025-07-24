@@ -345,6 +345,7 @@ type Bid struct {
 	AccountID          string
 	Client             *ParentClient
 	PayloadFetchUrl    string
+	ReceivedAt         time.Time
 }
 
 func NewBid(Value []byte,
@@ -356,6 +357,7 @@ func NewBid(Value []byte,
 	accountID string,
 	client *ParentClient,
 	payloadFetchUrl string,
+	receivedAt time.Time,
 ) *Bid {
 	return &Bid{
 		Value:              Value,
@@ -367,6 +369,7 @@ func NewBid(Value []byte,
 		AccountID:          accountID,
 		Client:             client,
 		PayloadFetchUrl:    payloadFetchUrl,
+		ReceivedAt:         receivedAt,
 	}
 }
 

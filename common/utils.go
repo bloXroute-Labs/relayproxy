@@ -3,6 +3,7 @@ package common
 import (
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"mime"
 	"net/http"
 	"strconv"
@@ -166,4 +167,20 @@ func SafeSplitSemicolonSeparatedCSV(s string) ([]string, error) {
 		}
 	}
 	return output, nil
+}
+
+func ReplaceBid(newBid *Bid, oldBid *Bid) bool {
+	if newBid.ReceivedAt.Before(oldBid.ReceivedAt) {
+		return false
+	}
+	//If the new bid is received later than the old bid by a significant amount, we replace it
+	if newBid.ReceivedAt.Sub(oldBid.ReceivedAt) > 100*time.Millisecond {
+		return true
+	}
+
+	bidValue := new(big.Int).SetBytes(newBid.Value)
+	bidValueExist := new(big.Int).SetBytes(oldBid.Value)
+	// If the new bid value is greater than or equal to the existing bid value, we replace it
+	return bidValue.Cmp(bidValueExist) >= 0
+
 }
