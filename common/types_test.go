@@ -140,9 +140,21 @@ func TestReplaceBid(t *testing.T) {
 		ReceivedAt: time.Now().Add(200 * time.Millisecond),
 	}
 
+	newBidEarlierAndWorse := &Bid{
+		Value:      new(big.Int).SetUint64(900).Bytes(),
+		ReceivedAt: time.Now().Add(-50 * time.Millisecond),
+	}
+
+	newBidEarlierAndBetter := &Bid{
+		Value:      new(big.Int).SetUint64(1100).Bytes(),
+		ReceivedAt: time.Now().Add(-50 * time.Millisecond),
+	}
+
 	require.True(t, ReplaceBid(newBidSoonAndBetter, oldBid), "Should replace bid that is better and received soon")
 	require.False(t, ReplaceBid(newBidSoonAndWorse, oldBid), "Should not replace bid that is worse and received soon")
 	require.True(t, ReplaceBid(newBidMuchLaterAndBetter, oldBid), "Should replace bid that is better and received much later")
 	require.True(t, ReplaceBid(newBidMuchLaterAndWorse, oldBid), "Should replace bid that is worse and received much later")
 
+	require.False(t, ReplaceBid(newBidEarlierAndWorse, oldBid), "Should not replace bid that is worse and received earlier")
+	require.False(t, ReplaceBid(newBidEarlierAndBetter, oldBid), "Should replace bid that is better and received earlier")
 }

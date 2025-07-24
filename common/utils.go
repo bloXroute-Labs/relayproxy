@@ -170,6 +170,9 @@ func SafeSplitSemicolonSeparatedCSV(s string) ([]string, error) {
 }
 
 func ReplaceBid(newBid *Bid, oldBid *Bid) bool {
+	if newBid.ReceivedAt.Before(oldBid.ReceivedAt) {
+		return false
+	}
 	//If the new bid is received later than the old bid by a significant amount, we replace it
 	if newBid.ReceivedAt.Sub(oldBid.ReceivedAt) > 100*time.Millisecond {
 		return true
