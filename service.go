@@ -1460,7 +1460,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		}
 		var pubkeyStr string
 		miniSlotDuty, err := s.IDataService.GetSlotDuty(uint64(slot))
-		if err == nil {
+		if err == nil && miniSlotDuty != nil && miniSlotDuty.Registration != nil && miniSlotDuty.Registration.Message != nil {
 			pub := miniSlotDuty.Registration.Message.Pubkey
 			pubkeyStr = pub.String()
 		}
@@ -1469,7 +1469,6 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		if err != nil {
 			log.Error().Err(err).Msg("failed to call OnPayloadDelivered")
 		}
-
 	}()
 
 	payloadInfoChan := make(chan *common.VersionedPayloadInfo, 1)
