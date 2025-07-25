@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	eth2Api "github.com/attestantio/go-eth2-client/api"
 	"github.com/attestantio/go-eth2-client/spec/bellatrix"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	gethcommon "github.com/ethereum/go-ethereum/common"
@@ -122,7 +123,7 @@ type Service struct {
 	blockPublishingGatewayClient interface{}
 	gatewayAuthKey               string
 	blockPublishFunc             func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, blockPublishingGatewayClient interface{}, authKey string)
-	OnPayloadDelivered           func(slot uint64, blockHash string, parentHash string, proposerPubkey string, getPayloadRequestClientIP string, receivedAt time.Time, signedBlindedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, ProposerRequestStartTimeUnixMS int64, validatorID string) error
+	OnPayloadDelivered           func(slot uint64, blockHash string, parentHash string, proposerPubkey string, getPayloadRequestClientIP string, receivedAt time.Time, signedBlindedBeaconBlock eth2Api.VersionedSignedBlindedBeaconBlock, ProposerRequestStartTimeUnixMS int64, validatorID string) error
 }
 
 type slotStatsEvent struct {
@@ -1465,7 +1466,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 			pubkeyStr = pub.String()
 		}
 		proposerRequestStartTimeUnixMS, _ := strconv.ParseInt(in.GetPayloadStartTimeUnixMS, 10, 64)
-		err = s.OnPayloadDelivered(uint64(slot), blockHashStr, parentHashStr, pubkeyStr, in.ClientIP, in.ReceivedAt, blindedBeaconBlock, proposerRequestStartTimeUnixMS, in.ValidatorID)
+		err = s.OnPayloadDelivered(uint64(slot), blockHashStr, parentHashStr, pubkeyStr, in.ClientIP, in.ReceivedAt, blindedBeaconBlock.VersionedSignedBlindedBeaconBlock, proposerRequestStartTimeUnixMS, in.ValidatorID)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to call OnPayloadDelivered")
 		}
