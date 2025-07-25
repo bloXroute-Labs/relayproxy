@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -72,8 +71,7 @@ type Server struct {
 	AdminAccountID string
 
 	// Callback
-	OnPayloadDelivered func(slot uint64, blockHash string, parentHash string, proposerPubkey string, getPayloadRequestClientIP string) error
-	OnHeaderDelivered  func(
+	OnHeaderDelivered func(
 		VersionedSignedBuilderBid *common.VersionedSignedBuilderBid, Slot uint64,
 		GetHeaderRequestID string,
 		ProposerPubkey string,
@@ -814,25 +812,6 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	}
 	mergeLogMetric.End()
 
-	// If successful, execute the 'OnPayloadDelivered' callback after the function returns.
-	success := &atomic.Bool{}
-	success.Store(true)
-	defer func(success *atomic.Bool) {
-		if s.OnPayloadDelivered == nil || !success.Load() {
-			return
-		}
-
-		if err := s.OnPayloadDelivered(
-			versionedPayloadInfo.GetSlot(),
-			versionedPayloadInfo.GetBlockHash(),
-			versionedPayloadInfo.GetParentHash(),
-			versionedPayloadInfo.GetPubkey(),
-			clientIP,
-		); err != nil {
-			log.Error().Err(err).Msg("Failed to call OnPayloadDelivered callback")
-		}
-	}(success)
-
 	// Return response
 	if !sszResponse {
 		respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer)
@@ -842,7 +821,6 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	payloadResponse := new(common.VersionedSubmitBlindedBlockResponse)
 	if err := payloadResponse.UnmarshalJSON(versionedPayloadInfo.GetResponse()); err != nil {
 		span.SetStatus(codes.Error, err.Error())
-		success.Store(false)
 		log.Error().Err(err).Msg("failed to unmarshal getHeader response")
 		respondError(getPayloadCtx, span, method, w, toErrorResp(http.StatusInternalServerError, err.Error()), &log, s.tracer)
 		return
