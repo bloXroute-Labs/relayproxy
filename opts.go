@@ -303,7 +303,7 @@ func WithBlockPublishingGatewayClient(client interface{}) ServiceOption {
 
 func WithBlockPublishFunc(blockPublishFunc func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, blockPublishingGatewayClient interface{}, authKey string)) ServiceOption {
 	return func(s *Service) {
-		s.blockPublishFunc = blockPublishFunc
+		s.BlockPublishFunc = blockPublishFunc
 	}
 }
 func WithGatewayAuthKey(key string) ServiceOption {

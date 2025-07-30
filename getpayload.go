@@ -181,8 +181,8 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 	select {
 	case payloadInfo := <-payloadInfoChan:
 		go func() {
-			if s.blockPublishFunc != nil {
-				s.blockPublishFunc(s.tracer, s.logger, payloadInfo, blindedBeaconBlock, s.blockPublishingGatewayClient, s.gatewayAuthKey)
+			if s.BlockPublishFunc != nil {
+				s.BlockPublishFunc(s.tracer, s.logger, payloadInfo, blindedBeaconBlock, s.blockPublishingGatewayClient, s.gatewayAuthKey)
 			}
 		}()
 		slotStartTime := GetSlotStartTime(s.beaconGenesisTime, int64(payloadInfo.Slot), s.secondsPerSlot)
