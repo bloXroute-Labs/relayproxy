@@ -3,6 +3,7 @@ package common
 import (
 	"encoding/hex"
 	"fmt"
+	"math"
 	"math/big"
 	"mime"
 	"net/http"
@@ -18,11 +19,12 @@ import (
 type UserAgentType string
 
 const (
-	MevBoostUserAgent    = UserAgentType("mev-boost")
-	VouchUserAgent       = UserAgentType("vouch")
-	KilnUserAgent        = UserAgentType("kiln")
-	CommitBoostUserAgent = UserAgentType("commit-boost")
-	UnknownUserAgent     = UserAgentType("unknown")
+	weiToEthSignificantDigits = 18
+	MevBoostUserAgent         = UserAgentType("mev-boost")
+	VouchUserAgent            = UserAgentType("vouch")
+	KilnUserAgent             = UserAgentType("kiln")
+	CommitBoostUserAgent      = UserAgentType("commit-boost")
+	UnknownUserAgent          = UserAgentType("unknown")
 
 	MediaTypeJSON             = "application/json"
 	MediaTypeOctetStream      = "application/octet-stream"
@@ -183,4 +185,13 @@ func ReplaceBid(newBid *Bid, oldBid *Bid) bool {
 	// If the new bid value is greater than or equal to the existing bid value, we replace it
 	return bidValue.Cmp(bidValueExist) >= 0
 
+}
+
+func WeiToEth(valueString string) string {
+	numDigits := len(valueString)
+	missing := int(math.Max(0, float64((weiToEthSignificantDigits+1)-numDigits)))
+	prefix := "0000000000000000000"[:missing]
+	ethValue := prefix + valueString
+	decimalIndex := len(ethValue) - weiToEthSignificantDigits
+	return ethValue[:decimalIndex] + "." + ethValue[decimalIndex:]
 }
