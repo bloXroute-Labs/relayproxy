@@ -399,6 +399,7 @@ func (s *Service) sendPayloadStats(payload []byte, log *zerolog.Logger, isSuccee
 		Data: payloadStats,
 	}, time.Now().UTC(), s.nodeID, StatsRelayProxyGetPayload)
 }
+
 func mergeSlotStats(record *SlotStatsRecord, statsRecord *SlotStatsRecord) {
 	statsRecord.HeaderReqID = record.HeaderReqID
 	statsRecord.HeaderReqReceivedAt = record.HeaderReqReceivedAt
@@ -420,6 +421,7 @@ func mergeSlotStats(record *SlotStatsRecord, statsRecord *SlotStatsRecord) {
 	statsRecord.AccountID = record.AccountID
 	statsRecord.ValidatorID = record.ValidatorID
 }
+
 func (s *Service) validateAndFetchPayload(ctx context.Context, signedBlindedBeaconBlock *common.VersionedSignedBlindedBeaconBlock) (*common.VersionedPayloadInfo, *ErrorResp) {
 	slot, err := signedBlindedBeaconBlock.Slot()
 	if err != nil {
