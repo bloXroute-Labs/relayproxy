@@ -124,8 +124,8 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 	prefetchPayloadToSignedBlindedBeaconBlockSpan.End()
 
 	go func() {
-		if s.OnPayloadDelivered == nil {
-			log.Warn().Msg("skipping OnPayloadDelivered")
+		if s.OnPayloadRequested == nil {
+			log.Warn().Msg("skipping OnPayloadRequested")
 			return
 		}
 		var pubkeyStr string
@@ -135,9 +135,9 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 			pubkeyStr = pub.String()
 		}
 		proposerRequestStartTimeUnixMS, _ := strconv.ParseInt(in.GetPayloadStartTimeUnixMS, 10, 64)
-		err = s.OnPayloadDelivered(uint64(slot), blockHashStr, parentHashStr, pubkeyStr, in.ClientIP, in.ReceivedAt, &blindedBeaconBlock.VersionedSignedBlindedBeaconBlock, proposerRequestStartTimeUnixMS, in.ValidatorID)
+		err = s.OnPayloadRequested(uint64(slot), blockHashStr, parentHashStr, pubkeyStr, in.ClientIP, in.ReceivedAt, &blindedBeaconBlock.VersionedSignedBlindedBeaconBlock, proposerRequestStartTimeUnixMS, in.ValidatorID)
 		if err != nil {
-			log.Error().Err(err).Msg("failed to call OnPayloadDelivered")
+			log.Error().Err(err).Msg("failed to call OnPayloadRequested")
 		}
 	}()
 
