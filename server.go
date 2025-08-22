@@ -458,6 +458,11 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 	s.svc.SendAccount(accountID, validatorID)
 
+	headers := make([]string, 0, len(r.Header))
+	for k, v := range r.Header {
+		headers = append(headers, k+"="+v[0])
+	}
+
 	log := s.logger.With().
 		Str("reqHost", r.Host).
 		Str("method", r.Method).
@@ -472,6 +477,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 		Str("authHeader", authHeader).
 		Str("traceID", handleRegistrationSpan.SpanContext().TraceID().String()).
 		Str("boostSendTime", boostSendTime).
+		Strs("headers", headers).
 		Int64("latency", latency).
 		Logger()
 
@@ -488,6 +494,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 		attribute.String("traceID", handleRegistrationSpan.SpanContext().TraceID().String()),
 		attribute.String("boostSendTime", boostSendTime),
 		attribute.Int64("latency", latency),
+		attribute.StringSlice("headers", headers),
 	)
 	hasProposerMevProtect, err := GetProposerMevProtectQueryAny(parsedURL, &log)
 	if err != nil {
