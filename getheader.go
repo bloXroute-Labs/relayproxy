@@ -137,8 +137,8 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 
 	fetchGetHeaderStartTime := time.Now().UTC()
 	keyForCachingBids := s.keyForCachingBids(_slot, in.ParentHash, in.PubKey)
-	slotBestHeader, err := s.GetTopBuilderBid(keyForCachingBids)
-	if err != nil && s.OnHeaderBidRetrieved != nil {
+	slotBestHeader, getErr := s.GetTopBuilderBid(keyForCachingBids)
+	if getErr == nil && s.OnHeaderBidRetrieved != nil {
 		var newBestHeader *common.Bid
 		newBestHeaderCh := make(chan *common.Bid, 1)
 		go func() {
@@ -155,11 +155,10 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 		select {
 		case replacementHeader := <-newBestHeaderCh:
 			if replacementHeader != nil {
-				newBestHeader = newBestHeader
+				newBestHeader = replacementHeader
 			}
 		case <-time.After(time.Duration(delayGetHeaderResponse.ReplacementDelayMs * int64(time.Millisecond))):
 			log.Warn().Msg("OnHeaderBidRetrieved timeout")
-			err = errors.New("OnHeaderBidRetrieved timeout")
 			newBestHeader, err = s.GetTopBuilderBid(keyForCachingBids)
 			if err != nil {
 				log.Error().Err(err).Msg("GetTopBuilderBid after OnHeaderBidRetrieved timeout error")
@@ -167,6 +166,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 		}
 		if newBestHeader != nil {
 			log.Info().Msg("replacing best bid with new bid from OnHeaderBidRetrieved")
+			getErr = nil
 			// slotBestHeader = newBestHeader
 		}
 	}
