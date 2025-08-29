@@ -114,7 +114,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 		Logger()
 
 	parentSpan.SetAttributes(
-		attribute.Int64("msTntoSlot", msIntoSlot),
+		attribute.Int64("msIntoSlot", msIntoSlot),
 		attribute.Int64("msIntoSlotIncludingDelay", msIntoSlotIncludingDelay),
 	)
 
@@ -160,12 +160,13 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 			newBestHeaderCh := make(chan *common.Bid, 1)
 			go func() {
 				onHeaderBidRetrievedStart := time.Now()
-				newBestHeader, replaceable, repickErr := s.OnHeaderBidRetrieved(ctx, slotBestHeader, *log, parentSpan, _slot, in.ParentHash, slotBestHeader.BuilderPubkey, in.AccountID)
+				newBestHeader, replaceable, err := s.OnHeaderBidRetrieved(ctx, slotBestHeader, *log, parentSpan, _slot, in.ParentHash, slotBestHeader.BuilderPubkey, in.AccountID)
 				repickDurationMS = time.Since(onHeaderBidRetrievedStart).Milliseconds()
 				log.Info().Bool("replaceable", replaceable).Int64("onHeaderBidRetrievedDuration", repickDurationMS).Msg("OnHeaderBidRetrieved duration")
 				repickDataExist = replaceable
-				if repickErr != nil {
-					log.Error().Err(repickErr).Msg("OnHeaderBidRetrieved error")
+				if err != nil {
+					repickErr = err.Error()
+					log.Error().Err(err).Msg("OnHeaderBidRetrieved error")
 					newBestHeaderCh <- nil
 					return
 				}

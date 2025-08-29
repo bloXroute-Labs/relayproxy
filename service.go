@@ -443,6 +443,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			parentClient,
 			header.GetPayloadFetchUrl(),
 			header.GetRelayReceiveTime().AsTime(),
+			"",
 		)
 		s.setBuilderBidForProxySlot(k, header.GetBuilderPubkey(), bid, header.GetSlot())
 		storeBidsSpan.SetAttributes(
@@ -1019,6 +1020,7 @@ func (s *Service) handleStreamBlockResponse(
 		nil,
 		"",
 		block.RelayReceiveTime.AsTime(),
+		"",
 	)
 
 	// update block hash map if not seen already
