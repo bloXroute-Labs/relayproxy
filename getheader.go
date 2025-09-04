@@ -348,56 +348,56 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 			Type: TypeRelayProxyGetHeader,
 			Data: headerStats,
 		}, time.Now().UTC(), s.nodeID, StatsRelayProxyGetHeader)
-		GetHeaderStartTimeUnixMSInt, _ := strconv.ParseInt(in.GetHeaderStartTimeUnixMS, 10, 64)
+		validatorInfo, found := s.miniProposerSlotMap.Load(_slot)
+		if found && validatorInfo != nil && validatorInfo.Registration != nil {
+			record := headerProvidedToValidatorIP{
+				IPMatches:                true,
+				Slot:                     strconv.FormatUint(_slot, 10),
+				ProposerPublicKey:        in.PubKey,
+				Value:                    blockValue.String(),
+				BlockHash:                slotBestHeader.BlockHash,
+				ExtraData:                slotBestHeader.BuilderExtraData,
+				FeeRecipient:             validatorInfo.Registration.Message.FeeRecipient.String(),
+				BidPubkey:                slotBestHeader.BuilderPubkey,
+				BuilderPubkey:            slotBestHeader.BuilderPubkey,
+				MSIntoSlot:               msIntoSlot,
+				GetHeaderRequestSendTime: msIntoSlot - latency,
+				UserAgent:                in.UserAgent,
+				UsingRelayProxy:          true,
+				ClientIPAddress:          in.ClientIP,
+				RequestID:                in.ValidatorID,
+				Region:                   s.nodeID,
+				SleepAmount:              delayGetHeaderResponse.Sleep,
+				MaxSleepIntoSlot:         delayGetHeaderResponse.MaxSleep,
+				SleepType:                "proxy",
+				ISP:                      "",
+				IPOrganization:           "",
+				State:                    "",
+				Country:                  "",
+				DataSource:               "proxy",
+				Duration:                 time.Since(in.ReceivedAt).Milliseconds(),
 
-		record := headerProvidedToValidatorIP{
-			IPMatches:         true,
-			Slot:              strconv.FormatUint(_slot, 10),
-			ProposerPublicKey: in.PubKey,
-			Value:             blockValue.String(),
-			BlockHash:         slotBestHeader.BlockHash,
-			ExtraData:         slotBestHeader.BuilderExtraData,
-			// FeeRecipient:             slotBestHeader.FeeRecipient.String(),
-			BidPubkey:                slotBestHeader.BuilderPubkey,
-			BuilderPubkey:            slotBestHeader.BuilderPubkey,
-			MSIntoSlot:               msIntoSlot,
-			GetHeaderRequestSendTime: GetHeaderStartTimeUnixMSInt,
-			UserAgent:                in.UserAgent,
-			UsingRelayProxy:          true,
-			ClientIPAddress:          in.ClientIP,
-			RequestID:                in.ValidatorID,
-			Region:                   s.nodeID,
-			SleepAmount:              delayGetHeaderResponse.Sleep,
-			MaxSleepIntoSlot:         delayGetHeaderResponse.MaxSleep,
-			SleepType:                "proxy",
-			ISP:                      "",
-			IPOrganization:           "",
-			State:                    "",
-			Country:                  "",
-			DataSource:               "",
-			Duration:                 time.Since(in.ReceivedAt).Milliseconds(),
+				OriginalValue:         originalValue.String(),
+				OriginalBlockHash:     originalBlockHash,
+				BidAdjustmentDuration: repickDurationMS,
+				UsedAdjustment:        usedRepick,
+				AdjustmentDataExist:   repickDataExist,
+				AdjustmentDataSuccess: repickDataSuccess,
+				AdjustmentError:       repickErr,
 
-			OriginalValue:         originalValue.String(),
-			OriginalBlockHash:     originalBlockHash,
-			BidAdjustmentDuration: repickDurationMS,
-			UsedAdjustment:        usedRepick,
-			AdjustmentDataExist:   repickDataExist,
-			AdjustmentDataSuccess: repickDataSuccess,
-			AdjustmentError:       repickErr,
+				SecondPlaceBuilderValue:         "",
+				SecondPlaceBuilderBlockHash:     "",
+				SecondPlaceBuilderBuilderPubkey: "",
+				SecondPlaceBuilderExtraData:     "",
+				SecondPlaceBuilderFeeRecipient:  "",
 
-			SecondPlaceBuilderValue:         "",
-			SecondPlaceBuilderBlockHash:     "",
-			SecondPlaceBuilderBuilderPubkey: "",
-			SecondPlaceBuilderExtraData:     "",
-			SecondPlaceBuilderFeeRecipient:  "",
-
-			Type: "StatsHeaderProvidedToValidatorIP",
+				Type: "StatsHeaderProvidedToValidatorIP",
+			}
+			s.fluentD.LogToFluentD(fluentstats.Record{
+				Type: "StatsHeaderProvidedToValidatorIP",
+				Data: record,
+			}, time.Now().UTC(), s.nodeID, "stats.header_provided_to_validator_ip")
 		}
-		s.fluentD.LogToFluentD(fluentstats.Record{
-			Type: "StatsHeaderProvidedToValidatorIP",
-			Data: record,
-		}, time.Now().UTC(), s.nodeID, "stats.header_provided_to_validator_ip")
-
 	}()
 
 	// send in payload to pre fetcher event
