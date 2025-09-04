@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -155,12 +156,13 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 	repickTime := time.Now().Add(time.Duration(delayGetHeaderResponse.ReplacementDelayMs) * time.Millisecond)
 	if delayGetHeaderResponse.ReplacementDelayMs > 0 {
 		log.Info().Int64("replacementDelayMs", delayGetHeaderResponse.ReplacementDelayMs).Msg("waiting for replacement delay")
-		usedRepick := false
 		if getErr == nil && s.OnHeaderBidRetrieved != nil {
 			newBestHeaderCh := make(chan *common.Bid, 1)
 			go func() {
 				onHeaderBidRetrievedStart := time.Now()
+				_, onHeadonHeaderBidRetrievedSpan := s.tracer.Start(ctx, "getHeader-onHeaderBidRetrieved")
 				newBestHeader, replaceable, err := s.OnHeaderBidRetrieved(ctx, slotBestHeader, *log, parentSpan, _slot, in.ParentHash, slotBestHeader.BuilderPubkey, in.AccountID)
+				onHeadonHeaderBidRetrievedSpan.End(trace.WithTimestamp(time.Now()))
 				repickDurationMS = time.Since(onHeaderBidRetrievedStart).Milliseconds()
 				log.Info().Bool("replaceable", replaceable).Int64("onHeaderBidRetrievedDuration", repickDurationMS).Msg("OnHeaderBidRetrieved duration")
 				repickDataExist = replaceable
@@ -182,6 +184,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 				}
 			case <-time.After(time.Duration(delayGetHeaderResponse.ReplacementDelayMs * int64(time.Millisecond))):
 				log.Error().Msg("OnHeaderBidRetrieved took too long, proceeding with the original bid")
+				repickErr = "timeout waiting for OnHeaderBidRetrieved"
 				repickDataSuccess = false
 			}
 		}
@@ -345,6 +348,56 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 			Type: TypeRelayProxyGetHeader,
 			Data: headerStats,
 		}, time.Now().UTC(), s.nodeID, StatsRelayProxyGetHeader)
+		GetHeaderStartTimeUnixMSInt, _ := strconv.ParseInt(in.GetHeaderStartTimeUnixMS, 10, 64)
+
+		record := headerProvidedToValidatorIP{
+			IPMatches:         true,
+			Slot:              strconv.FormatUint(_slot, 10),
+			ProposerPublicKey: in.PubKey,
+			Value:             blockValue.String(),
+			BlockHash:         slotBestHeader.BlockHash,
+			ExtraData:         slotBestHeader.BuilderExtraData,
+			// FeeRecipient:             slotBestHeader.FeeRecipient.String(),
+			BidPubkey:                slotBestHeader.BuilderPubkey,
+			BuilderPubkey:            slotBestHeader.BuilderPubkey,
+			MSIntoSlot:               msIntoSlot,
+			GetHeaderRequestSendTime: GetHeaderStartTimeUnixMSInt,
+			UserAgent:                in.UserAgent,
+			UsingRelayProxy:          true,
+			ClientIPAddress:          in.ClientIP,
+			RequestID:                in.ValidatorID,
+			Region:                   s.nodeID,
+			SleepAmount:              delayGetHeaderResponse.Sleep,
+			MaxSleepIntoSlot:         delayGetHeaderResponse.MaxSleep,
+			SleepType:                "proxy",
+			ISP:                      "",
+			IPOrganization:           "",
+			State:                    "",
+			Country:                  "",
+			DataSource:               "",
+			Duration:                 time.Since(in.ReceivedAt).Milliseconds(),
+
+			OriginalValue:         originalValue.String(),
+			OriginalBlockHash:     originalBlockHash,
+			BidAdjustmentDuration: repickDurationMS,
+			UsedAdjustment:        usedRepick,
+			AdjustmentDataExist:   repickDataExist,
+			AdjustmentDataSuccess: repickDataSuccess,
+			AdjustmentError:       repickErr,
+
+			SecondPlaceBuilderValue:         "",
+			SecondPlaceBuilderBlockHash:     "",
+			SecondPlaceBuilderBuilderPubkey: "",
+			SecondPlaceBuilderExtraData:     "",
+			SecondPlaceBuilderFeeRecipient:  "",
+
+			Type: "StatsHeaderProvidedToValidatorIP",
+		}
+		s.fluentD.LogToFluentD(fluentstats.Record{
+			Type: "StatsHeaderProvidedToValidatorIP",
+			Data: record,
+		}, time.Now().UTC(), s.nodeID, "stats.header_provided_to_validator_ip")
+
 	}()
 
 	// send in payload to pre fetcher event
