@@ -9,7 +9,6 @@ require (
 	github.com/attestantio/go-eth2-client v0.25.0
 	github.com/bloXroute-Labs/relay-grpc v0.0.50
 	github.com/ethereum/go-ethereum v1.15.5
-	github.com/ferranbt/fastssz v0.1.4
 	github.com/flashbots/go-boost-utils v1.9.0
 	github.com/fluent/fluent-logger-golang v1.9.0
 	github.com/go-chi/chi/v5 v5.1.0
@@ -46,6 +45,7 @@ require (
 	github.com/emicklei/dot v1.8.0 // indirect
 	github.com/ethereum/c-kzg-4844 v1.0.3 // indirect
 	github.com/ethereum/go-verkle v0.2.2 // indirect
+	github.com/ferranbt/fastssz v0.1.4 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
