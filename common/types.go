@@ -22,7 +22,6 @@ import (
 	eth2ApiV1Electra "github.com/attestantio/go-eth2-client/api/v1/electra"
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"github.com/bloXroute-Labs/mev-boost-relay/common"
 	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
 	"github.com/bloXroute-Labs/relay-grpc/bidadjustment"
 	"github.com/bloXroute-Labs/relay-grpc/optimisticv3"
@@ -508,10 +507,10 @@ type PreFetchGetPayloadRequestHTTP struct {
 	ReceivedAt *timestamppb.Timestamp
 }
 
-func ToSubmitBlockRequest(v *optimisticv3.VersionedAdjustableSubmitBlockRequest) (*common.VersionedSubmitBlockRequest, *bidadjustment.AdjustmentData, error) {
+func ToSubmitBlockRequest(v *optimisticv3.VersionedAdjustableSubmitBlockRequest) (*VersionedSubmitBlockRequest, *bidadjustment.AdjustmentData, error) {
 	switch v.Version {
 	case spec.DataVersionDeneb:
-		return &common.VersionedSubmitBlockRequest{
+		return &VersionedSubmitBlockRequest{
 			VersionedSubmitBlockRequest: builderSpec.VersionedSubmitBlockRequest{
 				Version: spec.DataVersionDeneb,
 				Deneb: &deneb.SubmitBlockRequest{
@@ -523,7 +522,7 @@ func ToSubmitBlockRequest(v *optimisticv3.VersionedAdjustableSubmitBlockRequest)
 			},
 		}, v.Deneb.AdjustmentData, nil
 	case spec.DataVersionElectra:
-		return &common.VersionedSubmitBlockRequest{
+		return &VersionedSubmitBlockRequest{
 			VersionedSubmitBlockRequest: builderSpec.VersionedSubmitBlockRequest{
 				Version: spec.DataVersionElectra,
 				Electra: &electra.SubmitBlockRequest{
