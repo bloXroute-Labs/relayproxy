@@ -18,6 +18,7 @@ import (
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
+	"github.com/bloXroute-Labs/relay-grpc/optimisticv3"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fastjson"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
@@ -627,16 +628,16 @@ func (s *Service) prefetchPayloadFromBuilder(ctx context.Context, spanCtx contex
 		span.End()
 	}()
 
-	payloadUrlsData := common.SafeSplit(fields.payloadFetchUrl, common.PayloadUrlsTypeSeparator)
+	payloadUrlsData := common.SafeSplit(fields.payloadFetchUrl, optimisticv3.PayloadUrlsTypeSeparator)
 
-	if len(payloadUrlsData) != common.PayloadUrlsDataExpectedLength {
+	if len(payloadUrlsData) != optimisticv3.PayloadUrlsDataExpectedLength {
 		logMetric.Fields(map[string]any{"payloadUrlsData": payloadUrlsData})
 		s.logger.Error().Err(errors.New("invalid payload URL format")).Fields(logMetric.GetFields()).Msg("Failed to fetch Optimistic V3 payload from builder")
 		return
 	}
 
-	payloadUrlType := payloadUrlsData[common.PayloadUrlTypeIndex]
-	payloadUrlsCSV := payloadUrlsData[common.PayloadUrlsCSVIndex]
+	payloadUrlType := payloadUrlsData[optimisticv3.PayloadUrlTypeIndex]
+	payloadUrlsCSV := payloadUrlsData[optimisticv3.PayloadUrlsCSVIndex]
 	payloadUrls := common.SafeSplit(payloadUrlsCSV, ",")
 
 	logMetric.Fields(map[string]any{
@@ -649,11 +650,11 @@ func (s *Service) prefetchPayloadFromBuilder(ctx context.Context, spanCtx contex
 		attribute.StringSlice("payloadUrls", payloadUrls),
 	)
 
-	switch common.PayloadUrlType(payloadUrlType) {
-	case common.PayloadUrlTypeHTTP:
+	switch optimisticv3.PayloadUrlType(payloadUrlType) {
+	case optimisticv3.PayloadUrlTypeHTTP:
 		success.Store(s.clientPreFetchGetPayloadHTTP(ctx, logMetric, fields, payloadUrls))
 		return
-	case common.PayloadUrlTypeGRPC:
+	case optimisticv3.PayloadUrlTypeGRPC:
 		// We only support HTTP requests for Optimistic V3 payloads from builders for now
 		s.logger.Warn().Fields(logMetric.GetFields()).Msg("Ignoring fetch Optimistic V3 payload request with 'grpc' URL type")
 		return
@@ -717,8 +718,8 @@ func (s *Service) clientPreFetchGetPayloadHTTP(
 	return s.processGetPayloadV3Responses(ctx, responseChan, logMetric, fields)
 }
 
-func (s *Service) prepareGetPayloadV3Request(blockHash string) (*common.SignedGetPayloadV3, error) {
-	getPayloadV3 := &common.GetPayloadV3{
+func (s *Service) prepareGetPayloadV3Request(blockHash string) (*optimisticv3.SignedGetPayloadV3, error) {
+	getPayloadV3 := &optimisticv3.GetPayloadV3{
 		BlockHash:      phase0.Hash32(gethcommon.HexToHash(blockHash)),
 		RequestTs:      uint64(time.Now().UnixMilli()),
 		RelayPublicKey: s.publicKey,
@@ -729,7 +730,7 @@ func (s *Service) prepareGetPayloadV3Request(blockHash string) (*common.SignedGe
 		return nil, err
 	}
 
-	return &common.SignedGetPayloadV3{
+	return &optimisticv3.SignedGetPayloadV3{
 		Message:   getPayloadV3,
 		Signature: signature,
 	}, nil

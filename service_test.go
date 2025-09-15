@@ -806,6 +806,8 @@ type mockRelayClient struct {
 	StreamSlotInfoFunc    func(ctx context.Context, in *relaygrpc.StreamSlotRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamSlotInfoClient, error)
 
 	ForwardBlockFunc func(ctx context.Context, in *relaygrpc.StreamBlockResponse, opts ...grpc.CallOption) (*relaygrpc.SubmitBlockResponse, error)
+
+	SendHeaderDeliveredFunc func(ctx context.Context, in *relaygrpc.HeaderDeliveredRequest, opts ...grpc.CallOption) (*relaygrpc.HeaderDeliveredResponse, error)
 }
 
 func (m *mockRelayClient) Ping(ctx context.Context, in *relaygrpc.PingRequest, opts ...grpc.CallOption) (*relaygrpc.PingResponse, error) {
@@ -879,6 +881,13 @@ func (m *mockRelayClient) StreamSlotInfo(ctx context.Context, in *relaygrpc.Stre
 	return nil, nil
 }
 
+func (m *mockRelayClient) SendHeaderDelivered(ctx context.Context, in *relaygrpc.HeaderDeliveredRequest, opts ...grpc.CallOption) (*relaygrpc.HeaderDeliveredResponse, error) {
+	if m.SendHeaderDeliveredFunc != nil {
+		return m.SendHeaderDeliveredFunc(ctx, in, opts...)
+	}
+	return nil, nil
+}
+
 // MockClient is a mock of Client interface
 type MockClient struct {
 	mock.Mock
@@ -940,6 +949,11 @@ func (m *MockClient) StreamSlotInfo(ctx context.Context, in *relaygrpc.StreamSlo
 }
 
 func (m *MockClient) ForwardBlock(ctx context.Context, in *relaygrpc.StreamBlockResponse, opts ...grpc.CallOption) (*relaygrpc.SubmitBlockResponse, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m *MockClient) SendHeaderDelivered(ctx context.Context, in *relaygrpc.HeaderDeliveredRequest, opts ...grpc.CallOption) (*relaygrpc.HeaderDeliveredResponse, error) {
 	//TODO implement me
 	panic("implement me")
 }

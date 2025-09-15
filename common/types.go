@@ -13,14 +13,19 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
-
+	"github.com/attestantio/go-builder-client/api/deneb"
+	"github.com/attestantio/go-builder-client/api/electra"
 	builderApiV1 "github.com/attestantio/go-builder-client/api/v1"
+	builderSpec "github.com/attestantio/go-builder-client/spec"
 	eth2Api "github.com/attestantio/go-eth2-client/api"
 	eth2ApiV1Deneb "github.com/attestantio/go-eth2-client/api/v1/deneb"
 	eth2ApiV1Electra "github.com/attestantio/go-eth2-client/api/v1/electra"
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/bloXroute-Labs/mev-boost-relay/common"
+	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
+	"github.com/bloXroute-Labs/relay-grpc/bidadjustment"
+	"github.com/bloXroute-Labs/relay-grpc/optimisticv3"
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flashbots/go-boost-utils/bls"
@@ -71,9 +76,10 @@ var (
 	SepoliaChainID = "11155111"
 	MainnetChainID = "1"
 
-	IsElectra        bool
-	TransferGasLimit = uint64(21000)
-	SlotsPerEpoch    = uint64(32)
+	IsElectra                       bool
+	TransferGasLimit                = uint64(21000)
+	SlotsPerEpoch                   = uint64(32)
+	OptimisticV3FetchPayloadTimeout = 10 * time.Second
 )
 
 type EthNetworkDetails struct {
@@ -338,7 +344,7 @@ func NewParentClient(safeUrl string, safeConn *grpc.ClientConn, fastUrl string, 
 type Bid struct {
 	Value              []byte // block value
 	payload            []byte // blinded block
-	HeaderSubmissionV3 *HeaderSubmissionV3
+	HeaderSubmissionV3 *optimisticv3.HeaderSubmissionV3
 	BlockHash          string
 	BuilderPubkey      string
 	BuilderExtraData   string
@@ -351,7 +357,7 @@ type Bid struct {
 
 func NewBid(Value []byte,
 	payload []byte,
-	headerSubmissionV3 *HeaderSubmissionV3,
+	headerSubmissionV3 *optimisticv3.HeaderSubmissionV3,
 	blockHash string,
 	builderPubkey string,
 	builderExtraData string,
@@ -500,4 +506,35 @@ type PreFetchGetPayloadRequestHTTP struct {
 	Pubkey     string
 	ClientIp   string
 	ReceivedAt *timestamppb.Timestamp
+}
+
+func ToSubmitBlockRequest(v *optimisticv3.VersionedAdjustableSubmitBlockRequest) (*common.VersionedSubmitBlockRequest, *bidadjustment.AdjustmentData, error) {
+	switch v.Version {
+	case spec.DataVersionDeneb:
+		return &common.VersionedSubmitBlockRequest{
+			VersionedSubmitBlockRequest: builderSpec.VersionedSubmitBlockRequest{
+				Version: spec.DataVersionDeneb,
+				Deneb: &deneb.SubmitBlockRequest{
+					Message:          v.Deneb.Message,
+					ExecutionPayload: v.Deneb.ExecutionPayload,
+					BlobsBundle:      v.Deneb.BlobsBundle,
+					Signature:        v.Deneb.Signature,
+				},
+			},
+		}, v.Deneb.AdjustmentData, nil
+	case spec.DataVersionElectra:
+		return &common.VersionedSubmitBlockRequest{
+			VersionedSubmitBlockRequest: builderSpec.VersionedSubmitBlockRequest{
+				Version: spec.DataVersionElectra,
+				Electra: &electra.SubmitBlockRequest{
+					Message:           v.Electra.Message,
+					ExecutionPayload:  v.Electra.ExecutionPayload,
+					BlobsBundle:       v.Electra.BlobsBundle,
+					ExecutionRequests: v.Electra.ExecutionRequests,
+					Signature:         v.Electra.Signature,
+				},
+			},
+		}, v.Electra.AdjustmentData, nil
+	}
+	return nil, nil, errors.New("unknown data version")
 }

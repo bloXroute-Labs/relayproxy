@@ -17,6 +17,7 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/bellatrix"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
+	"github.com/bloXroute-Labs/relay-grpc/optimisticv3"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 	gethcommon "github.com/ethereum/go-ethereum/common"
@@ -427,7 +428,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 		// Store the bid for builder pubkey
 		_, storeBidsSpan := s.tracer.Start(streamReceiveCtx, "StreamHeader-storeBids")
 		payloadURL := "grpc;" + client.URL
-		headerSubmissionV3, err := common.RelayGrpcHeaderSubmissionToVersioned(header, []byte(payloadURL))
+		headerSubmissionV3, err := optimisticv3.RelayGrpcHeaderSubmissionToVersioned(header, []byte(payloadURL))
 		if err != nil && header.GetPayload() == nil {
 			s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to convert to versioned header submission")
 			continue
