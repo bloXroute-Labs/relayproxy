@@ -13,6 +13,7 @@ import (
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/electra"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/bloXroute-Labs/relay-grpc/optimisticv3"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/ssz"
 	"github.com/flashbots/go-boost-utils/utils"
@@ -68,7 +69,7 @@ func BuildGetHeaderResponse(payload *VersionedSubmitBlockRequest) (*builderSpec.
 	}
 }
 
-func BuildGetHeaderResponseV3(payload *HeaderSubmissionV3, sk *bls.SecretKey, pubkey *phase0.BLSPubKey, domain phase0.Domain) (*builderSpec.VersionedSignedBuilderBid, error) {
+func BuildGetHeaderResponseV3(payload *optimisticv3.HeaderSubmissionV3, sk *bls.SecretKey, pubkey *phase0.BLSPubKey, domain phase0.Domain) (*builderSpec.VersionedSignedBuilderBid, error) {
 	if payload == nil {
 		return nil, errMissingRequest
 	}
@@ -214,7 +215,7 @@ func BuilderBlockRequestToSignedBuilderBid(payload *VersionedSubmitBlockRequest,
 	}
 }
 
-func BuilderBlockRequestToSignedBuilderBidV3(payload *HeaderSubmissionV3, sk *bls.SecretKey, pubkey *phase0.BLSPubKey, domain phase0.Domain) (*builderSpec.VersionedSignedBuilderBid, error) {
+func BuilderBlockRequestToSignedBuilderBidV3(payload *optimisticv3.HeaderSubmissionV3, sk *bls.SecretKey, pubkey *phase0.BLSPubKey, domain phase0.Domain) (*builderSpec.VersionedSignedBuilderBid, error) {
 	bidtrace, err := payload.Submission.BidTrace()
 	if err != nil {
 		return nil, err
@@ -322,7 +323,7 @@ func ReSignVersionedSignedBuilderBid(versionedSignedBuilderBid *VersionedSignedB
 	}
 }
 
-func BuildHeaderSubmissionV3(payload *VersionedSubmitBlockRequest) (*HeaderSubmissionV3, error) {
+func BuildHeaderSubmissionV3(payload *VersionedSubmitBlockRequest) (*optimisticv3.HeaderSubmissionV3, error) {
 	if payload == nil {
 		return nil, errMissingRequest
 	}
@@ -336,12 +337,12 @@ func BuildHeaderSubmissionV3(payload *VersionedSubmitBlockRequest) (*HeaderSubmi
 
 			return nil, err
 		}
-		return &HeaderSubmissionV3{
+		return &optimisticv3.HeaderSubmissionV3{
 			URL: []byte{},
-			Submission: &VersionedSignedHeaderSubmission{
+			Submission: &optimisticv3.VersionedSignedHeaderSubmission{
 				Version: spec.DataVersionElectra,
-				Electra: &SignedHeaderSubmissionElectra{
-					Message: HeaderSubmissionElectra{
+				Electra: &optimisticv3.SignedHeaderSubmissionElectra{
+					Message: optimisticv3.HeaderSubmissionElectra{
 						BidTrace:               payload.Electra.Message,
 						ExecutionPayloadHeader: header.Electra,
 						Commitments:            payload.Electra.BlobsBundle.Commitments,
@@ -356,12 +357,12 @@ func BuildHeaderSubmissionV3(payload *VersionedSubmitBlockRequest) (*HeaderSubmi
 		if err != nil {
 			return nil, err
 		}
-		return &HeaderSubmissionV3{
+		return &optimisticv3.HeaderSubmissionV3{
 			URL: []byte{},
-			Submission: &VersionedSignedHeaderSubmission{
+			Submission: &optimisticv3.VersionedSignedHeaderSubmission{
 				Version: spec.DataVersionDeneb,
-				Deneb: &SignedHeaderSubmissionDeneb{
-					Message: HeaderSubmissionDenebV2{
+				Deneb: &optimisticv3.SignedHeaderSubmissionDeneb{
+					Message: optimisticv3.HeaderSubmissionDenebV2{
 						BidTrace:               payload.Deneb.Message,
 						ExecutionPayloadHeader: header.Deneb,
 						Commitments:            payload.Deneb.BlobsBundle.Commitments,
@@ -376,7 +377,7 @@ func BuildHeaderSubmissionV3(payload *VersionedSubmitBlockRequest) (*HeaderSubmi
 	}
 }
 
-func BuildGetHeaderResponseAndSign(headerSubmissionV3 *HeaderSubmissionV3, sk *bls.SecretKey, pubkey *phase0.BLSPubKey, domain phase0.Domain) (*builderSpec.VersionedSignedBuilderBid, error) {
+func BuildGetHeaderResponseAndSign(headerSubmissionV3 *optimisticv3.HeaderSubmissionV3, sk *bls.SecretKey, pubkey *phase0.BLSPubKey, domain phase0.Domain) (*builderSpec.VersionedSignedBuilderBid, error) {
 	if headerSubmissionV3 == nil {
 		return nil, errMissingRequest
 	}
@@ -407,7 +408,7 @@ func BuildGetHeaderResponseAndSign(headerSubmissionV3 *HeaderSubmissionV3, sk *b
 	}
 }
 
-func SignExecutionPayloadHeader(headerSubmissionV3 *HeaderSubmissionV3, sk *bls.SecretKey, pubkey *phase0.BLSPubKey, domain phase0.Domain) (*builderSpec.VersionedSignedBuilderBid, error) {
+func SignExecutionPayloadHeader(headerSubmissionV3 *optimisticv3.HeaderSubmissionV3, sk *bls.SecretKey, pubkey *phase0.BLSPubKey, domain phase0.Domain) (*builderSpec.VersionedSignedBuilderBid, error) {
 	header := headerSubmissionV3.Submission
 	switch header.Version { //nolint:exhaustive
 	case spec.DataVersionElectra:
