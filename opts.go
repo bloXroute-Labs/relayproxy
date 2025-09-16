@@ -213,7 +213,16 @@ func WithClients(clients []*common.ParentClient) ServiceOption {
 
 func WithStreamingClients(clients []*common.ParentClient) ServiceOption {
 	return func(s *Service) {
+		uniqueClientsMap := make(map[string]*common.ParentClient)
+		uniqueClients := make([]*common.ParentClient, 0)
+		for _, client := range clients {
+			if _, exists := uniqueClientsMap[client.SafeClient.URL]; !exists {
+				uniqueClientsMap[client.SafeClient.URL] = client
+				uniqueClients = append(uniqueClients, client)
+			}
+		}
 		s.streamingClients = clients
+		s.uniqueStreamingClients = uniqueClients
 	}
 }
 
