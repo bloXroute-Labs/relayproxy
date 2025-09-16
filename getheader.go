@@ -162,7 +162,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 			go func() {
 				onHeaderBidRetrievedStart := time.Now()
 				_, onHeadonHeaderBidRetrievedSpan := s.tracer.Start(ctx, "getHeader-onHeaderBidRetrieved")
-				newBestHeader, replaceable, err := s.OnHeaderBidRetrieved(ctx, slotBestHeader, *log, parentSpan, _slot, in.ParentHash, slotBestHeader.BuilderPubkey, in.AccountID)
+				newBestHeader, replaceable, err := s.OnHeaderBidRetrieved(ctx, slotBestHeader, *log, parentSpan, _slot, in.ParentHash, slotBestHeader.BuilderPubkey, in.AccountID, delayGetHeaderResponse.ReplacementDelayMs, s.streamingClients)
 				onHeadonHeaderBidRetrievedSpan.End(trace.WithTimestamp(time.Now()))
 				repickDurationMS = time.Since(onHeaderBidRetrievedStart).Milliseconds()
 				log.Info().Bool("replaceable", replaceable).Int64("onHeaderBidRetrievedDuration", repickDurationMS).Msg("OnHeaderBidRetrieved duration")

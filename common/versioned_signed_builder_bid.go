@@ -7,6 +7,7 @@ import (
 	builderApiElectra "github.com/attestantio/go-builder-client/api/electra"
 	builderSpec "github.com/attestantio/go-builder-client/spec"
 	"github.com/attestantio/go-eth2-client/spec"
+	"github.com/attestantio/go-eth2-client/spec/deneb"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/pkg/errors"
 )
@@ -119,5 +120,73 @@ func (r *VersionedSignedBuilderBid) Bid() (any, error) {
 		return r.Deneb, nil
 	default:
 		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
+	}
+}
+func (r *VersionedSignedBuilderBid) Commitments() ([]deneb.KZGCommitment, error) {
+	switch r.Version {
+	case spec.DataVersionElectra:
+		if r.Electra == nil {
+			return nil, errors.New("no data")
+		}
+		if r.Electra.Message == nil {
+			return nil, errors.New("no data message")
+		}
+		return r.Electra.Message.BlobKZGCommitments, nil
+	case spec.DataVersionDeneb:
+		if r.Deneb == nil {
+			return nil, errors.New("no data")
+		}
+		if r.Deneb.Message == nil {
+			return nil, errors.New("no data message")
+		}
+		return r.Deneb.Message.BlobKZGCommitments, nil
+	default:
+		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
+	}
+}
+
+func (r *VersionedSignedBuilderBid) BlobGasUsed() (uint64, error) {
+	switch r.Version {
+	case spec.DataVersionElectra:
+		if r.Electra == nil {
+			return 0, errors.New("no data")
+		}
+		if r.Electra.Message == nil {
+			return 0, errors.New("no data message")
+		}
+		return r.Electra.Message.Header.BlobGasUsed, nil
+	case spec.DataVersionDeneb:
+		if r.Deneb == nil {
+			return 0, errors.New("no data")
+		}
+		if r.Deneb.Message == nil {
+			return 0, errors.New("no data message")
+		}
+		return r.Deneb.Message.Header.BlobGasUsed, nil
+	default:
+		return 0, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
+	}
+}
+
+func (r *VersionedSignedBuilderBid) ExcessBlobGas() (uint64, error) {
+	switch r.Version {
+	case spec.DataVersionElectra:
+		if r.Electra == nil {
+			return 0, errors.New("no data")
+		}
+		if r.Electra.Message == nil {
+			return 0, errors.New("no data message")
+		}
+		return r.Electra.Message.Header.ExcessBlobGas, nil
+	case spec.DataVersionDeneb:
+		if r.Deneb == nil {
+			return 0, errors.New("no data")
+		}
+		if r.Deneb.Message == nil {
+			return 0, errors.New("no data message")
+		}
+		return r.Deneb.Message.Header.ExcessBlobGas, nil
+	default:
+		return 0, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
 	}
 }
