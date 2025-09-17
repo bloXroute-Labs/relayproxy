@@ -456,8 +456,14 @@ func (s *Service) StartPreFetcher(ctx context.Context) {
 }
 
 func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherFields) {
-	var clientURL string
+	var (
+		clientURL string
+		success   bool
+	)
 	startTime := time.Now().UTC()
+	defer func() {
+		s.performancestats.SetEndpointStats("PreFetchGetPayload-rproxy", uint64(time.Since(startTime).Microseconds()), success, 100)
+	}()
 	id := uuid.NewString()
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
@@ -505,22 +511,14 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 
 	// If necessary, fetch the Optimistic V3 payload directly from the specified builder URL(s)
 	if fields.payloadFetchUrl != "" {
-		s.prefetchPayloadFromBuilder(ctx, spanctx, &fields, logMetric.Copy())
+		success = s.prefetchPayloadFromBuilder(ctx, spanctx, &fields, logMetric.Copy())
 		return
 	}
 
-	s.prefetchPayloadGRPC(ctx, spanctx, &fields, logMetric.Copy(), span, id, startTime)
+	s.prefetchPayloadGRPC(ctx, spanctx, &fields, logMetric.Copy(), span, id, startTime, &success)
 }
 
-func (s *Service) prefetchPayloadGRPC(
-	ctx context.Context,
-	spanctx context.Context,
-	fields *preFetcherFields,
-	logMetric *LogMetric,
-	span trace.Span,
-	reqID string,
-	startTime time.Time,
-) {
+func (s *Service) prefetchPayloadGRPC(ctx context.Context, spanctx context.Context, fields *preFetcherFields, logMetric *LogMetric, span trace.Span, reqID string, startTime time.Time, success *bool) {
 	req := &relaygrpc.PreFetchGetPayloadRequest{
 		ReqId:       reqID,
 		Version:     s.version,
@@ -610,7 +608,7 @@ func (s *Service) prefetchPayloadGRPC(
 			s.logger.Error().Fields(logMetric.GetFields()).Interface("error", _err).Msg("PreFetchGetPayload :: Received error")
 		case out := <-respChan:
 			proxyCacheKey := common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey)
-
+			*success = true
 			payloadResponse := &common.PayloadResponseForProxy{
 				MarshalledPayloadResponse: out.VersionedExecutionPayload,
 				BlockValue:                fields.blockValue,
@@ -618,6 +616,7 @@ func (s *Service) prefetchPayloadGRPC(
 
 			if err := s.getPayloadResponseForProxySlot.Add(proxyCacheKey, payloadResponse, cache.DefaultExpiration); err != nil {
 				s.logger.Warn().Fields(logMetric.GetFields()).Err(err).Msg("PreFetchGetPayload :: respChan :: cache execution payload failed")
+				*success = false
 				return
 			}
 
@@ -627,8 +626,8 @@ func (s *Service) prefetchPayloadGRPC(
 	}
 }
 
-func (s *Service) prefetchPayloadFromBuilder(ctx context.Context, spanCtx context.Context, fields *preFetcherFields, logMetric *LogMetric) {
-	_, span := s.tracer.Start(ctx, "prefetchPayloadFromBuilder")
+func (s *Service) prefetchPayloadFromBuilder(ctx context.Context, spanCtx context.Context, fields *preFetcherFields, logMetric *LogMetric) bool {
+	_, span := s.tracer.Start(spanCtx, "prefetchPayloadFromBuilder")
 	var success atomic.Bool
 
 	defer func() {
@@ -641,7 +640,7 @@ func (s *Service) prefetchPayloadFromBuilder(ctx context.Context, spanCtx contex
 	if len(payloadUrlsData) != optimisticv3.PayloadUrlsDataExpectedLength {
 		logMetric.Fields(map[string]any{"payloadUrlsData": payloadUrlsData})
 		s.logger.Error().Err(errors.New("invalid payload URL format")).Fields(logMetric.GetFields()).Msg("Failed to fetch Optimistic V3 payload from builder")
-		return
+		return success.Load()
 	}
 
 	payloadUrlType := payloadUrlsData[optimisticv3.PayloadUrlTypeIndex]
@@ -661,15 +660,15 @@ func (s *Service) prefetchPayloadFromBuilder(ctx context.Context, spanCtx contex
 	switch optimisticv3.PayloadUrlType(payloadUrlType) {
 	case optimisticv3.PayloadUrlTypeHTTP:
 		success.Store(s.clientPreFetchGetPayloadHTTP(ctx, logMetric, fields, payloadUrls))
-		return
+		return success.Load()
 	case optimisticv3.PayloadUrlTypeGRPC:
 		// We only support HTTP requests for Optimistic V3 payloads from builders for now
 		s.logger.Warn().Fields(logMetric.GetFields()).Msg("Ignoring fetch Optimistic V3 payload request with 'grpc' URL type")
-		return
+		return success.Load()
 	default:
 		s.logger.Error().Err(errors.New("invalid payload URL type")).Fields(logMetric.GetFields()).Msg("Failed to fetch Optimistic V3 payload from builder")
-		return
 	}
+	return success.Load()
 }
 
 func (s *Service) clientPreFetchGetPayloadHTTP(

@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/metadata"
 
+	"github.com/bloXroute-Labs/relay-grpc/stat"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 )
@@ -38,6 +39,7 @@ const (
 	HeaderDateMilliseconds  = "Date-Milliseconds"
 	HeaderKeySlotUID        = "X-MEVBoost-SlotID"
 	VouchCluster            = "setup"
+	statsNamePerformance    = "performanceStats"
 )
 
 type contextKey string
@@ -65,10 +67,11 @@ type Server struct {
 
 	authHeaderP2P string // Added until vouch support query params
 
-	ghRatelimit    GetHeaderRateLimitInfo
-	accountsLists  *AccountsLists
-	NodeID         string
-	AdminAccountID string
+	ghRatelimit      GetHeaderRateLimitInfo
+	accountsLists    *AccountsLists
+	NodeID           string
+	AdminAccountID   string
+	performanceStats *stat.PerformanceStats
 
 	// Callback
 	OnHeaderDelivered func(
@@ -103,7 +106,7 @@ type account struct {
 	accountID, validatorID string
 }
 
-func New(opts ...ServerOption) *Server {
+func NewServer(opts ...ServerOption) *Server {
 	server := new(Server)
 
 	for _, opt := range opts {
@@ -127,6 +130,7 @@ func (s *Server) Start() error {
 		WriteTimeout:      0,
 		IdleTimeout:       10 * time.Second,
 	}
+
 	err := s.server.ListenAndServe()
 	if err == http.ErrServerClosed {
 		return nil
@@ -432,6 +436,17 @@ func (s *Server) HandleSetDelays(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
+
+	start := time.Now().UTC()
+	success := false
+	defer func() {
+		s.performanceStats.SetEndpointStats(
+			common.PathRegisterValidator,
+			uint64(time.Since(start).Microseconds()),
+			success,
+			100)
+	}()
+
 	parentSpan := trace.SpanFromContext(r.Context())
 	parentSpanCtx := trace.ContextWithSpan(context.Background(), parentSpan)
 	handleRegistrationCtx, handleRegistrationSpan := s.tracer.Start(parentSpanCtx, "handleRegistration-start")
@@ -548,10 +563,23 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	respondOK(handleRegistrationCtx, handleRegistrationSpan, registration, w, struct{}{}, &log, s.tracer)
+	if err := respondOK(handleRegistrationCtx, handleRegistrationSpan, registration, w, struct{}{}, &log, s.tracer); err == nil {
+		success = true
+	}
 }
 
 func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
+
+	start := time.Now().UTC()
+	success := false
+	defer func() {
+		s.performanceStats.SetEndpointStats(
+			common.PathGetHeader,
+			uint64(time.Since(start).Microseconds()),
+			success,
+			100)
+	}()
+
 	parentSpan := trace.SpanFromContext(r.Context())
 	parentSpanCtx := trace.ContextWithSpan(context.Background(), parentSpan)
 	handleGetHeaderCtx, span := s.tracer.Start(parentSpanCtx, "handleGetHeader-start")
@@ -671,7 +699,9 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 
 	if !sszResponse {
 		log.Info().Msg("Responding with JSON")
-		respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer)
+		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer); err == nil {
+			success = true
+		}
 		return
 	}
 
@@ -685,16 +715,29 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	sszMarshal, err := versionedBid.MarshalSSZ()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to marshal SSZ")
-		respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer)
+		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer); err == nil {
+			success = true
+		}
 		return
 	}
 
 	w.Header().Set(common.HeaderEthConsensusVersion, versionedBid.Version.String())
 	log.Info().Msg("Responding with SSZ")
-	s.respondOKWithContextSSZMarshalled(handleGetHeaderCtx, span, getHeader, w, sszMarshal, &log, s.tracer)
+	success = s.respondOKWithContextSSZMarshalled(handleGetHeaderCtx, span, getHeader, w, sszMarshal, &log, s.tracer)
 }
 
 func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
+
+	start := time.Now().UTC()
+	success := false
+	defer func() {
+		s.performanceStats.SetEndpointStats(
+			common.PathGetPayload,
+			uint64(time.Since(start).Microseconds()),
+			success,
+			100)
+	}()
+
 	parentSpan := trace.SpanFromContext(r.Context())
 	parentCtx := trace.ContextWithSpan(context.Background(), parentSpan)
 	getPayloadCtx, span := s.tracer.Start(parentCtx, "handleGetPayload-start")
@@ -821,7 +864,9 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 
 	// Return response
 	if !sszResponse {
-		respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer)
+		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer); err == nil {
+			success = true
+		}
 		return
 	}
 	_, marshalUnmarshalSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-marshalUnmarshal")
@@ -836,14 +881,17 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal getHeader to ssz")
 		span.SetStatus(codes.Error, err.Error())
-		respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer)
+		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer); err == nil {
+			success = true
+		}
 		return
 	}
 	marshalUnmarshalSpan.End()
 	w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
-	s.respondOKWithContextSSZMarshalled(getPayloadCtx, span, method, w, outByte, &log, s.tracer)
+	success = s.respondOKWithContextSSZMarshalled(getPayloadCtx, span, method, w, outByte, &log, s.tracer)
+
 }
-func respondOK(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, response any, log *zerolog.Logger, tracer trace.Tracer) {
+func respondOK(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, response any, log *zerolog.Logger, tracer trace.Tracer) error {
 	_, span := tracer.Start(ctx, "respondOK-"+method)
 	defer span.End()
 	parentSpan.SetAttributes(
@@ -856,10 +904,10 @@ func respondOK(ctx context.Context, parentSpan trace.Span, method string, w http
 		span.SetStatus(codes.Error, "couldn't write OK response")
 		log.Error().Err(err).Msg("couldn't write OK response")
 		http.Error(w, "", http.StatusInternalServerError)
-		return
+		return err
 	}
 	log.Info().Str("method", method).Msg(method + " succeeded")
-
+	return nil
 }
 
 func respondError(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, err error, log *zerolog.Logger, tracer trace.Tracer) {
@@ -926,7 +974,7 @@ func parseQuery(query string, value string, log *zerolog.Logger) (bool, error) {
 	return proposerMevProtect, err
 }
 
-func (s *Server) respondOKWithContextSSZMarshalled(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, resBytes []byte, log *zerolog.Logger, tracer trace.Tracer) {
+func (s *Server) respondOKWithContextSSZMarshalled(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, resBytes []byte, log *zerolog.Logger, tracer trace.Tracer) bool {
 	_, span := tracer.Start(ctx, fmt.Sprintf("respondOKSSZ-%s", method))
 	defer span.End()
 	parentSpan.SetAttributes(
@@ -946,6 +994,8 @@ func (s *Server) respondOKWithContextSSZMarshalled(ctx context.Context, parentSp
 		span.SetStatus(codes.Error, "couldn't write OK response")
 		log.Error().Str("method", method).Err(err).Msg("couldn't write error response")
 		http.Error(w, "", http.StatusInternalServerError)
+		return false
 	}
 	log.Info().Str("method", method).Msg(method + " succeeded")
+	return true
 }

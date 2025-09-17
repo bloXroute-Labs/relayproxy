@@ -18,6 +18,7 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
 	"github.com/bloXroute-Labs/relay-grpc/optimisticv3"
+	"github.com/bloXroute-Labs/relay-grpc/stat"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 	gethcommon "github.com/ethereum/go-ethereum/common"
@@ -82,6 +83,7 @@ type Service struct {
 	builderExistingBlockHash       *cache.Cache
 	getPayloadResponseForProxySlot *cache.Cache
 	preFetchPayloadChan            chan preFetcherFields
+	performancestats               *stat.PerformanceStats
 
 	beaconGenesisTime  int64
 	secondsPerSlot     int64
@@ -153,6 +155,7 @@ func NewService(opts ...ServiceOption) *Service {
 	for _, opt := range opts {
 		opt(svc)
 	}
+
 	return svc
 }
 
