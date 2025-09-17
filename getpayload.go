@@ -203,7 +203,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 	}
 	log.Error().Msg("timeout waiting for payload response")
 	go s.sendPayloadStats(in.Payload, log, false, nil, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
-	return nil, toErrorResp(http.StatusOK, "pre fetch payload not available in cache after retries")
+	return nil, toErrorResp(http.StatusBadRequest, "no execution payload for this request")
 }
 
 type ErrorRespWithPayload struct {
@@ -507,6 +507,6 @@ func (s *Service) validateAndFetchPayload(ctx context.Context, signedBlindedBeac
 		ParentHash: parentHash.String(),
 		BlockHash:  blockHashString,
 		Pubkey:     pubkeyStr,
-	}, toErrorResp(http.StatusOK, "pre fetch payload not available in cache after retries")
+	}, toErrorResp(http.StatusBadRequest, "pre fetch payload not available in cache after retries")
 
 }
