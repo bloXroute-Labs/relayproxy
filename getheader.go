@@ -198,6 +198,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 					log.Error().Err(err).Msg("error getting top builder bid after repick wait")
 				} else {
 					slotBestHeader = newBestHeader
+					secondBestHeader = secondBidHeader
 					getErr = err
 					log.Info().Msg("got new bid after repick wait")
 				}
