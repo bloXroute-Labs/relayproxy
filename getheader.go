@@ -139,7 +139,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 
 	fetchGetHeaderStartTime := time.Now().UTC()
 	keyForCachingBids := s.keyForCachingBids(_slot, in.ParentHash, in.PubKey)
-	slotBestHeader, getErr := s.GetTopBuilderBid(keyForCachingBids)
+	slotBestHeader, secondBestHeader, getErr := s.GetTopBuilderBid(keyForCachingBids)
 	usedRepick := false
 	repickDataExist := false
 	repickDataSuccess := true
@@ -193,7 +193,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 			timeUntilRepick := time.Until(repickTime)
 			if timeUntilRepick > 0 {
 				time.Sleep(timeUntilRepick)
-				newBestHeader, err := s.GetTopBuilderBid(keyForCachingBids)
+				newBestHeader, secondBidHeader, err := s.GetTopBuilderBid(keyForCachingBids)
 				if err != nil {
 					log.Error().Err(err).Msg("error getting top builder bid after repick wait")
 				} else {
@@ -390,10 +390,17 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 				SecondPlaceBuilderBlockHash:     "",
 				SecondPlaceBuilderBuilderPubkey: "",
 				SecondPlaceBuilderExtraData:     "",
-				SecondPlaceBuilderFeeRecipient:  "",
+				SecondPlaceBuilderFeeRecipient:  validatorInfo.Registration.Message.FeeRecipient.String(),
 
 				Type: "StatsHeaderProvidedToValidatorIP",
 			}
+			if secondBestHeader != nil {
+				record.SecondPlaceBuilderBlockHash = secondBestHeader.BlockHash
+				record.SecondPlaceBuilderValue = weiToEther(new(big.Int).SetBytes(secondBestHeader.Value))
+				record.SecondPlaceBuilderBuilderPubkey = secondBestHeader.BuilderPubkey
+				record.SecondPlaceBuilderExtraData = secondBestHeader.BuilderExtraData
+			}
+
 			s.fluentD.LogToFluentD(fluentstats.Record{
 				Type: "StatsHeaderProvidedToValidatorIP",
 				Data: record,

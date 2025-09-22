@@ -274,7 +274,7 @@ func TestBlockCancellation(t *testing.T) {
 	}
 
 	// test no bids found (cache key not found)
-	result, err := s.GetTopBuilderBid("unknown")
+	result, _, err := s.GetTopBuilderBid("unknown")
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "no builder bids found")
 
@@ -284,7 +284,7 @@ func TestBlockCancellation(t *testing.T) {
 	s.builderBidsForProxySlot.Set(cacheKey, bidsMap, cache.DefaultExpiration)
 
 	// test no bids found (cache key found but bids map empty)
-	result, err = s.GetTopBuilderBid(cacheKey)
+	result, _, err = s.GetTopBuilderBid(cacheKey)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "no builder bids found")
 
@@ -337,7 +337,7 @@ func TestBlockCancellation(t *testing.T) {
 	bidsMap.Store(testBuilderPubkey3, mediumBid)
 
 	// test expected high bid found
-	result, err = s.GetTopBuilderBid(cacheKey)
+	result, _, err = s.GetTopBuilderBid(cacheKey)
 	assert.Nil(t, err)
 	assert.Equal(t, *highBid, *result)
 }
@@ -349,7 +349,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 	}
 
 	// test no bids found (cache key not found)
-	result, err := s.GetTopBuilderBid("unknown")
+	result, _, err := s.GetTopBuilderBid("unknown")
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "no builder bids found")
 
@@ -359,7 +359,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 	s.builderBidsForProxySlot.Set(cacheKey, bidsMap, cache.DefaultExpiration)
 
 	// test no bids found (cache key found but bids map empty)
-	result, err = s.GetTopBuilderBid(cacheKey)
+	result, _, err = s.GetTopBuilderBid(cacheKey)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "no builder bids found")
 
@@ -511,7 +511,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 	bidsMap.Store(testBuilderPubkey3, lowBid2)
 
 	// test expected high bid found
-	result, err = s.GetTopBuilderBid(cacheKey)
+	result, _, err = s.GetTopBuilderBid(cacheKey)
 	assert.Nil(t, err)
 	assert.Equal(t, *highBid1, *result)
 }

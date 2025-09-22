@@ -494,7 +494,7 @@ func (s *Service) keyForCachingBids(slot uint64, parentHash string, proposerPubk
 	return fmt.Sprintf("%d_%s_%s", slot, strings.ToLower(parentHash), strings.ToLower(proposerPubkey))
 }
 
-func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, error) {
+func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, error) {
 	var builderBidsMap *SyncMap[string, *common.Bid]
 	entry, bidsMapFound := s.builderBidsForProxySlot.Get(cacheKey)
 	if bidsMapFound {
@@ -502,23 +502,27 @@ func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, error) {
 	}
 
 	if !bidsMapFound || builderBidsMap == nil || builderBidsMap.Size() == 0 {
-		return nil, fmt.Errorf("no builder bids found for cache key %s", cacheKey)
+		return nil, nil, fmt.Errorf("no builder bids found for cache key %s", cacheKey)
 	}
 
 	topBid := new(common.Bid)
 	topBidValue := new(big.Int)
+	secondBid := new(common.Bid)
+	secondBidValue := new(big.Int)
 
 	// search for the highest builder bid
 	builderBidsMap.Range(func(builderPubkey string, bid *common.Bid) bool {
 		bidValue := new(big.Int).SetBytes(bid.Value)
 		if bidValue.Cmp(topBidValue) > 0 {
+			secondBid = topBid
+			secondBidValue.Set(topBidValue)
 			topBid = bid
 			topBidValue.Set(bidValue)
 		}
 		return true
 	})
 
-	return topBid, nil
+	return topBid, secondBid, nil
 }
 
 func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey string, bid *common.Bid, slot uint64) {
