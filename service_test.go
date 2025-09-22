@@ -808,6 +808,8 @@ type mockRelayClient struct {
 	ForwardBlockFunc func(ctx context.Context, in *relaygrpc.StreamBlockResponse, opts ...grpc.CallOption) (*relaygrpc.SubmitBlockResponse, error)
 
 	SendHeaderDeliveredFunc func(ctx context.Context, in *relaygrpc.HeaderDeliveredRequest, opts ...grpc.CallOption) (*relaygrpc.HeaderDeliveredResponse, error)
+
+	AdjustLatestBlockPayloadFunc func(ctx context.Context, in *relaygrpc.AdjustLatestBlockPayloadRequest, opts ...grpc.CallOption) (*relaygrpc.AdjustLatestBlockPayloadResponse, error)
 }
 
 func (m *mockRelayClient) Ping(ctx context.Context, in *relaygrpc.PingRequest, opts ...grpc.CallOption) (*relaygrpc.PingResponse, error) {
@@ -888,6 +890,13 @@ func (m *mockRelayClient) SendHeaderDelivered(ctx context.Context, in *relaygrpc
 	return nil, nil
 }
 
+func (m *mockRelayClient) AdjustLatestBlockPayload(ctx context.Context, in *relaygrpc.AdjustLatestBlockPayloadRequest, opts ...grpc.CallOption) (*relaygrpc.AdjustLatestBlockPayloadResponse, error) {
+	if m.AdjustLatestBlockPayloadFunc != nil {
+		return m.AdjustLatestBlockPayloadFunc(ctx, in, opts...)
+	}
+	return nil, nil
+}
+
 // MockClient is a mock of Client interface
 type MockClient struct {
 	mock.Mock
@@ -954,6 +963,11 @@ func (m *MockClient) ForwardBlock(ctx context.Context, in *relaygrpc.StreamBlock
 }
 
 func (m *MockClient) SendHeaderDelivered(ctx context.Context, in *relaygrpc.HeaderDeliveredRequest, opts ...grpc.CallOption) (*relaygrpc.HeaderDeliveredResponse, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m *MockClient) AdjustLatestBlockPayload(ctx context.Context, in *relaygrpc.AdjustLatestBlockPayloadRequest, opts ...grpc.CallOption) (*relaygrpc.AdjustLatestBlockPayloadResponse, error) {
 	//TODO implement me
 	panic("implement me")
 }
