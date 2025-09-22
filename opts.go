@@ -213,7 +213,16 @@ func WithClients(clients []*common.ParentClient) ServiceOption {
 
 func WithStreamingClients(clients []*common.ParentClient) ServiceOption {
 	return func(s *Service) {
+		uniqueClientsMap := make(map[string]*common.ParentClient)
+		uniqueClients := make([]*common.ParentClient, 0)
+		for _, client := range clients {
+			if _, exists := uniqueClientsMap[client.SafeClient.URL]; !exists {
+				uniqueClientsMap[client.SafeClient.URL] = client
+				uniqueClients = append(uniqueClients, client)
+			}
+		}
 		s.streamingClients = clients
+		s.uniqueStreamingClients = uniqueClients
 	}
 }
 
@@ -405,9 +414,9 @@ func WithAccountImportLists(accountsLists *AccountsLists) DataServiceOption {
 	}
 }
 
-func WithPlugin(customDelayer func(accountID string, msIntoSlot int64, cluster string, userAgent string, latency int64, clientIP string, logger zerolog.Logger, getHeaderTimeout map[string]int64) (int64, int64, error)) DataServiceOption {
+func WithPlugin(delayerPlugin func(accountID string, msIntoSlot int64, cluster string, userAgent string, latency int64, clientIP string, logger zerolog.Logger, getHeaderTimeout map[string]int64) (int64, int64, int64, error)) DataServiceOption {
 	return func(s *DataService) {
-		s.delayerPlugin = customDelayer
+		s.delayerPlugin = delayerPlugin
 	}
 }
 

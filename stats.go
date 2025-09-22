@@ -89,6 +89,49 @@ type GetHeaderStatsRecord struct {
 	HeaderStartTimeUnixMs     string        `json:"header_start_time_unix_ms"`
 }
 
+type headerProvidedToValidatorIP struct {
+	IPMatches                bool   `json:"ip_matches"`
+	Slot                     string `json:"slot"`
+	ProposerPublicKey        string `json:"proposer_public_key"`
+	Value                    string `json:"value"`
+	BlockHash                string `json:"block_hash"`
+	BidPubkey                string `json:"bid_pubkey"`
+	BuilderPubkey            string `json:"builder_pubkey"`
+	ExtraData                string `json:"extra_data"`
+	FeeRecipient             string `json:"fee_recipient"`
+	Type                     string `json:"type"`
+	MSIntoSlot               int64  `json:"ms_into_slot"`
+	GetHeaderRequestSendTime int64  `json:"get_header_request_send_time"`
+	UserAgent                string `json:"user_agent"`
+	UsingRelayProxy          bool   `json:"using_relay_proxy"`
+	ClientIPAddress          string `json:"client_ip_address"`
+	RequestID                string `json:"request_id"`
+	Region                   string `json:"region"`
+	SleepAmount              int64  `json:"sleep_amount"`
+	CutoffReached            bool   `json:"cutoff_reached"`
+	SleepType                string `json:"sleep_type"`
+	MaxSleepIntoSlot         int64  `json:"max_sleep_into_slot"`
+	ISP                      string `json:"isp"`
+	IPOrganization           string `json:"ip_organization"`
+	Country                  string `json:"country"`
+	State                    string `json:"state"`
+	DataSource               string `json:"data_source"`
+	Duration                 int64  `json:"duration"`
+	OriginalValue            string `json:"original_value"`
+	OriginalBlockHash        string `json:"original_block_hash"`
+	BidAdjustmentDuration    int64  `json:"bid_adjustment_duration"`
+	UsedAdjustment           bool   `json:"used_adjustment"`
+	AdjustmentDataExist      bool   `json:"adjustment_data_exist"`
+	AdjustmentDataSuccess    bool   `json:"adjustment_data_success"`
+	AdjustmentError          string `json:"adjustment_error"`
+
+	SecondPlaceBuilderValue         string `json:"second_place_builder_value"`
+	SecondPlaceBuilderBlockHash     string `json:"second_place_builder_block_hash"`
+	SecondPlaceBuilderBuilderPubkey string `json:"second_place_builder_builder_pubkey"`
+	SecondPlaceBuilderExtraData     string `json:"second_place_builder_extra_data"`
+	SecondPlaceBuilderFeeRecipient  string `json:"second_place_builder_fee_recipient"`
+}
+
 type ExternalRelayStats struct {
 	Slot             int64     `json:"slot"`
 	ParentHash       string    `json:"parent_hash"`

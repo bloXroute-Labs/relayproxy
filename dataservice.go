@@ -52,7 +52,7 @@ type DataService struct {
 	getHeaderTimeout       map[string]int64 // MEV Boost get header timeout for each validator
 	ipCacheStore           *cache.Cache     // list of ip to verify delay eligibility
 	accountsLists          *AccountsLists
-	delayerPlugin          func(accountID string, msIntoSlot int64, cluster, userAgent string, latency int64, clientIP string, logger zerolog.Logger, getHeaderTimeout map[string]int64) (int64, int64, error)
+	delayerPlugin          func(accountID string, msIntoSlot int64, cluster, userAgent string, latency int64, clientIP string, logger zerolog.Logger, getHeaderTimeout map[string]int64) (int64, int64, int64, error)
 	miniProposerSlotMap    *SyncMap[uint64, *common.MiniValidatorLatency]
 }
 
@@ -114,6 +114,7 @@ type DelayGetHeaderResponse struct {
 	SlotStartTime         time.Time
 	Latency               int64
 	ExternalRelayResponse ExternalRelayResponse
+	ReplacementDelayMs    int64
 }
 type ExternalRelayResponse struct {
 	URL             string
@@ -149,21 +150,22 @@ func (s *DataService) DelayGetHeader(ctx context.Context, in DelayGetHeaderParam
 		s.accountsLists.AccountIDToInfo[in.AccountID].InstantReturnFirstRequest {
 		if ok := s.shouldRequestDelayed(in.ClientIP, in.SlotWithParentHash); !ok {
 			return DelayGetHeaderResponse{
-				Sleep:         0,
-				MaxSleep:      0,
-				Latency:       in.Latency,
-				SlotStartTime: slotStartTime,
+				Sleep:              0,
+				MaxSleep:           0,
+				Latency:            in.Latency,
+				SlotStartTime:      slotStartTime,
+				ReplacementDelayMs: 0,
 			}, nil
 		}
 	}
 	var (
-		sleep, maxSleep int64
-		err             error
+		sleep, maxSleep, replacementDelayMs int64
+		err                                 error
 	)
 	if GetHeaderRequestCutoffMs > 0 && msIntoSlot > GetHeaderRequestCutoffMs {
 		return DelayGetHeaderResponse{}, common.ErrLateHeader
 	}
-	sleep, maxSleep, err = s.dynamicFuncWrapper(in.AccountID, msIntoSlot, in.Cluster, in.UserAgent, in.Latency, in.ClientIP)
+	sleep, maxSleep, replacementDelayMs, err = s.dynamicFuncWrapper(in.AccountID, msIntoSlot, in.Cluster, in.UserAgent, in.Latency, in.ClientIP)
 	if err != nil {
 		return DelayGetHeaderResponse{}, err
 	}
@@ -181,10 +183,11 @@ func (s *DataService) DelayGetHeader(ctx context.Context, in DelayGetHeaderParam
 	}
 
 	return DelayGetHeaderResponse{
-		Sleep:         sleep,
-		MaxSleep:      maxSleep,
-		Latency:       in.Latency,
-		SlotStartTime: slotStartTime,
+		Sleep:              sleep + replacementDelayMs,
+		MaxSleep:           maxSleep,
+		Latency:            in.Latency,
+		SlotStartTime:      slotStartTime,
+		ReplacementDelayMs: replacementDelayMs,
 	}, nil
 }
 
@@ -250,12 +253,12 @@ func (s *DataService) SendAccount(accountID, validatorID string) {
 	}
 }
 
-func (s *DataService) dynamicFuncWrapper(accountID string, msIntoSlot int64, cluster, userAgent string, latency int64, clientIP string) (int64, int64, error) {
+func (s *DataService) dynamicFuncWrapper(accountID string, msIntoSlot int64, cluster, userAgent string, latency int64, clientIP string) (int64, int64, int64, error) {
 	if s.delayerPlugin != nil {
 		return s.delayerPlugin(accountID, msIntoSlot, cluster, userAgent, latency, clientIP, s.logger, s.getHeaderTimeout)
 	}
 
-	return 0, 0, nil
+	return 0, 0, 0, nil
 }
 
 func (s *DataService) GetSlotDuty(slot uint64) (*common.MiniValidatorLatency, error) {

@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
+	"github.com/bloXroute-Labs/relay-grpc/optimisticv3"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fastjson"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
@@ -114,7 +116,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 		Logger()
 
 	parentSpan.SetAttributes(
-		attribute.Int64("msTntoSlot", msIntoSlot),
+		attribute.Int64("msIntoSlot", msIntoSlot),
 		attribute.Int64("msIntoSlotIncludingDelay", msIntoSlotIncludingDelay),
 	)
 
@@ -137,7 +139,72 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 
 	fetchGetHeaderStartTime := time.Now().UTC()
 	keyForCachingBids := s.keyForCachingBids(_slot, in.ParentHash, in.PubKey)
-	slotBestHeader, err := s.GetTopBuilderBid(keyForCachingBids)
+	slotBestHeader, secondBestHeader, getErr := s.GetTopBuilderBid(keyForCachingBids)
+	usedRepick := false
+	repickDataExist := false
+	repickDataSuccess := true
+	repickErr := ""
+	originalValue := big.NewInt(0)
+	originalBlockHash := ""
+	if getErr == nil && slotBestHeader != nil {
+		originalValue = new(big.Int).SetBytes(slotBestHeader.Value)
+		originalBlockHash = slotBestHeader.BlockHash
+	} else {
+		log.Error().Err(getErr).Msg("error getting top builder bid")
+	}
+	repickDurationMS := int64(0)
+
+	repickTime := time.Now().Add(time.Duration(delayGetHeaderResponse.ReplacementDelayMs) * time.Millisecond)
+	if delayGetHeaderResponse.ReplacementDelayMs > 0 {
+		log.Info().Int64("replacementDelayMs", delayGetHeaderResponse.ReplacementDelayMs).Msg("waiting for replacement delay")
+		if getErr == nil && s.OnHeaderBidRetrieved != nil {
+			newBestHeaderCh := make(chan *common.Bid, 1)
+			go func() {
+				onHeaderBidRetrievedStart := time.Now()
+				_, onHeadonHeaderBidRetrievedSpan := s.tracer.Start(ctx, "getHeader-onHeaderBidRetrieved")
+				newBestHeader, replaceable, err := s.OnHeaderBidRetrieved(ctx, slotBestHeader, *log, parentSpan, _slot, in.ParentHash, slotBestHeader.BuilderPubkey, in.AccountID, delayGetHeaderResponse.ReplacementDelayMs, s.uniqueStreamingClients)
+				onHeadonHeaderBidRetrievedSpan.End(trace.WithTimestamp(time.Now()))
+				repickDurationMS = time.Since(onHeaderBidRetrievedStart).Milliseconds()
+				log.Info().Bool("replaceable", replaceable).Int64("onHeaderBidRetrievedDuration", repickDurationMS).Msg("OnHeaderBidRetrieved duration")
+				repickDataExist = replaceable
+				if err != nil {
+					repickErr = err.Error()
+					log.Error().Err(err).Msg("OnHeaderBidRetrieved error")
+					newBestHeaderCh <- nil
+					return
+				}
+				newBestHeaderCh <- newBestHeader
+			}()
+			select {
+			case replacementHeader := <-newBestHeaderCh:
+				if replacementHeader != nil {
+					usedRepick = true
+					slotBestHeader = replacementHeader
+					getErr = nil
+					log.Info().Msg("got new bid after repick from channel")
+				}
+			case <-time.After(time.Duration(delayGetHeaderResponse.ReplacementDelayMs * int64(time.Millisecond))):
+				log.Error().Msg("OnHeaderBidRetrieved took too long, proceeding with the original bid")
+				repickErr = "timeout waiting for OnHeaderBidRetrieved"
+				repickDataSuccess = false
+			}
+		}
+		if !usedRepick {
+			timeUntilRepick := time.Until(repickTime)
+			if timeUntilRepick > 0 {
+				time.Sleep(timeUntilRepick)
+				newBestHeader, secondBidHeader, err := s.GetTopBuilderBid(keyForCachingBids)
+				if err != nil {
+					log.Error().Err(err).Msg("error getting top builder bid after repick wait")
+				} else {
+					slotBestHeader = newBestHeader
+					secondBestHeader = secondBidHeader
+					getErr = err
+					log.Info().Msg("got new bid after repick wait")
+				}
+			}
+		}
+	}
 	fetchGetHeaderDurationMS := time.Since(fetchGetHeaderStartTime).Milliseconds()
 	headerReqDuration := time.Since(in.ReceivedAt)
 	statsUserAgent := in.UserAgent
@@ -145,7 +212,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 		statsUserAgent += "/" + in.Cluster
 	}
 
-	if slotBestHeader == nil || err != nil {
+	if slotBestHeader == nil || getErr != nil {
 		msg := fmt.Sprintf("header value is not present for the requested key %v", keyForCachingBids)
 		span.AddEvent("Header value is not present", trace.WithAttributes(attribute.String("msg", msg)))
 		go func() {
@@ -189,11 +256,27 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 		Str("blockHash", slotBestHeader.BlockHash).
 		Str("blockValue", blockValue.String()).
 		Str("uniqueKey", uKey).
+		Int64("replacementDelayMs", delayGetHeaderResponse.ReplacementDelayMs).
+		Bool("usedRepick", usedRepick).
+		Bool("repickDataExist", repickDataExist).
+		Bool("repickDataSuccess", repickDataSuccess).
+		Str("repickErr", repickErr).
+		Int64("repickDurationMS", repickDurationMS).
+		Int64("originalValue", originalValue.Int64()).
+		Str("originalBlockHash", originalBlockHash).
 		Logger()
 	parentSpan.SetAttributes(
 		attribute.String("blockHash", slotBestHeader.BlockHash),
 		attribute.String("blockValue", blockValue.String()),
 		attribute.String("uniqueKey", uKey),
+		attribute.Int64("replacementDelayMs", delayGetHeaderResponse.ReplacementDelayMs),
+		attribute.Bool("usedRepick", usedRepick),
+		attribute.Bool("repickDataExist", repickDataExist),
+		attribute.Bool("repickDataSuccess", repickDataSuccess),
+		attribute.String("repickErr", repickErr),
+		attribute.Int64("repickDurationMS", repickDurationMS),
+		attribute.Int64("originalValue", originalValue.Int64()),
+		attribute.String("originalBlockHash", originalBlockHash),
 	)
 	storingHeaderSpan.End(trace.WithTimestamp(time.Now()))
 
@@ -267,6 +350,63 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 			Type: TypeRelayProxyGetHeader,
 			Data: headerStats,
 		}, time.Now().UTC(), s.nodeID, StatsRelayProxyGetHeader)
+		validatorInfo, found := s.miniProposerSlotMap.Load(_slot)
+		if found && validatorInfo != nil && validatorInfo.Registration != nil {
+			record := headerProvidedToValidatorIP{
+				IPMatches:                true,
+				Slot:                     strconv.FormatUint(_slot, 10),
+				ProposerPublicKey:        in.PubKey,
+				Value:                    blockValue.String(),
+				BlockHash:                slotBestHeader.BlockHash,
+				ExtraData:                slotBestHeader.BuilderExtraData,
+				FeeRecipient:             validatorInfo.Registration.Message.FeeRecipient.String(),
+				BidPubkey:                slotBestHeader.BuilderPubkey,
+				BuilderPubkey:            slotBestHeader.BuilderPubkey,
+				MSIntoSlot:               msIntoSlot,
+				GetHeaderRequestSendTime: msIntoSlot - latency,
+				UserAgent:                in.UserAgent,
+				UsingRelayProxy:          true,
+				ClientIPAddress:          in.ClientIP,
+				RequestID:                in.ValidatorID,
+				Region:                   s.nodeID,
+				SleepAmount:              delayGetHeaderResponse.Sleep,
+				MaxSleepIntoSlot:         delayGetHeaderResponse.MaxSleep,
+				SleepType:                "proxy",
+				ISP:                      "",
+				IPOrganization:           "",
+				State:                    "",
+				Country:                  "",
+				DataSource:               "proxy",
+				Duration:                 time.Since(in.ReceivedAt).Milliseconds(),
+
+				OriginalValue:         originalValue.String(),
+				OriginalBlockHash:     originalBlockHash,
+				BidAdjustmentDuration: repickDurationMS,
+				UsedAdjustment:        usedRepick,
+				AdjustmentDataExist:   repickDataExist,
+				AdjustmentDataSuccess: repickDataSuccess,
+				AdjustmentError:       repickErr,
+
+				SecondPlaceBuilderValue:         "",
+				SecondPlaceBuilderBlockHash:     "",
+				SecondPlaceBuilderBuilderPubkey: "",
+				SecondPlaceBuilderExtraData:     "",
+				SecondPlaceBuilderFeeRecipient:  validatorInfo.Registration.Message.FeeRecipient.String(),
+
+				Type: "StatsHeaderProvidedToValidatorIP",
+			}
+			if secondBestHeader != nil {
+				record.SecondPlaceBuilderBlockHash = secondBestHeader.BlockHash
+				record.SecondPlaceBuilderValue = weiToEther(new(big.Int).SetBytes(secondBestHeader.Value))
+				record.SecondPlaceBuilderBuilderPubkey = secondBestHeader.BuilderPubkey
+				record.SecondPlaceBuilderExtraData = secondBestHeader.BuilderExtraData
+			}
+
+			s.fluentD.LogToFluentD(fluentstats.Record{
+				Type: "StatsHeaderProvidedToValidatorIP",
+				Data: record,
+			}, time.Now().UTC(), s.nodeID, "stats.header_provided_to_validator_ip")
+		}
 	}()
 
 	// send in payload to pre fetcher event
@@ -496,16 +636,16 @@ func (s *Service) prefetchPayloadFromBuilder(ctx context.Context, spanCtx contex
 		span.End()
 	}()
 
-	payloadUrlsData := common.SafeSplit(fields.payloadFetchUrl, common.PayloadUrlsTypeSeparator)
+	payloadUrlsData := common.SafeSplit(fields.payloadFetchUrl, optimisticv3.PayloadUrlsTypeSeparator)
 
-	if len(payloadUrlsData) != common.PayloadUrlsDataExpectedLength {
+	if len(payloadUrlsData) != optimisticv3.PayloadUrlsDataExpectedLength {
 		logMetric.Fields(map[string]any{"payloadUrlsData": payloadUrlsData})
 		s.logger.Error().Err(errors.New("invalid payload URL format")).Fields(logMetric.GetFields()).Msg("Failed to fetch Optimistic V3 payload from builder")
 		return
 	}
 
-	payloadUrlType := payloadUrlsData[common.PayloadUrlTypeIndex]
-	payloadUrlsCSV := payloadUrlsData[common.PayloadUrlsCSVIndex]
+	payloadUrlType := payloadUrlsData[optimisticv3.PayloadUrlTypeIndex]
+	payloadUrlsCSV := payloadUrlsData[optimisticv3.PayloadUrlsCSVIndex]
 	payloadUrls := common.SafeSplit(payloadUrlsCSV, ",")
 
 	logMetric.Fields(map[string]any{
@@ -518,11 +658,11 @@ func (s *Service) prefetchPayloadFromBuilder(ctx context.Context, spanCtx contex
 		attribute.StringSlice("payloadUrls", payloadUrls),
 	)
 
-	switch common.PayloadUrlType(payloadUrlType) {
-	case common.PayloadUrlTypeHTTP:
+	switch optimisticv3.PayloadUrlType(payloadUrlType) {
+	case optimisticv3.PayloadUrlTypeHTTP:
 		success.Store(s.clientPreFetchGetPayloadHTTP(ctx, logMetric, fields, payloadUrls))
 		return
-	case common.PayloadUrlTypeGRPC:
+	case optimisticv3.PayloadUrlTypeGRPC:
 		// We only support HTTP requests for Optimistic V3 payloads from builders for now
 		s.logger.Warn().Fields(logMetric.GetFields()).Msg("Ignoring fetch Optimistic V3 payload request with 'grpc' URL type")
 		return
@@ -586,8 +726,8 @@ func (s *Service) clientPreFetchGetPayloadHTTP(
 	return s.processGetPayloadV3Responses(ctx, responseChan, logMetric, fields)
 }
 
-func (s *Service) prepareGetPayloadV3Request(blockHash string) (*common.SignedGetPayloadV3, error) {
-	getPayloadV3 := &common.GetPayloadV3{
+func (s *Service) prepareGetPayloadV3Request(blockHash string) (*optimisticv3.SignedGetPayloadV3, error) {
+	getPayloadV3 := &optimisticv3.GetPayloadV3{
 		BlockHash:      phase0.Hash32(gethcommon.HexToHash(blockHash)),
 		RequestTs:      uint64(time.Now().UnixMilli()),
 		RelayPublicKey: s.publicKey,
@@ -598,7 +738,7 @@ func (s *Service) prepareGetPayloadV3Request(blockHash string) (*common.SignedGe
 		return nil, err
 	}
 
-	return &common.SignedGetPayloadV3{
+	return &optimisticv3.SignedGetPayloadV3{
 		Message:   getPayloadV3,
 		Signature: signature,
 	}, nil

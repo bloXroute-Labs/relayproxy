@@ -274,7 +274,7 @@ func TestBlockCancellation(t *testing.T) {
 	}
 
 	// test no bids found (cache key not found)
-	result, err := s.GetTopBuilderBid("unknown")
+	result, _, err := s.GetTopBuilderBid("unknown")
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "no builder bids found")
 
@@ -284,7 +284,7 @@ func TestBlockCancellation(t *testing.T) {
 	s.builderBidsForProxySlot.Set(cacheKey, bidsMap, cache.DefaultExpiration)
 
 	// test no bids found (cache key found but bids map empty)
-	result, err = s.GetTopBuilderBid(cacheKey)
+	result, _, err = s.GetTopBuilderBid(cacheKey)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "no builder bids found")
 
@@ -300,6 +300,7 @@ func TestBlockCancellation(t *testing.T) {
 		nil,
 		"",
 		time.Now(),
+		"",
 	)
 	bidsMap.Store(testBuilderPubkey1, lowBid)
 
@@ -315,6 +316,7 @@ func TestBlockCancellation(t *testing.T) {
 		nil,
 		"",
 		time.Now(),
+		"",
 	)
 	bidsMap.Store(testBuilderPubkey2, highBid)
 
@@ -330,11 +332,12 @@ func TestBlockCancellation(t *testing.T) {
 		nil,
 		"",
 		time.Now(),
+		"",
 	)
 	bidsMap.Store(testBuilderPubkey3, mediumBid)
 
 	// test expected high bid found
-	result, err = s.GetTopBuilderBid(cacheKey)
+	result, _, err = s.GetTopBuilderBid(cacheKey)
 	assert.Nil(t, err)
 	assert.Equal(t, *highBid, *result)
 }
@@ -346,7 +349,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 	}
 
 	// test no bids found (cache key not found)
-	result, err := s.GetTopBuilderBid("unknown")
+	result, _, err := s.GetTopBuilderBid("unknown")
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "no builder bids found")
 
@@ -356,7 +359,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 	s.builderBidsForProxySlot.Set(cacheKey, bidsMap, cache.DefaultExpiration)
 
 	// test no bids found (cache key found but bids map empty)
-	result, err = s.GetTopBuilderBid(cacheKey)
+	result, _, err = s.GetTopBuilderBid(cacheKey)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "no builder bids found")
 
@@ -373,6 +376,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		nil,
 		"",
 		time.Now(),
+		"",
 	)
 	bidsMap.Store(testBuilderPubkey1, lowBid)
 
@@ -388,6 +392,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		nil,
 		"",
 		time.Now(),
+		"",
 	)
 	bidsMap.Store(testBuilderPubkey1, highBid)
 
@@ -403,6 +408,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		nil,
 		"",
 		time.Now(),
+		"",
 	)
 	bidsMap.Store(testBuilderPubkey1, mediumBid)
 
@@ -419,6 +425,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		nil,
 		"",
 		time.Now(),
+		"",
 	)
 	bidsMap.Store(testBuilderPubkey2, lowBid1)
 
@@ -434,6 +441,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		nil,
 		"",
 		time.Now(),
+		"",
 	)
 	bidsMap.Store(testBuilderPubkey2, mediumBid1)
 
@@ -449,6 +457,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		nil,
 		"",
 		time.Now(),
+		"",
 	)
 	bidsMap.Store(testBuilderPubkey2, highBid1)
 
@@ -465,6 +474,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		nil,
 		"",
 		time.Now(),
+		"",
 	)
 	bidsMap.Store(testBuilderPubkey3, mediumBid2)
 
@@ -480,6 +490,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		nil,
 		"",
 		time.Now(),
+		"",
 	)
 	bidsMap.Store(testBuilderPubkey3, highBid2)
 
@@ -495,11 +506,12 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		nil,
 		"",
 		time.Now(),
+		"",
 	)
 	bidsMap.Store(testBuilderPubkey3, lowBid2)
 
 	// test expected high bid found
-	result, err = s.GetTopBuilderBid(cacheKey)
+	result, _, err = s.GetTopBuilderBid(cacheKey)
 	assert.Nil(t, err)
 	assert.Equal(t, *highBid1, *result)
 }
@@ -794,6 +806,10 @@ type mockRelayClient struct {
 	StreamSlotInfoFunc    func(ctx context.Context, in *relaygrpc.StreamSlotRequest, opts ...grpc.CallOption) (relaygrpc.Relay_StreamSlotInfoClient, error)
 
 	ForwardBlockFunc func(ctx context.Context, in *relaygrpc.StreamBlockResponse, opts ...grpc.CallOption) (*relaygrpc.SubmitBlockResponse, error)
+
+	SendHeaderDeliveredFunc func(ctx context.Context, in *relaygrpc.HeaderDeliveredRequest, opts ...grpc.CallOption) (*relaygrpc.HeaderDeliveredResponse, error)
+
+	AdjustLatestBlockPayloadFunc func(ctx context.Context, in *relaygrpc.AdjustLatestBlockPayloadRequest, opts ...grpc.CallOption) (*relaygrpc.AdjustLatestBlockPayloadResponse, error)
 }
 
 func (m *mockRelayClient) Ping(ctx context.Context, in *relaygrpc.PingRequest, opts ...grpc.CallOption) (*relaygrpc.PingResponse, error) {
@@ -867,6 +883,20 @@ func (m *mockRelayClient) StreamSlotInfo(ctx context.Context, in *relaygrpc.Stre
 	return nil, nil
 }
 
+func (m *mockRelayClient) SendHeaderDelivered(ctx context.Context, in *relaygrpc.HeaderDeliveredRequest, opts ...grpc.CallOption) (*relaygrpc.HeaderDeliveredResponse, error) {
+	if m.SendHeaderDeliveredFunc != nil {
+		return m.SendHeaderDeliveredFunc(ctx, in, opts...)
+	}
+	return nil, nil
+}
+
+func (m *mockRelayClient) AdjustLatestBlockPayload(ctx context.Context, in *relaygrpc.AdjustLatestBlockPayloadRequest, opts ...grpc.CallOption) (*relaygrpc.AdjustLatestBlockPayloadResponse, error) {
+	if m.AdjustLatestBlockPayloadFunc != nil {
+		return m.AdjustLatestBlockPayloadFunc(ctx, in, opts...)
+	}
+	return nil, nil
+}
+
 // MockClient is a mock of Client interface
 type MockClient struct {
 	mock.Mock
@@ -928,6 +958,16 @@ func (m *MockClient) StreamSlotInfo(ctx context.Context, in *relaygrpc.StreamSlo
 }
 
 func (m *MockClient) ForwardBlock(ctx context.Context, in *relaygrpc.StreamBlockResponse, opts ...grpc.CallOption) (*relaygrpc.SubmitBlockResponse, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m *MockClient) SendHeaderDelivered(ctx context.Context, in *relaygrpc.HeaderDeliveredRequest, opts ...grpc.CallOption) (*relaygrpc.HeaderDeliveredResponse, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m *MockClient) AdjustLatestBlockPayload(ctx context.Context, in *relaygrpc.AdjustLatestBlockPayloadRequest, opts ...grpc.CallOption) (*relaygrpc.AdjustLatestBlockPayloadResponse, error) {
 	//TODO implement me
 	panic("implement me")
 }

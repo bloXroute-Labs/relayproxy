@@ -17,6 +17,7 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/bellatrix"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
+	"github.com/bloXroute-Labs/relay-grpc/optimisticv3"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 	gethcommon "github.com/ethereum/go-ethereum/common"
@@ -92,6 +93,7 @@ type Service struct {
 
 	clients                       []*common.ParentClient
 	streamingClients              []*common.ParentClient
+	uniqueStreamingClients        []*common.ParentClient
 	streamingBlockClients         []*common.ParentClient
 	registrationClients           []*common.ParentClient
 	currentRegistrationRelayIndex int
@@ -115,6 +117,7 @@ type Service struct {
 	gatewayAuthKey               string
 	BlockPublishFunc             func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, blockPublishingGatewayClient interface{}, authKey string)
 	OnPayloadRequested           func(slot uint64, blockHash string, parentHash string, proposerPubkey string, getPayloadRequestClientIP string, receivedAt time.Time, signedBlindedBeaconBlock *eth2Api.VersionedSignedBlindedBeaconBlock, ProposerRequestStartTimeUnixMS int64, validatorID string) error
+	OnHeaderBidRetrieved         func(ctx context.Context, bid *common.Bid, log zerolog.Logger, parentSpan trace.Span, slot uint64, parentHash, builderPubkey, accountID string, replacemendDelayMs int64, clients []*common.ParentClient) (*common.Bid, bool, error)
 }
 
 type slotStatsEvent struct {
@@ -426,7 +429,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 		// Store the bid for builder pubkey
 		_, storeBidsSpan := s.tracer.Start(streamReceiveCtx, "StreamHeader-storeBids")
 		payloadURL := "grpc;" + client.URL
-		headerSubmissionV3, err := common.RelayGrpcHeaderSubmissionToVersioned(header, []byte(payloadURL))
+		headerSubmissionV3, err := optimisticv3.RelayGrpcHeaderSubmissionToVersioned(header, []byte(payloadURL))
 		if err != nil && header.GetPayload() == nil {
 			s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to convert to versioned header submission")
 			continue
@@ -442,6 +445,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			parentClient,
 			header.GetPayloadFetchUrl(),
 			header.GetRelayReceiveTime().AsTime(),
+			"",
 		)
 		s.setBuilderBidForProxySlot(k, header.GetBuilderPubkey(), bid, header.GetSlot())
 		storeBidsSpan.SetAttributes(
@@ -491,7 +495,7 @@ func (s *Service) keyForCachingBids(slot uint64, parentHash string, proposerPubk
 	return fmt.Sprintf("%d_%s_%s", slot, strings.ToLower(parentHash), strings.ToLower(proposerPubkey))
 }
 
-func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, error) {
+func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, error) {
 	var builderBidsMap *SyncMap[string, *common.Bid]
 	entry, bidsMapFound := s.builderBidsForProxySlot.Get(cacheKey)
 	if bidsMapFound {
@@ -499,23 +503,27 @@ func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, error) {
 	}
 
 	if !bidsMapFound || builderBidsMap == nil || builderBidsMap.Size() == 0 {
-		return nil, fmt.Errorf("no builder bids found for cache key %s", cacheKey)
+		return nil, nil, fmt.Errorf("no builder bids found for cache key %s", cacheKey)
 	}
 
 	topBid := new(common.Bid)
 	topBidValue := new(big.Int)
+	secondBid := new(common.Bid)
+	secondBidValue := new(big.Int)
 
 	// search for the highest builder bid
 	builderBidsMap.Range(func(builderPubkey string, bid *common.Bid) bool {
 		bidValue := new(big.Int).SetBytes(bid.Value)
 		if bidValue.Cmp(topBidValue) > 0 {
+			secondBid = topBid
+			secondBidValue.Set(topBidValue)
 			topBid = bid
 			topBidValue.Set(bidValue)
 		}
 		return true
 	})
 
-	return topBid, nil
+	return topBid, secondBid, nil
 }
 
 func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey string, bid *common.Bid, slot uint64) {
@@ -1018,6 +1026,7 @@ func (s *Service) handleStreamBlockResponse(
 		nil,
 		"",
 		block.RelayReceiveTime.AsTime(),
+		"",
 	)
 
 	// update block hash map if not seen already
