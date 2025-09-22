@@ -93,6 +93,7 @@ type Service struct {
 
 	clients                       []*common.ParentClient
 	streamingClients              []*common.ParentClient
+	uniqueStreamingClients        []*common.ParentClient
 	streamingBlockClients         []*common.ParentClient
 	registrationClients           []*common.ParentClient
 	currentRegistrationRelayIndex int
@@ -116,7 +117,7 @@ type Service struct {
 	gatewayAuthKey               string
 	BlockPublishFunc             func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, blockPublishingGatewayClient interface{}, authKey string)
 	OnPayloadRequested           func(slot uint64, blockHash string, parentHash string, proposerPubkey string, getPayloadRequestClientIP string, receivedAt time.Time, signedBlindedBeaconBlock *eth2Api.VersionedSignedBlindedBeaconBlock, ProposerRequestStartTimeUnixMS int64, validatorID string) error
-	OnHeaderBidRetrieved         func(ctx context.Context, bid *common.Bid, log zerolog.Logger, parentSpan trace.Span, slot uint64, parentHash, builderPubkey, accountID string) (*common.Bid, bool, error)
+	OnHeaderBidRetrieved         func(ctx context.Context, bid *common.Bid, log zerolog.Logger, parentSpan trace.Span, slot uint64, parentHash, builderPubkey, accountID string, replacemendDelayMs int64, clients []*common.ParentClient) (*common.Bid, bool, error)
 }
 
 type slotStatsEvent struct {
