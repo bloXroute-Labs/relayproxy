@@ -44,7 +44,7 @@ func NewWalletAccounts(SignersArr []SignerFlag) (*map[string]*WalletAccount, []c
 		}
 		pubkey := crypto.PubkeyToAddress(signingKey.PublicKey)
 		if pubkey.String() != bidadjustmentSigner.PublicKey {
-			return &walletAccounts, pubkeys, fmt.Errorf("Public key does not match expected %s %s", pubkey.String(), bidadjustmentSigner.PublicKey)
+			return &walletAccounts, pubkeys, fmt.Errorf("public key does not match expected %s %s", pubkey.String(), bidadjustmentSigner.PublicKey)
 		}
 		walletAccounts[pubkey.String()] = &WalletAccount{
 			Pubkey:           pubkey,

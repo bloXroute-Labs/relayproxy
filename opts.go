@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/bloXroute-Labs/relay-grpc/stat"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 	"github.com/flashbots/go-boost-utils/bls"
@@ -93,6 +94,12 @@ func WithServerNodeID(nodeID string) ServerOption {
 func WithAdminAccountID(accountId string) ServerOption {
 	return func(s *Server) {
 		s.AdminAccountID = accountId
+	}
+}
+
+func WithPerformanceStats(performanceStats *stat.PerformanceStats) ServerOption {
+	return func(s *Server) {
+		s.performanceStats = performanceStats
 	}
 }
 
@@ -318,6 +325,12 @@ func WithBlockPublishFunc(blockPublishFunc func(tracer trace.Tracer, logger zero
 func WithGatewayAuthKey(key string) ServiceOption {
 	return func(s *Service) {
 		s.gatewayAuthKey = key
+	}
+}
+
+func WithSvcPerformanceStats(performanceStats *stat.PerformanceStats) ServiceOption {
+	return func(s *Service) {
+		s.performancestats = performanceStats
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/bloXroute-Labs/relay-grpc/stat"
 	"github.com/bloXroute-Labs/relayproxy"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
@@ -198,6 +199,9 @@ func main() {
 
 	tracer := otel.Tracer("main")
 
+	// init performance stats
+	performanceStats := stat.NewPerformanceStats()
+
 	// init fluentD if enabled
 	fluentLogger := fluentstats.NewStats(true, *fluentDHostFlag)
 
@@ -369,6 +373,7 @@ func main() {
 	svcOpts = append(svcOpts, relayproxy.WithSvcListenAddress(*listenAddr))
 	svcOpts = append(svcOpts, relayproxy.WithSvcGrpcListenAddress(*grpcPort))
 	svcOpts = append(svcOpts, relayproxy.WithAccountList(accountsLists))
+	svcOpts = append(svcOpts, relayproxy.WithSvcPerformanceStats(performanceStats))
 
 	svc := relayproxy.NewService(svcOpts...)
 
@@ -385,9 +390,10 @@ func main() {
 	serverOpts = append(serverOpts, relayproxy.WithAccountsLists(accountsLists))
 	serverOpts = append(serverOpts, relayproxy.WithServerNodeID(*nodeID))
 	serverOpts = append(serverOpts, relayproxy.WithAdminAccountID(*adminAccountID))
+	serverOpts = append(serverOpts, relayproxy.WithPerformanceStats(performanceStats))
 
 	// init server
-	server := relayproxy.New(serverOpts...)
+	server := relayproxy.NewServer(serverOpts...)
 
 	exit := make(chan struct{})
 	go func() {
@@ -400,6 +406,22 @@ func main() {
 		server.Stop()
 		close(exit)
 	}()
+
+	// Start logging Performance
+	go func(ctx context.Context) {
+
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				logPerformance(*nodeID, performanceStats, fluentLogger)
+			case <-ctx.Done():
+				logPerformance(*nodeID, performanceStats, fluentLogger)
+				return
+			}
+		}
+	}(ctx)
 
 	// start receiving account info
 	go dataSvc.SetAccounts(ctx)
@@ -417,6 +439,21 @@ func main() {
 		l.Fatal().Err(err).Msg("failed to start relay proxy server")
 	}
 	<-exit
+}
+func logPerformance(nodeID string, performancestat *stat.PerformanceStats, fluentD fluentstats.Stats) {
+	if nodeID == "" {
+		return
+	}
+
+	endInterval := time.Now().UTC()
+	performanceStatsRecord := performancestat.CloseInterval(endInterval)
+	if performanceStatsRecord.StartTime != "0001-01-01T00:00:00.000000" {
+		record := fluentstats.Record{
+			Data: performanceStatsRecord,
+			Type: relayproxy.TypeRelayProxyPerformanceStats,
+		}
+		fluentD.LogToFluentD(record, endInterval, nodeID, relayproxy.StatsRelayProxyPerformanceStats)
+	}
 }
 
 func newLogger(appName, version string) zerolog.Logger {
