@@ -94,3 +94,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250528174236-200df99c418a // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/bloXroute-Labs/relay-grpc v0.0.59 => /Users/akilesh/Documents/Bloxroute/repos/relay-grpc/relay-grpc

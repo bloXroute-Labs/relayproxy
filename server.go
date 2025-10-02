@@ -32,6 +32,7 @@ const (
 	// methods
 	getHeader       = "getHeader"
 	getPayload      = "getPayload"
+	getPayloadV2    = "getPayloadV2"
 	preFetchPayload = "preFetchPayload"
 	registration    = "registration"
 
@@ -154,6 +155,7 @@ func (s *Server) InitHandler() *chi.Mux {
 	handler.With(s.Middleware).Post(common.PathRegisterValidator, s.HandleRegistration)
 	handler.With(s.MiddlewareGetHeader).Get(common.PathGetHeader, s.HandleGetHeader)
 	handler.With(s.Middleware).Post(common.PathGetPayload, s.HandleGetPayload)
+	handler.With(s.Middleware).Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
 	s.logger.Info().Msg("Init relay proxy")
 	return handler
 }
@@ -890,6 +892,170 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
 	success = s.respondOKWithContextSSZMarshalled(getPayloadCtx, span, method, w, outByte, &log, s.tracer)
 
+}
+func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
+
+	start := time.Now().UTC()
+	success := false
+	defer func() {
+		s.performanceStats.SetEndpointStats(
+			common.PathGetPayloadV2,
+			uint64(time.Since(start).Microseconds()),
+			success,
+			100)
+	}()
+
+	parentSpan := trace.SpanFromContext(r.Context())
+	parentCtx := trace.ContextWithSpan(context.Background(), parentSpan)
+	getPayloadCtx, span := s.tracer.Start(parentCtx, "handleGetPayload-start")
+	defer parentSpan.End()
+	defer span.End()
+
+	receivedAt := time.Now().UTC()
+	clientIP := r.Context().Value(keyClientIP).(string)
+	parsedURL := r.Context().Value(keyParsedURL).(*url.URL)
+	authHeader := r.Context().Value(keyAuthHeader).(string)
+	validatorID := r.Context().Value(keyOrgID).(string)
+	accountID := r.Context().Value(keyAccountID).(string)
+
+	mevBoostSendTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
+	commitBoostSendTimeUnixMS := r.Header.Get(HeaderDateMilliseconds)
+	headerSlotUID := r.Header.Get(HeaderKeySlotUID)
+	boostSendTime, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
+	cluster := r.Header.Get(VouchCluster)
+	userAgent := r.Header.Get("User-Agent")
+
+	headers := []string{}
+	for k, v := range r.Header {
+		headers = append(headers, k+"="+v[0])
+	}
+	sszRequest, sszResponse := common.ParseBuilderContentType(r)
+
+	log := s.logger.With().
+		Str("reqHost", r.Host).
+		Str("method", r.Method).
+		Str("userAgent", userAgent).
+		Str("clientIP", clientIP).
+		Str("remoteAddr", r.RemoteAddr).
+		Str("requestURI", r.RequestURI).
+		Str("parsedURL", parsedURL.String()).
+		Str("validatorID", validatorID).
+		Str("accountID", accountID).
+		Str("authHeader", authHeader).
+		Str("traceID", span.SpanContext().TraceID().String()).
+		Str("getPayloadStartTimeUnixMS", boostSendTime).
+		Int64("latency", latency).
+		Str("cluster", cluster).
+		Bool("sszRequest", sszRequest).
+		Bool("sszResponse", sszResponse).
+		Strs("headers", headers).
+		Str("slotUID", headerSlotUID).
+		Logger()
+	span.SetAttributes(
+		attribute.String("reqHost", r.Host),
+		attribute.String("method", r.Method),
+		attribute.String("clientIP", clientIP),
+		attribute.String("remoteAddr", r.RemoteAddr),
+		attribute.String("requestURI", r.RequestURI),
+		attribute.String("parsedURL", parsedURL.String()),
+		attribute.String("validatorID", validatorID),
+		attribute.String("accountID", accountID),
+		attribute.String("authHeader", authHeader),
+		attribute.String("traceID", span.SpanContext().TraceID().String()),
+		attribute.String("getPayloadStartTimeUnixMS", boostSendTime),
+		attribute.Int64("latency", latency),
+		attribute.String("cluster", cluster),
+		attribute.String("userAgent", userAgent),
+		attribute.Bool("sszRequest", sszRequest),
+		attribute.Bool("sszResponse", sszResponse),
+		attribute.StringSlice("headers", headers),
+		attribute.String("slotUID", headerSlotUID),
+	)
+
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		log.Error().Err(err).Msg("could not read registration")
+		respondError(getPayloadCtx, span, getPayloadV2, w, toErrorResp(http.StatusInternalServerError, "could not read registration"), &log, s.tracer)
+		return
+	}
+	signedBlindedBeaconBlock := new(common.VersionedSignedBlindedBeaconBlock)
+	if sszRequest {
+		_, decodeSSZSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-decodeSSZ")
+		err := signedBlindedBeaconBlock.UnmarshalSSZ(bodyBytes)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to decode request payload")
+			decodeSSZSpan.End()
+			respondError(getPayloadCtx, span, getPayloadV2, w, toErrorResp(http.StatusInternalServerError, "failed to decode request payload"), &log, s.tracer)
+			return
+		}
+		decodeSSZSpan.End()
+		_, encodeJSONSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-encodeJSON")
+		bodyBytes, err = signedBlindedBeaconBlock.MarshalJSON()
+		if err != nil {
+			encodeJSONSpan.End()
+			log.Error().Err(err).Msg("failed to marshal to json")
+			respondError(getPayloadCtx, span, getPayloadV2, w, toErrorResp(http.StatusInternalServerError, "failed to marshal to json"), &log, s.tracer)
+			return
+		}
+		encodeJSONSpan.End()
+	}
+	span.AddEvent("handleGetPayload-svcGetPayload")
+	var (
+		versionedPayloadInfo *common.VersionedPayloadInfo
+	)
+	method := getPayloadV2
+	versionedPayloadInfo, err = s.svc.GetPayloadV2(getPayloadCtx, &log, &PayloadRequestParams{
+		ReceivedAt:                receivedAt,
+		Payload:                   bodyBytes,
+		ClientIP:                  clientIP,
+		AuthHeader:                authHeader,
+		ValidatorID:               validatorID,
+		AccountID:                 accountID,
+		GetPayloadStartTimeUnixMS: boostSendTime,
+		Cluster:                   cluster,
+		UserAgent:                 userAgent,
+		SlotUID:                   headerSlotUID,
+	})
+	_, mergeLogMetric := s.tracer.Start(getPayloadCtx, "handleGetPayload-mergeLogMetric")
+	if err != nil {
+		log.Error().Err(err).Msg("Error in GetPayload")
+		span.SetAttributes(
+			attribute.String("error", err.Error()),
+		)
+		span.SetStatus(codes.Error, err.Error())
+		respondError(getPayloadCtx, span, method, w, err, &log, s.tracer)
+		return
+	}
+	mergeLogMetric.End()
+
+	// Return response
+	if !sszResponse {
+		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer); err == nil {
+			success = true
+		}
+		return
+	}
+	_, marshalUnmarshalSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-marshalUnmarshal")
+	payloadResponse := new(common.VersionedSubmitBlindedBlockResponse)
+	if err := payloadResponse.UnmarshalJSON(versionedPayloadInfo.GetResponse()); err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		log.Error().Err(err).Msg("failed to unmarshal getHeader response")
+		respondError(getPayloadCtx, span, method, w, toErrorResp(http.StatusInternalServerError, err.Error()), &log, s.tracer)
+		return
+	}
+	outByte, err := payloadResponse.MarshalSSZ()
+	if err != nil {
+		log.Error().Err(err).Msg("failed to marshal getHeader to ssz")
+		span.SetStatus(codes.Error, err.Error())
+		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer); err == nil {
+			success = true
+		}
+		return
+	}
+	marshalUnmarshalSpan.End()
+	w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
+	success = s.respondOKWithContextSSZMarshalled(getPayloadCtx, span, method, w, outByte, &log, s.tracer)
 }
 func respondOK(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, response any, log *zerolog.Logger, tracer trace.Tracer) error {
 	_, span := tracer.Start(ctx, "respondOK-"+method)
