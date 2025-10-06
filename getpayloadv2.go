@@ -198,7 +198,7 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 			Logger()
 
 		// return success response only
-		return &ErrorResp{http.StatusAccepted, "OK"}
+		return nil
 
 	case <-time.After(1500 * time.Millisecond):
 	}

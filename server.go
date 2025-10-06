@@ -907,7 +907,7 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 
 	parentSpan := trace.SpanFromContext(r.Context())
 	parentCtx := trace.ContextWithSpan(context.Background(), parentSpan)
-	getPayloadCtx, span := s.tracer.Start(parentCtx, "handleGetPayload-start")
+	getPayloadCtx, span := s.tracer.Start(parentCtx, "handleGetPayloadV2-start")
 	defer parentSpan.End()
 	defer span.End()
 
@@ -981,7 +981,7 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 	}
 	signedBlindedBeaconBlock := new(common.VersionedSignedBlindedBeaconBlock)
 	if sszRequest {
-		_, decodeSSZSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-decodeSSZ")
+		_, decodeSSZSpan := s.tracer.Start(getPayloadCtx, "handleGetPayloadV2-decodeSSZ")
 		err := signedBlindedBeaconBlock.UnmarshalSSZ(bodyBytes)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to decode request payload")
@@ -990,7 +990,7 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		decodeSSZSpan.End()
-		_, encodeJSONSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-encodeJSON")
+		_, encodeJSONSpan := s.tracer.Start(getPayloadCtx, "handleGetPayloadV2-encodeJSON")
 		bodyBytes, err = signedBlindedBeaconBlock.MarshalJSON()
 		if err != nil {
 			encodeJSONSpan.End()
@@ -1000,12 +1000,10 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 		}
 		encodeJSONSpan.End()
 	}
-	span.AddEvent("handleGetPayload-svcGetPayload")
-	var (
-		versionedPayloadInfo *common.VersionedPayloadInfo
-	)
+	span.AddEvent("handleGetPayload-svcGetPayloadV2")
+
 	method := getPayloadV2
-	versionedPayloadInfo, err = s.svc.GetPayloadV2(getPayloadCtx, &log, &PayloadRequestParams{
+	err = s.svc.GetPayloadV2(getPayloadCtx, &log, &PayloadRequestParams{
 		ReceivedAt:                receivedAt,
 		Payload:                   bodyBytes,
 		ClientIP:                  clientIP,
@@ -1029,34 +1027,23 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 	}
 	mergeLogMetric.End()
 
-	// Return response
-	if !sszResponse {
-		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer); err == nil {
-			success = true
-		}
-		return
-	}
-	_, marshalUnmarshalSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-marshalUnmarshal")
-	payloadResponse := new(common.VersionedSubmitBlindedBlockResponse)
-	if err := payloadResponse.UnmarshalJSON(versionedPayloadInfo.GetResponse()); err != nil {
-		span.SetStatus(codes.Error, err.Error())
-		log.Error().Err(err).Msg("failed to unmarshal getHeader response")
-		respondError(getPayloadCtx, span, method, w, toErrorResp(http.StatusInternalServerError, err.Error()), &log, s.tracer)
-		return
-	}
-	outByte, err := payloadResponse.MarshalSSZ()
-	if err != nil {
-		log.Error().Err(err).Msg("failed to marshal getHeader to ssz")
-		span.SetStatus(codes.Error, err.Error())
-		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer); err == nil {
-			success = true
-		}
-		return
-	}
-	marshalUnmarshalSpan.End()
-	w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
-	success = s.respondOKWithContextSSZMarshalled(getPayloadCtx, span, method, w, outByte, &log, s.tracer)
+	// need to confirm eth consensusVersion
+	//w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
+	success = respondStatusAccepted(getPayloadCtx, span, method, w, &log, s.tracer)
 }
+
+func respondStatusAccepted(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, log *zerolog.Logger, tracer trace.Tracer) bool {
+	_, span := tracer.Start(ctx, "respondStatusAccepted-"+method)
+	defer span.End()
+	parentSpan.SetAttributes(
+		attribute.Int("responseCode", http.StatusAccepted),
+	)
+	log.Info().Str("method", method).Msg(method + " succeeded")
+	w.Header().Set(common.HeaderContentType, common.MediaTypeJSON)
+	w.WriteHeader(http.StatusAccepted)
+	return true
+}
+
 func respondOK(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, response any, log *zerolog.Logger, tracer trace.Tracer) error {
 	_, span := tracer.Start(ctx, "respondOK-"+method)
 	defer span.End()
