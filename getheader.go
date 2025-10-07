@@ -36,9 +36,9 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func (s *Service) GetHeader(parentSpan trace.Span, ctx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
+func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
 	id := uuid.NewString()
-	ctx, span := s.tracer.Start(ctx, "getHeader-start")
+	ctx, span := s.tracer.Start(parentCtx, "getHeader-start")
 	defer span.End()
 
 	k := "slot-" + in.Slot + "-parentHash-" + in.ParentHash
@@ -135,7 +135,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, ctx context.Context, log *zer
 			go func() {
 				onHeaderBidRetrievedStart := time.Now()
 				_, onHeadonHeaderBidRetrievedSpan := s.tracer.Start(storingHeaderCtx, "getHeader-onHeaderBidRetrieved")
-				newBestHeader, replaceable, err := s.OnHeaderBidRetrieved(storingHeaderCtx, slotBestHeader, *log, parentSpan, _slot, in.ParentHash, slotBestHeader.BuilderPubkey, in.AccountID, delayGetHeaderResponse.ReplacementDelayMs, s.uniqueStreamingClients)
+				newBestHeader, replaceable, err := s.OnHeaderBidRetrieved(storingHeaderCtx, slotBestHeader, *log, _slot, in.ParentHash, slotBestHeader.BuilderPubkey, in.AccountID, delayGetHeaderResponse.ReplacementDelayMs, s.uniqueStreamingClients)
 				onHeadonHeaderBidRetrievedSpan.End(trace.WithTimestamp(time.Now()))
 				repickDurationMS = time.Since(onHeaderBidRetrievedStart).Milliseconds()
 				log.Info().Bool("replaceable", replaceable).Int64("onHeaderBidRetrievedDuration", repickDurationMS).Msg("OnHeaderBidRetrieved duration")
