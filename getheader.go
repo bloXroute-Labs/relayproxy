@@ -69,10 +69,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 	startTime := time.Now().UTC()
 
 	*log = log.With().
-		Str("method", getHeader).
 		Str("reqID", id).
-		Str("key", k).
-		Str("slot", in.Slot).
 		Int64("slotStartTimeUnix", slotStartTime.Unix()).
 		Str("slotStartTime", slotStartTime.UTC().String()).
 		Int64("sleep", sleep).
@@ -80,13 +77,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 		Logger()
 
 	parentSpan.SetAttributes(
-		attribute.String("method", getHeader),
 		attribute.String("req", id),
-		attribute.Int64("receivedAt", in.ReceivedAt.Unix()),
-		attribute.String("key", k),
-		attribute.String("slot", in.Slot),
-		attribute.Int64("slotStartTimeUnix", slotStartTime.Unix()),
-		attribute.String("slotStartTime", slotStartTime.UTC().String()),
 		attribute.Int64("sleep", sleep),
 		attribute.Int64("maxSleep", maxSleep),
 	)
@@ -97,21 +88,15 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 		return nil, nil, toErrorResp(http.StatusNoContent, err.Error())
 	}
 
-	_, parseUintHeaderSpan := s.tracer.Start(ctx, "getHeader-parseUint")
 	_slot, err := fastParseUint(in.Slot)
 	if err != nil {
-		parseUintHeaderSpan.End(trace.WithTimestamp(time.Now()))
 		preStoringHeaderSpan.End(trace.WithTimestamp(time.Now()))
 		return nil, nil, toErrorResp(http.StatusNoContent, errInvalidSlot.Error())
 	}
 
-	parseUintHeaderSpan.End(trace.WithTimestamp(time.Now()))
-
-	_, slotTimeMeasureSpan := s.tracer.Start(ctx, "getHeader-slotTimeMeasure")
 	msIntoSlotIncludingDelay := time.Since(slotStartTime).Milliseconds()
 	msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds() // without sleep and using received at
 	*log = log.With().
-		Int64("msIntoSlot", msIntoSlot).
 		Int64("msIntoSlotIncludingDelay", msIntoSlotIncludingDelay).
 		Logger()
 
@@ -119,8 +104,6 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 		attribute.Int64("msIntoSlot", msIntoSlot),
 		attribute.Int64("msIntoSlotIncludingDelay", msIntoSlotIncludingDelay),
 	)
-
-	slotTimeMeasureSpan.End(trace.WithTimestamp(time.Now()))
 
 	preStoringHeaderSpan.End(trace.WithTimestamp(time.Now()))
 
@@ -211,6 +194,7 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 	if in.Cluster != "" {
 		statsUserAgent += "/" + in.Cluster
 	}
+	storingHeaderSpan.End()
 
 	if slotBestHeader == nil || getErr != nil {
 		msg := fmt.Sprintf("header value is not present for the requested key %v", keyForCachingBids)
@@ -250,12 +234,12 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 			in.ValidatorID = in.AccountID
 		}
 	}
-	uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", in.Slot, slotBestHeader.BlockHash, in.ParentHash) // TODO:add pubkey
+	_, signAndFinishSpan := s.tracer.Start(ctx, "getHeader-finalize")
+	defer signAndFinishSpan.End()
 	blockValue := new(big.Int).SetBytes(slotBestHeader.Value)
 	*log = log.With().
 		Str("blockHash", slotBestHeader.BlockHash).
 		Str("blockValue", blockValue.String()).
-		Str("uniqueKey", uKey).
 		Int64("replacementDelayMs", delayGetHeaderResponse.ReplacementDelayMs).
 		Bool("usedRepick", usedRepick).
 		Bool("repickDataExist", repickDataExist).
@@ -267,18 +251,16 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 		Logger()
 	parentSpan.SetAttributes(
 		attribute.String("blockHash", slotBestHeader.BlockHash),
-		attribute.String("blockValue", blockValue.String()),
-		attribute.String("uniqueKey", uKey),
-		attribute.Int64("replacementDelayMs", delayGetHeaderResponse.ReplacementDelayMs),
-		attribute.Bool("usedRepick", usedRepick),
-		attribute.Bool("repickDataExist", repickDataExist),
-		attribute.Bool("repickDataSuccess", repickDataSuccess),
-		attribute.String("repickErr", repickErr),
-		attribute.Int64("repickDurationMS", repickDurationMS),
-		attribute.Int64("originalValue", originalValue.Int64()),
-		attribute.String("originalBlockHash", originalBlockHash),
+		// attribute.String("blockValue", blockValue.String()),
+		// attribute.Int64("replacementDelayMs", delayGetHeaderResponse.ReplacementDelayMs),
+		// attribute.Bool("usedRepick", usedRepick),
+		// attribute.Bool("repickDataExist", repickDataExist),
+		// attribute.Bool("repickDataSuccess", repickDataSuccess),
+		// attribute.String("repickErr", repickErr),
+		// attribute.Int64("repickDurationMS", repickDurationMS),
+		// attribute.Int64("originalValue", originalValue.Int64()),
+		// attribute.String("originalBlockHash", originalBlockHash),
 	)
-	storingHeaderSpan.End(trace.WithTimestamp(time.Now()))
 
 	go func() {
 		slotStats := SlotStatsRecord{

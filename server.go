@@ -583,8 +583,6 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	parentSpan := trace.SpanFromContext(r.Context())
 	parentSpanCtx := trace.ContextWithSpan(context.Background(), parentSpan)
 	handleGetHeaderCtx, span := s.tracer.Start(parentSpanCtx, "handleGetHeader-start")
-	defer parentSpan.End()
-	defer span.End()
 
 	receivedAt := time.Now().UTC()
 	slot := chi.URLParam(r, "slot")
@@ -607,6 +605,43 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	}
 	_, sszResponse := common.ParseBuilderContentType(r)
 
+	var onHeaderDeliveredParams *common.OnHeaderDeliveredParams
+	var out json.RawMessage
+	var err error
+	defer func() {
+		span.SetAttributes(
+			attribute.String("reqHost", r.Host),
+			attribute.String("method", r.Method),
+			attribute.String("clientIP", clientIP),
+			attribute.String("remoteAddr", r.RemoteAddr),
+			attribute.String("requestURI", r.RequestURI),
+			attribute.String("validatorID", validatorID),
+			attribute.String("accountID", accountID),
+			attribute.String("authHeader", authHeader),
+			attribute.String("parentHash", parentHash),
+			attribute.String("pubKey", pubKey),
+			attribute.String("traceID", span.SpanContext().TraceID().String()),
+			attribute.String("getHeaderStartTimeUnixMS", boostSendTime),
+			attribute.Int64("latency", latency),
+			attribute.String("cluster", cluster),
+			attribute.String("userAgent", userAgent),
+			attribute.Bool("sszResponse", sszResponse),
+			attribute.StringSlice("headers", headers),
+			attribute.String("slotUID", headerSlotUID),
+			attribute.String("method", getHeader),
+			attribute.String("key", "slot-"+slot+"-parentHash-"+parentHash),
+			attribute.Int64("receivedAt", receivedAt.Unix()),
+			attribute.String("slot", slot),
+		)
+		if onHeaderDeliveredParams != nil {
+			// span.SetAttributes(
+			// 	"blockHash"
+			// )
+		}
+	}()
+	defer parentSpan.End()
+	defer span.End()
+
 	log := s.logger.With().
 		Str("reqHost", r.Host).
 		Str("method", r.Method).
@@ -627,30 +662,13 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		Bool("sszResponse", sszResponse).
 		Strs("headers", headers).
 		Str("slotUID", headerSlotUID).
+		Str("method", getHeader).
+		Str("key", "slot-"+slot+"-parentHash-"+parentHash).
+		Str("slot", slot).
 		Logger()
 
-	span.SetAttributes(
-		attribute.String("reqHost", r.Host),
-		attribute.String("method", r.Method),
-		attribute.String("clientIP", clientIP),
-		attribute.String("remoteAddr", r.RemoteAddr),
-		attribute.String("requestURI", r.RequestURI),
-		attribute.String("validatorID", validatorID),
-		attribute.String("accountID", accountID),
-		attribute.String("authHeader", authHeader),
-		attribute.String("parentHash", parentHash),
-		attribute.String("pubKey", pubKey),
-		attribute.String("traceID", span.SpanContext().TraceID().String()),
-		attribute.String("getHeaderStartTimeUnixMS", boostSendTime),
-		attribute.Int64("latency", latency),
-		attribute.String("cluster", cluster),
-		attribute.String("userAgent", userAgent),
-		attribute.Bool("sszResponse", sszResponse),
-		attribute.StringSlice("headers", headers),
-		attribute.String("slotUID", headerSlotUID),
-	)
 	span.AddEvent("handleGetHeader-svcGetHeader")
-	out, onHeaderDeliveredParams, err := s.svc.GetHeader(handleGetHeaderCtx, &log, &HeaderRequestParams{
+	out, onHeaderDeliveredParams, err = s.svc.GetHeader(handleGetHeaderCtx, &log, &HeaderRequestParams{
 		ReceivedAt:               receivedAt,
 		GetHeaderStartTimeUnixMS: boostSendTime,
 		Latency:                  latency,
