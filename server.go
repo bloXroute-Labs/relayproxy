@@ -572,13 +572,6 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now().UTC()
 	success := false
-	defer func() {
-		s.performanceStats.SetEndpointStats(
-			common.PathGetHeader,
-			uint64(time.Since(start).Microseconds()),
-			success,
-			100)
-	}()
 
 	parentSpan := trace.SpanFromContext(r.Context())
 	parentSpanCtx := trace.ContextWithSpan(context.Background(), parentSpan)
@@ -634,13 +627,23 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 			attribute.String("slot", slot),
 		)
 		if onHeaderDeliveredParams != nil {
-			// span.SetAttributes(
-			// 	"blockHash"
-			// )
+
+			span.SetAttributes(
+				attribute.Int64("sleep", onHeaderDeliveredParams.Sleep),
+				attribute.Int64("maxSleep", onHeaderDeliveredParams.MaxSleep),
+				attribute.Int64("msIntoSlot", onHeaderDeliveredParams.MsIntoSlot),
+				attribute.Int64("msIntoSlotIncludingDelay", onHeaderDeliveredParams.MsIntoSlotWithDelay),
+				attribute.String("blockHash", onHeaderDeliveredParams.BlockHash),
+			)
 		}
+		parentSpan.End()
+		span.End()
+		s.performanceStats.SetEndpointStats(
+			common.PathGetHeader,
+			uint64(time.Since(start).Microseconds()),
+			success,
+			100)
 	}()
-	defer parentSpan.End()
-	defer span.End()
 
 	log := s.logger.With().
 		Str("reqHost", r.Host).
