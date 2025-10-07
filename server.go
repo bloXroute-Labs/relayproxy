@@ -154,7 +154,7 @@ func (s *Server) InitHandler() *chi.Mux {
 	handler.With(s.Middleware).Get(common.PathStatus, s.HandleStatus)
 	handler.With(s.Middleware).Post(common.PathRegisterValidator, s.HandleRegistration)
 	handler.With(s.MiddlewareGetHeader).Get(common.PathGetHeader, s.HandleGetHeader)
-	handler.With(s.Middleware).Post(common.PathGetPayload, s.HandleGetPayload)
+	handler.With(s.Middleware).Post(common.PathGetPayload, s.HandleGetPayloadV2)
 	handler.With(s.Middleware).Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
 	s.logger.Info().Msg("Init relay proxy")
 	return handler
