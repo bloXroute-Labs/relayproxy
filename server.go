@@ -558,12 +558,11 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 				attribute.String("error", err.Error()),
 			)
 			log.Error().Err(err).Msg("error in RegisterValidator")
-			respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, err, &log, s.tracer)
 			return
 		}
 	}()
 
-	if err := respondOK(handleRegistrationCtx, handleRegistrationSpan, registration, w, struct{}{}, &log, s.tracer); err == nil {
+	if err := respondOK(handleRegistrationCtx, handleRegistrationSpan, registration, w, struct{}{}, &log, s.tracer, false); err == nil {
 		success = true
 	}
 }
@@ -720,7 +719,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 
 	if !sszResponse {
 		log.Info().Msg("Responding with JSON")
-		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer); err == nil {
+		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer, true); err == nil {
 			success = true
 		}
 		return
@@ -736,7 +735,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	sszMarshal, err := versionedBid.MarshalSSZ()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to marshal SSZ")
-		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer); err == nil {
+		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer, true); err == nil {
 			success = true
 		}
 		return
@@ -885,7 +884,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 
 	// Return response
 	if !sszResponse {
-		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer); err == nil {
+		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer, true); err == nil {
 			success = true
 		}
 		return
@@ -902,7 +901,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal getHeader to ssz")
 		span.SetStatus(codes.Error, err.Error())
-		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer); err == nil {
+		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer, true); err == nil {
 			success = true
 		}
 		return
@@ -912,7 +911,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	success = s.respondOKWithContextSSZMarshalled(getPayloadCtx, span, method, w, outByte, &log, s.tracer)
 
 }
-func respondOK(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, response any, log *zerolog.Logger, tracer trace.Tracer) error {
+func respondOK(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, response any, log *zerolog.Logger, tracer trace.Tracer, logMessage bool) error {
 	_, span := tracer.Start(ctx, "respondOK-"+method)
 	defer span.End()
 	parentSpan.SetAttributes(
@@ -927,7 +926,9 @@ func respondOK(ctx context.Context, parentSpan trace.Span, method string, w http
 		http.Error(w, "", http.StatusInternalServerError)
 		return err
 	}
-	log.Info().Str("method", method).Msg(method + " succeeded")
+	if logMessage {
+		log.Info().Str("method", method).Msg(method + " succeeded")
+	}
 	return nil
 }
 

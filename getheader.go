@@ -134,9 +134,9 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			newBestHeaderCh := make(chan *common.Bid, 1)
 			go func() {
 				onHeaderBidRetrievedStart := time.Now()
-				_, onHeadonHeaderBidRetrievedSpan := s.tracer.Start(storingHeaderCtx, "getHeader-onHeaderBidRetrieved")
-				newBestHeader, replaceable, err := s.OnHeaderBidRetrieved(storingHeaderCtx, slotBestHeader, *log, _slot, in.ParentHash, slotBestHeader.BuilderPubkey, in.AccountID, delayGetHeaderResponse.ReplacementDelayMs, s.uniqueStreamingClients)
-				onHeadonHeaderBidRetrievedSpan.End(trace.WithTimestamp(time.Now()))
+				onHeaderRetrievedCtx, onHeadonHeaderBidRetrievedSpan := s.tracer.Start(storingHeaderCtx, "getHeader-onHeaderBidRetrieved")
+				newBestHeader, replaceable, err := s.OnHeaderBidRetrieved(onHeaderRetrievedCtx, slotBestHeader, *log, _slot, in.ParentHash, slotBestHeader.BuilderPubkey, in.AccountID, delayGetHeaderResponse.ReplacementDelayMs, s.uniqueStreamingClients)
+				onHeadonHeaderBidRetrievedSpan.End()
 				repickDurationMS = time.Since(onHeaderBidRetrievedStart).Milliseconds()
 				log.Info().Bool("replaceable", replaceable).Int64("onHeaderBidRetrievedDuration", repickDurationMS).Msg("OnHeaderBidRetrieved duration")
 				repickDataExist = replaceable
@@ -157,7 +157,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 					log.Info().Msg("got new bid after repick from channel")
 				}
 			case <-time.After(time.Until(replacementTime)):
-				log.Error().Msg("OnHeaderBidRetrieved took too long, proceeding with the original bid")
+				log.Error().Time("replacementTime", replacementTime).Time("repickTime", repickTime).Msg("OnHeaderBidRetrieved took too long, proceeding with the original bid")
 				repickErr = "timeout waiting for OnHeaderBidRetrieved"
 				repickDataSuccess = false
 			}
@@ -240,6 +240,8 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		Int64("repickDurationMS", repickDurationMS).
 		Int64("originalValue", originalValue.Int64()).
 		Str("originalBlockHash", originalBlockHash).
+		Time("replacementTime", replacementTime).
+		Time("repickTime", repickTime).
 		Logger()
 
 	go func() {

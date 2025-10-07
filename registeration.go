@@ -46,7 +46,6 @@ func (s *Service) RegisterValidator(ctx context.Context, log *zerolog.Logger, ou
 		Bool("proposerMevProtect", in.ProposerMevProtect).
 		Time("receivedAt", in.ReceivedAt).
 		Logger()
-	log.Info().Msg("received registration")
 	parentSpan.SetAttributes(
 		attribute.String("method", "registerValidator"),
 		attribute.String("clientIP", in.ClientIP),
@@ -125,7 +124,9 @@ func (s *Service) registerValidatorForClient(_ctx context.Context, req *relaygrp
 		url := selectedRelay.SafeClient.URL
 
 		if err != nil || out == nil || out.Code != uint32(codes.OK) {
-			s.logger.Warn().Str("url", url).Err(err).Msg("failed to register validator")
+			if err != nil && !strings.Contains(err.Error(), "expired on") {
+				s.logger.Warn().Str("url", url).Err(err).Msg("failed to register validator")
+			}
 			continue
 		}
 
