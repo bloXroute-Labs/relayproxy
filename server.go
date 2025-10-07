@@ -1015,18 +1015,7 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 		UserAgent:                 userAgent,
 		SlotUID:                   headerSlotUID,
 	})
-	_, mergeLogMetric := s.tracer.Start(getPayloadCtx, "handleGetPayload-mergeLogMetric")
-	if err != nil {
-		log.Error().Err(err).Msg("Error in GetPayload")
-		span.SetAttributes(
-			attribute.String("error", err.Error()),
-		)
-		span.SetStatus(codes.Error, err.Error())
-		respondError(getPayloadCtx, span, method, w, err, &log, s.tracer)
-		return
-	}
-	mergeLogMetric.End()
-
+	
 	// need to confirm eth consensusVersion
 	//w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
 	success = respondStatusAccepted(getPayloadCtx, span, method, w, &log, s.tracer)
