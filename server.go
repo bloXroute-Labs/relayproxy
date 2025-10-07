@@ -671,7 +671,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		Logger()
 
 	span.AddEvent("handleGetHeader-svcGetHeader")
-	out, onHeaderDeliveredParams, err = s.svc.GetHeader(handleGetHeaderCtx, &log, &HeaderRequestParams{
+	out, onHeaderDeliveredParams, err = s.svc.GetHeader(span, handleGetHeaderCtx, &log, &HeaderRequestParams{
 		ReceivedAt:               receivedAt,
 		GetHeaderStartTimeUnixMS: boostSendTime,
 		Latency:                  latency,

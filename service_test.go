@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -201,7 +202,7 @@ func TestService_GetHeader(t *testing.T) {
 			}
 
 			accountID := tt.accountID
-			_, _, err := svc.GetHeader(context.Background(), &zerolog.Logger{}, &HeaderRequestParams{
+			_, _, err := svc.GetHeader(trace.SpanFromContext(context.Background()), context.Background(), &zerolog.Logger{}, &HeaderRequestParams{
 				ReceivedAt: slotStartTime,
 				Slot:       tt.slot,
 				AccountID:  accountID,
@@ -614,7 +615,7 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	}
 	for testName, tt := range tests {
 		t.Run(testName, func(t *testing.T) {
-			got, _, err := service.GetHeader(ctx, &zerolog.Logger{}, &HeaderRequestParams{
+			got, _, err := service.GetHeader(trace.SpanFromContext(ctx), ctx, &zerolog.Logger{}, &HeaderRequestParams{
 				ReceivedAt: time.Now(),
 				AuthHeader: TestAuthHeader,
 				Slot:       strconv.FormatUint(tt.in.Slot, 10),

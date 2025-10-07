@@ -36,10 +36,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
+func (s *Service) GetHeader(parentSpan trace.Span, ctx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
 	id := uuid.NewString()
-	parentSpan := trace.SpanFromContext(ctx)
-	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
 	ctx, span := s.tracer.Start(ctx, "getHeader-start")
 	defer span.End()
 
@@ -111,7 +109,9 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 
 	fetchGetHeaderStartTime := time.Now().UTC()
 	keyForCachingBids := s.keyForCachingBids(_slot, in.ParentHash, in.PubKey)
+	_, GetTopBuilderBidSpan1 := s.tracer.Start(storingHeaderCtx, "getHeader-GetTopBuilderBidFirst")
 	slotBestHeader, secondBestHeader, getErr := s.GetTopBuilderBid(keyForCachingBids)
+	GetTopBuilderBidSpan1.End()
 	usedRepick := false
 	repickDataExist := false
 	repickDataSuccess := true
@@ -166,7 +166,9 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 			timeUntilRepick := time.Until(repickTime)
 			if timeUntilRepick > 0 {
 				time.Sleep(timeUntilRepick)
+				_, GetTopBuilderBidSpan2 := s.tracer.Start(storingHeaderCtx, "getHeader-GetTopBuilderBidSecond")
 				newBestHeader, secondBidHeader, err := s.GetTopBuilderBid(keyForCachingBids)
+				GetTopBuilderBidSpan2.End()
 				if err != nil {
 					log.Error().Err(err).Msg("error getting top builder bid after repick wait")
 				} else {
