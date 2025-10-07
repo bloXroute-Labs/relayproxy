@@ -240,18 +240,6 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 		Str("originalBlockHash", originalBlockHash).
 		Logger()
 
-	// parentSpan.SetAttributes(
-	// attribute.String("blockValue", blockValue.String()),
-	// attribute.Int64("replacementDelayMs", delayGetHeaderResponse.ReplacementDelayMs),
-	// attribute.Bool("usedRepick", usedRepick),
-	// attribute.Bool("repickDataExist", repickDataExist),
-	// attribute.Bool("repickDataSuccess", repickDataSuccess),
-	// attribute.String("repickErr", repickErr),
-	// attribute.Int64("repickDurationMS", repickDurationMS),
-	// attribute.Int64("originalValue", originalValue.Int64()),
-	// attribute.String("originalBlockHash", originalBlockHash),
-	// )
-
 	go func() {
 		slotStats := SlotStatsRecord{
 			HeaderReqID:               id,
