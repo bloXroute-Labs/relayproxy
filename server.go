@@ -154,7 +154,7 @@ func (s *Server) InitHandler() *chi.Mux {
 	handler.With(s.Middleware).Get(common.PathStatus, s.HandleStatus)
 	handler.With(s.Middleware).Post(common.PathRegisterValidator, s.HandleRegistration)
 	handler.With(s.MiddlewareGetHeader).Get(common.PathGetHeader, s.HandleGetHeader)
-	handler.With(s.Middleware).Post(common.PathGetPayload, s.HandleGetPayloadV2)
+	handler.With(s.Middleware).Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
 	handler.With(s.Middleware).Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
 	s.logger.Info().Msg("Init relay proxy")
 	return handler
@@ -1015,7 +1015,7 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 		UserAgent:                 userAgent,
 		SlotUID:                   headerSlotUID,
 	})
-	
+
 	// need to confirm eth consensusVersion
 	//w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
 	success = respondStatusAccepted(getPayloadCtx, span, method, w, &log, s.tracer)
