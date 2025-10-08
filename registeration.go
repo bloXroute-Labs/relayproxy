@@ -124,7 +124,10 @@ func (s *Service) registerValidatorForClient(_ctx context.Context, req *relaygrp
 		url := selectedRelay.SafeClient.URL
 
 		if err != nil || out == nil || out.Code != uint32(codes.OK) {
-			if err != nil && !strings.Contains(err.Error(), "expired on") {
+			if err != nil {
+				if strings.Contains(err.Error(), "expired on") {
+					break
+				}
 				s.logger.Warn().Str("url", url).Err(err).Msg("failed to register validator")
 			}
 			continue

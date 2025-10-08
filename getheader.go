@@ -129,8 +129,11 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	repickTime := time.Now().Add(time.Duration(delayGetHeaderResponse.ReplacementDelayMs) * time.Millisecond)
 	replacementTime := repickTime.Add(-5 * time.Millisecond)
 	if delayGetHeaderResponse.ReplacementDelayMs > 0 {
-		timer := time.NewTimer(time.Until(replacementTime))
-		defer timer.Stop()
+		replacementTimer := time.NewTimer(time.Until(replacementTime))
+		defer replacementTimer.Stop()
+		repickTimer := time.NewTimer(time.Until(repickTime))
+		defer repickTimer.Stop()
+
 		log.Info().Int64("replacementDelayMs", delayGetHeaderResponse.ReplacementDelayMs).Msg("waiting for replacement delay")
 		if getErr == nil && s.OnHeaderBidRetrieved != nil {
 			newBestHeaderCh := make(chan *common.Bid, 1)
@@ -158,30 +161,26 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 					getErr = nil
 					log.Info().Msg("got new bid after repick from channel")
 				}
-			case <-timer.C:
+			case <-replacementTimer.C:
 				log.Error().Time("replacementTime", replacementTime).Time("repickTime", repickTime).Msg("OnHeaderBidRetrieved took too long, proceeding with the original bid")
 				repickErr = "timeout waiting for OnHeaderBidRetrieved"
 				repickDataSuccess = false
 			}
 		}
 		if !usedRepick {
-			timeUntilRepick := time.Until(repickTime)
-			if timeUntilRepick > 0 {
-				time.Sleep(timeUntilRepick)
-				_, GetTopBuilderBidSpan2 := s.tracer.Start(storingHeaderCtx, "getHeader-GetTopBuilderBidSecond")
-				newBestHeader, secondBidHeader, err := s.GetTopBuilderBid(keyForCachingBids)
-				GetTopBuilderBidSpan2.End()
-				if err != nil {
-					log.Error().Err(err).Msg("error getting top builder bid after repick wait")
-				} else {
-					slotBestHeader = newBestHeader
-					secondBestHeader = secondBidHeader
-					getErr = err
-					log.Info().Msg("got new bid after repick wait")
-				}
+			<-repickTimer.C
+			newBestHeader, secondBidHeader, err := s.GetTopBuilderBid(keyForCachingBids)
+			if err != nil {
+				log.Error().Err(err).Msg("error getting top builder bid after repick wait")
+			} else {
+				slotBestHeader = newBestHeader
+				secondBestHeader = secondBidHeader
+				getErr = err
+				log.Info().Msg("got new bid after repick wait")
 			}
 		}
 	}
+
 	fetchGetHeaderDurationMS := time.Since(fetchGetHeaderStartTime).Milliseconds()
 	headerReqDuration := time.Since(in.ReceivedAt)
 	statsUserAgent := in.UserAgent
