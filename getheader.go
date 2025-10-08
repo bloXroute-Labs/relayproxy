@@ -129,6 +129,8 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	repickTime := time.Now().Add(time.Duration(delayGetHeaderResponse.ReplacementDelayMs) * time.Millisecond)
 	replacementTime := repickTime.Add(-5 * time.Millisecond)
 	if delayGetHeaderResponse.ReplacementDelayMs > 0 {
+		timer := time.NewTimer(time.Until(replacementTime))
+		defer timer.Stop()
 		log.Info().Int64("replacementDelayMs", delayGetHeaderResponse.ReplacementDelayMs).Msg("waiting for replacement delay")
 		if getErr == nil && s.OnHeaderBidRetrieved != nil {
 			newBestHeaderCh := make(chan *common.Bid, 1)
@@ -156,7 +158,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 					getErr = nil
 					log.Info().Msg("got new bid after repick from channel")
 				}
-			case <-time.After(time.Until(replacementTime)):
+			case <-timer.C:
 				log.Error().Time("replacementTime", replacementTime).Time("repickTime", repickTime).Msg("OnHeaderBidRetrieved took too long, proceeding with the original bid")
 				repickErr = "timeout waiting for OnHeaderBidRetrieved"
 				repickDataSuccess = false
