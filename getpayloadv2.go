@@ -209,5 +209,5 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 		time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID,
 		latency, in.Cluster, in.UserAgent, in.SlotUID)
 
-	return &ErrorResp{http.StatusBadRequest, "timeout waiting for payload response"}
+	return &ErrorResp{http.StatusBadRequest, "no execution payload for this request"}
 }
