@@ -558,12 +558,11 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 				attribute.String("error", err.Error()),
 			)
 			log.Error().Err(err).Msg("error in RegisterValidator")
-			respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, err, &log, s.tracer)
 			return
 		}
 	}()
 
-	if err := respondOK(handleRegistrationCtx, handleRegistrationSpan, registration, w, struct{}{}, &log, s.tracer); err == nil {
+	if err := respondOK(handleRegistrationCtx, handleRegistrationSpan, registration, w, struct{}{}, &log, s.tracer, false); err == nil {
 		success = true
 	}
 }
@@ -572,19 +571,10 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now().UTC()
 	success := false
-	defer func() {
-		s.performanceStats.SetEndpointStats(
-			common.PathGetHeader,
-			uint64(time.Since(start).Microseconds()),
-			success,
-			100)
-	}()
 
 	parentSpan := trace.SpanFromContext(r.Context())
 	parentSpanCtx := trace.ContextWithSpan(context.Background(), parentSpan)
 	handleGetHeaderCtx, span := s.tracer.Start(parentSpanCtx, "handleGetHeader-start")
-	defer parentSpan.End()
-	defer span.End()
 
 	receivedAt := time.Now().UTC()
 	slot := chi.URLParam(r, "slot")
@@ -607,6 +597,53 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	}
 	_, sszResponse := common.ParseBuilderContentType(r)
 
+	var onHeaderDeliveredParams *common.OnHeaderDeliveredParams
+	var out json.RawMessage
+	var err error
+	defer func() {
+		span.SetAttributes(
+			attribute.String("reqHost", r.Host),
+			attribute.String("method", r.Method),
+			attribute.String("clientIP", clientIP),
+			attribute.String("remoteAddr", r.RemoteAddr),
+			attribute.String("requestURI", r.RequestURI),
+			attribute.String("validatorID", validatorID),
+			attribute.String("accountID", accountID),
+			attribute.String("authHeader", authHeader),
+			attribute.String("parentHash", parentHash),
+			attribute.String("pubKey", pubKey),
+			attribute.String("traceID", span.SpanContext().TraceID().String()),
+			attribute.String("getHeaderStartTimeUnixMS", boostSendTime),
+			attribute.Int64("latency", latency),
+			attribute.String("cluster", cluster),
+			attribute.String("userAgent", userAgent),
+			attribute.Bool("sszResponse", sszResponse),
+			attribute.StringSlice("headers", headers),
+			attribute.String("slotUID", headerSlotUID),
+			attribute.String("method", getHeader),
+			attribute.String("key", "slot-"+slot+"-parentHash-"+parentHash),
+			attribute.Int64("receivedAt", receivedAt.Unix()),
+			attribute.String("slot", slot),
+		)
+		if onHeaderDeliveredParams != nil {
+
+			span.SetAttributes(
+				attribute.Int64("sleep", onHeaderDeliveredParams.Sleep),
+				attribute.Int64("maxSleep", onHeaderDeliveredParams.MaxSleep),
+				attribute.Int64("msIntoSlot", onHeaderDeliveredParams.MsIntoSlot),
+				attribute.Int64("msIntoSlotIncludingDelay", onHeaderDeliveredParams.MsIntoSlotWithDelay),
+				attribute.String("blockHash", onHeaderDeliveredParams.BlockHash),
+			)
+		}
+		parentSpan.End()
+		span.End()
+		s.performanceStats.SetEndpointStats(
+			common.PathGetHeader,
+			uint64(time.Since(start).Microseconds()),
+			success,
+			100)
+	}()
+
 	log := s.logger.With().
 		Str("reqHost", r.Host).
 		Str("method", r.Method).
@@ -627,30 +664,13 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		Bool("sszResponse", sszResponse).
 		Strs("headers", headers).
 		Str("slotUID", headerSlotUID).
+		Str("method", getHeader).
+		Str("key", "slot-"+slot+"-parentHash-"+parentHash).
+		Str("slot", slot).
 		Logger()
 
-	span.SetAttributes(
-		attribute.String("reqHost", r.Host),
-		attribute.String("method", r.Method),
-		attribute.String("clientIP", clientIP),
-		attribute.String("remoteAddr", r.RemoteAddr),
-		attribute.String("requestURI", r.RequestURI),
-		attribute.String("validatorID", validatorID),
-		attribute.String("accountID", accountID),
-		attribute.String("authHeader", authHeader),
-		attribute.String("parentHash", parentHash),
-		attribute.String("pubKey", pubKey),
-		attribute.String("traceID", span.SpanContext().TraceID().String()),
-		attribute.String("getHeaderStartTimeUnixMS", boostSendTime),
-		attribute.Int64("latency", latency),
-		attribute.String("cluster", cluster),
-		attribute.String("userAgent", userAgent),
-		attribute.Bool("sszResponse", sszResponse),
-		attribute.StringSlice("headers", headers),
-		attribute.String("slotUID", headerSlotUID),
-	)
 	span.AddEvent("handleGetHeader-svcGetHeader")
-	out, onHeaderDeliveredParams, err := s.svc.GetHeader(handleGetHeaderCtx, &log, &HeaderRequestParams{
+	out, onHeaderDeliveredParams, err = s.svc.GetHeader(span, handleGetHeaderCtx, &log, &HeaderRequestParams{
 		ReceivedAt:               receivedAt,
 		GetHeaderStartTimeUnixMS: boostSendTime,
 		Latency:                  latency,
@@ -699,7 +719,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 
 	if !sszResponse {
 		log.Info().Msg("Responding with JSON")
-		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer); err == nil {
+		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer, true); err == nil {
 			success = true
 		}
 		return
@@ -715,7 +735,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	sszMarshal, err := versionedBid.MarshalSSZ()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to marshal SSZ")
-		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer); err == nil {
+		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer, true); err == nil {
 			success = true
 		}
 		return
@@ -864,7 +884,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 
 	// Return response
 	if !sszResponse {
-		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer); err == nil {
+		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer, true); err == nil {
 			success = true
 		}
 		return
@@ -881,7 +901,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal getHeader to ssz")
 		span.SetStatus(codes.Error, err.Error())
-		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer); err == nil {
+		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer, true); err == nil {
 			success = true
 		}
 		return
@@ -891,7 +911,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	success = s.respondOKWithContextSSZMarshalled(getPayloadCtx, span, method, w, outByte, &log, s.tracer)
 
 }
-func respondOK(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, response any, log *zerolog.Logger, tracer trace.Tracer) error {
+func respondOK(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, response any, log *zerolog.Logger, tracer trace.Tracer, logMessage bool) error {
 	_, span := tracer.Start(ctx, "respondOK-"+method)
 	defer span.End()
 	parentSpan.SetAttributes(
@@ -906,7 +926,9 @@ func respondOK(ctx context.Context, parentSpan trace.Span, method string, w http
 		http.Error(w, "", http.StatusInternalServerError)
 		return err
 	}
-	log.Info().Str("method", method).Msg(method + " succeeded")
+	if logMessage {
+		log.Info().Str("method", method).Msg(method + " succeeded")
+	}
 	return nil
 }
 

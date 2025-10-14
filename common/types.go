@@ -465,6 +465,11 @@ type OnHeaderDeliveredParams struct {
 	ProposerPubkey           string
 	GetHeaderStartTimeUnixMS string
 	ExtraData                string
+	Sleep                    int64
+	MaxSleep                 int64
+	MsIntoSlot               int64
+	MsIntoSlotWithDelay      int64
+	BlockHash                string
 }
 
 type BuilderInfo struct {
