@@ -109,9 +109,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 
 	fetchGetHeaderStartTime := time.Now().UTC()
 	keyForCachingBids := s.keyForCachingBids(_slot, in.ParentHash, in.PubKey)
-	_, GetTopBuilderBidSpan1 := s.tracer.Start(storingHeaderCtx, "getHeader-GetTopBuilderBidFirst")
 	slotBestHeader, secondBestHeader, getErr := s.GetTopBuilderBid(keyForCachingBids)
-	GetTopBuilderBidSpan1.End()
 	usedRepick := false
 	repickDataExist := false
 	repickDataSuccess := true
@@ -160,6 +158,8 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 					slotBestHeader = replacementHeader
 					getErr = nil
 					log.Info().Msg("got new bid after repick from channel")
+				} else {
+					log.Info().Msg("got nil bid after repick from channel")
 				}
 			case <-replacementTimer.C:
 				log.Error().Time("replacementTime", replacementTime).Time("repickTime", repickTime).Msg("OnHeaderBidRetrieved took too long, proceeding with the original bid")
