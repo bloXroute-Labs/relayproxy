@@ -36,11 +36,9 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
+func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
 	id := uuid.NewString()
-	parentSpan := trace.SpanFromContext(ctx)
-	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
-	ctx, span := s.tracer.Start(ctx, "getHeader-start")
+	ctx, span := s.tracer.Start(parentCtx, "getHeader-start")
 	defer span.End()
 
 	k := "slot-" + in.Slot + "-parentHash-" + in.ParentHash
@@ -69,27 +67,12 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 	startTime := time.Now().UTC()
 
 	*log = log.With().
-		Str("method", getHeader).
 		Str("reqID", id).
-		Str("key", k).
-		Str("slot", in.Slot).
 		Int64("slotStartTimeUnix", slotStartTime.Unix()).
 		Str("slotStartTime", slotStartTime.UTC().String()).
 		Int64("sleep", sleep).
 		Int64("maxSleep", maxSleep).
 		Logger()
-
-	parentSpan.SetAttributes(
-		attribute.String("method", getHeader),
-		attribute.String("req", id),
-		attribute.Int64("receivedAt", in.ReceivedAt.Unix()),
-		attribute.String("key", k),
-		attribute.String("slot", in.Slot),
-		attribute.Int64("slotStartTimeUnix", slotStartTime.Unix()),
-		attribute.String("slotStartTime", slotStartTime.UTC().String()),
-		attribute.Int64("sleep", sleep),
-		attribute.Int64("maxSleep", maxSleep),
-	)
 
 	log.Info().Msg("received getHeader")
 	if err != nil {
@@ -97,34 +80,21 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 		return nil, nil, toErrorResp(http.StatusNoContent, err.Error())
 	}
 
-	_, parseUintHeaderSpan := s.tracer.Start(ctx, "getHeader-parseUint")
 	_slot, err := fastParseUint(in.Slot)
 	if err != nil {
-		parseUintHeaderSpan.End(trace.WithTimestamp(time.Now()))
 		preStoringHeaderSpan.End(trace.WithTimestamp(time.Now()))
 		return nil, nil, toErrorResp(http.StatusNoContent, errInvalidSlot.Error())
 	}
 
-	parseUintHeaderSpan.End(trace.WithTimestamp(time.Now()))
-
-	_, slotTimeMeasureSpan := s.tracer.Start(ctx, "getHeader-slotTimeMeasure")
 	msIntoSlotIncludingDelay := time.Since(slotStartTime).Milliseconds()
 	msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds() // without sleep and using received at
 	*log = log.With().
-		Int64("msIntoSlot", msIntoSlot).
 		Int64("msIntoSlotIncludingDelay", msIntoSlotIncludingDelay).
 		Logger()
 
-	parentSpan.SetAttributes(
-		attribute.Int64("msIntoSlot", msIntoSlot),
-		attribute.Int64("msIntoSlotIncludingDelay", msIntoSlotIncludingDelay),
-	)
+	preStoringHeaderSpan.End()
 
-	slotTimeMeasureSpan.End(trace.WithTimestamp(time.Now()))
-
-	preStoringHeaderSpan.End(trace.WithTimestamp(time.Now()))
-
-	_, storingHeaderSpan := s.tracer.Start(ctx, "getHeader-storingHeader")
+	storingHeaderCtx, storingHeaderSpan := s.tracer.Start(ctx, "getHeader-storingHeader")
 	//TODO: send fluentd stats for StatusNoContent error cases
 
 	if len(in.PubKey) != 98 {
@@ -155,15 +125,21 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 	repickDurationMS := int64(0)
 
 	repickTime := time.Now().Add(time.Duration(delayGetHeaderResponse.ReplacementDelayMs) * time.Millisecond)
+	replacementTime := repickTime.Add(-5 * time.Millisecond)
 	if delayGetHeaderResponse.ReplacementDelayMs > 0 {
+		replacementTimer := time.NewTimer(time.Until(replacementTime))
+		defer replacementTimer.Stop()
+		repickTimer := time.NewTimer(time.Until(repickTime))
+		defer repickTimer.Stop()
+
 		log.Info().Int64("replacementDelayMs", delayGetHeaderResponse.ReplacementDelayMs).Msg("waiting for replacement delay")
 		if getErr == nil && s.OnHeaderBidRetrieved != nil {
 			newBestHeaderCh := make(chan *common.Bid, 1)
 			go func() {
 				onHeaderBidRetrievedStart := time.Now()
-				_, onHeadonHeaderBidRetrievedSpan := s.tracer.Start(ctx, "getHeader-onHeaderBidRetrieved")
-				newBestHeader, replaceable, err := s.OnHeaderBidRetrieved(ctx, slotBestHeader, *log, parentSpan, _slot, in.ParentHash, slotBestHeader.BuilderPubkey, in.AccountID, delayGetHeaderResponse.ReplacementDelayMs, s.uniqueStreamingClients)
-				onHeadonHeaderBidRetrievedSpan.End(trace.WithTimestamp(time.Now()))
+				onHeaderRetrievedCtx, onHeadonHeaderBidRetrievedSpan := s.tracer.Start(storingHeaderCtx, "getHeader-onHeaderBidRetrieved")
+				newBestHeader, replaceable, err := s.OnHeaderBidRetrieved(onHeaderRetrievedCtx, slotBestHeader, *log, _slot, in.ParentHash, slotBestHeader.BuilderPubkey, in.AccountID, delayGetHeaderResponse.ReplacementDelayMs, s.uniqueStreamingClients)
+				onHeadonHeaderBidRetrievedSpan.End()
 				repickDurationMS = time.Since(onHeaderBidRetrievedStart).Milliseconds()
 				log.Info().Bool("replaceable", replaceable).Int64("onHeaderBidRetrievedDuration", repickDurationMS).Msg("OnHeaderBidRetrieved duration")
 				repickDataExist = replaceable
@@ -182,35 +158,36 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 					slotBestHeader = replacementHeader
 					getErr = nil
 					log.Info().Msg("got new bid after repick from channel")
+				} else {
+					log.Info().Msg("got nil bid after repick from channel")
 				}
-			case <-time.After(time.Duration(delayGetHeaderResponse.ReplacementDelayMs * int64(time.Millisecond))):
-				log.Error().Msg("OnHeaderBidRetrieved took too long, proceeding with the original bid")
+			case <-replacementTimer.C:
+				log.Error().Time("replacementTime", replacementTime).Time("repickTime", repickTime).Msg("OnHeaderBidRetrieved took too long, proceeding with the original bid")
 				repickErr = "timeout waiting for OnHeaderBidRetrieved"
 				repickDataSuccess = false
 			}
 		}
 		if !usedRepick {
-			timeUntilRepick := time.Until(repickTime)
-			if timeUntilRepick > 0 {
-				time.Sleep(timeUntilRepick)
-				newBestHeader, secondBidHeader, err := s.GetTopBuilderBid(keyForCachingBids)
-				if err != nil {
-					log.Error().Err(err).Msg("error getting top builder bid after repick wait")
-				} else {
-					slotBestHeader = newBestHeader
-					secondBestHeader = secondBidHeader
-					getErr = err
-					log.Info().Msg("got new bid after repick wait")
-				}
+			<-repickTimer.C
+			newBestHeader, secondBidHeader, err := s.GetTopBuilderBid(keyForCachingBids)
+			if err != nil {
+				log.Error().Err(err).Msg("error getting top builder bid after repick wait")
+			} else {
+				slotBestHeader = newBestHeader
+				secondBestHeader = secondBidHeader
+				getErr = err
+				log.Info().Msg("got new bid after repick wait")
 			}
 		}
 	}
+
 	fetchGetHeaderDurationMS := time.Since(fetchGetHeaderStartTime).Milliseconds()
 	headerReqDuration := time.Since(in.ReceivedAt)
 	statsUserAgent := in.UserAgent
 	if in.Cluster != "" {
 		statsUserAgent += "/" + in.Cluster
 	}
+	storingHeaderSpan.End()
 
 	if slotBestHeader == nil || getErr != nil {
 		msg := fmt.Sprintf("header value is not present for the requested key %v", keyForCachingBids)
@@ -250,12 +227,12 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 			in.ValidatorID = in.AccountID
 		}
 	}
-	uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", in.Slot, slotBestHeader.BlockHash, in.ParentHash) // TODO:add pubkey
+	_, signAndFinishSpan := s.tracer.Start(ctx, "getHeader-finalize")
+	defer signAndFinishSpan.End()
 	blockValue := new(big.Int).SetBytes(slotBestHeader.Value)
 	*log = log.With().
 		Str("blockHash", slotBestHeader.BlockHash).
 		Str("blockValue", blockValue.String()).
-		Str("uniqueKey", uKey).
 		Int64("replacementDelayMs", delayGetHeaderResponse.ReplacementDelayMs).
 		Bool("usedRepick", usedRepick).
 		Bool("repickDataExist", repickDataExist).
@@ -264,21 +241,9 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 		Int64("repickDurationMS", repickDurationMS).
 		Int64("originalValue", originalValue.Int64()).
 		Str("originalBlockHash", originalBlockHash).
+		Time("replacementTime", replacementTime).
+		Time("repickTime", repickTime).
 		Logger()
-	parentSpan.SetAttributes(
-		attribute.String("blockHash", slotBestHeader.BlockHash),
-		attribute.String("blockValue", blockValue.String()),
-		attribute.String("uniqueKey", uKey),
-		attribute.Int64("replacementDelayMs", delayGetHeaderResponse.ReplacementDelayMs),
-		attribute.Bool("usedRepick", usedRepick),
-		attribute.Bool("repickDataExist", repickDataExist),
-		attribute.Bool("repickDataSuccess", repickDataSuccess),
-		attribute.String("repickErr", repickErr),
-		attribute.Int64("repickDurationMS", repickDurationMS),
-		attribute.Int64("originalValue", originalValue.Int64()),
-		attribute.String("originalBlockHash", originalBlockHash),
-	)
-	storingHeaderSpan.End(trace.WithTimestamp(time.Now()))
 
 	go func() {
 		slotStats := SlotStatsRecord{
@@ -440,6 +405,11 @@ func (s *Service) GetHeader(ctx context.Context, log *zerolog.Logger, in *Header
 		ProposerPubkey:           in.PubKey,
 		GetHeaderStartTimeUnixMS: in.GetHeaderStartTimeUnixMS,
 		ExtraData:                slotBestHeader.BuilderExtraData,
+		Sleep:                    sleep,
+		MaxSleep:                 maxSleep,
+		MsIntoSlot:               msIntoSlot,
+		MsIntoSlotWithDelay:      msIntoSlotIncludingDelay,
+		BlockHash:                slotBestHeader.BlockHash,
 	}
 
 	return json.RawMessage(signedHeaderResponse), onHeaderDeliveredParams, nil
