@@ -65,6 +65,7 @@ type IService interface {
 	RegisterValidator(ctx context.Context, log *zerolog.Logger, outgoingCtx context.Context, in *RegistrationParams) (any, error)
 	GetHeader(parentSpan trace.Span, ctx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error)
 	GetPayload(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) (*common.VersionedPayloadInfo, error)
+	GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) *ErrorResp
 }
 
 type Service struct {
