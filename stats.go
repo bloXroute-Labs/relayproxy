@@ -218,3 +218,36 @@ type SlotStatsRecord struct {
 	GetHeaderLatency  int64  `json:"get_header_latency"`
 	GetPayloadLatency int64  `json:"get_payload_latency"`
 }
+
+type HeaderMemoryMetricsRecord struct {
+	Method     string    `json:"method"`
+	Duration   time.Time `json:"durationMs"`
+	Alloc      uint64    `json:"alloc"`
+	MAlloc     uint64    `json:"malloc"`
+	HeapInuse  uint64    `json:"heap_inuse"`
+	NumGC      uint32    `json:"num_gc"`
+	CpuPercent float64   `json:"cpu_percent"`
+	Slot       string    `json:"slot"`
+	ClientIP   string    `json:"client_ip"`
+	PublicKey  string    `json:"public_key"`
+	Success    bool      `json:"success"`
+	AccountID  string    `json:"account_id"`
+}
+
+type GetPayloadMetrics struct {
+	Method      string    `json:"method"`
+	ClientIP    string    `json:"client_ip"`
+	RequestIP   string    `json:"request_ip"`
+	Duration    time.Time `json:"duration"`
+	Size        int64     `json:"size"`
+	UserAgent   string    `json:"user_agent"`
+	Alloc       uint64    `json:"alloc"`
+	Malloc      uint64    `json:"malloc"`
+	HeapIdle    uint64    `json:"heap_idle"`
+	HeapInuse   uint64    `json:"heap_inuse"`
+	NumGC       uint32    `json:"num_gc"`
+	CpuPercent  float64   `json:"cpu_percent"`
+	ValidatorID string    `json:"validator_id"`
+	AccountID   string    `json:"account_id"`
+	URL         string    `json:"url"`
+}

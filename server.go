@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -15,11 +16,13 @@ import (
 	"github.com/go-chi/cors"
 	gjson "github.com/goccy/go-json"
 	"github.com/rs/zerolog"
+	"github.com/shirou/gopsutil/cpu"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/metadata"
 
+	"github.com/bloXroute-Labs/bxgateway-private-go/bxgateway/v2/services/statistics"
 	"github.com/bloXroute-Labs/relay-grpc/stat"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
@@ -41,6 +44,7 @@ const (
 	HeaderKeySlotUID        = "X-MEVBoost-SlotID"
 	VouchCluster            = "setup"
 	statsNamePerformance    = "performanceStats"
+	CPUCaptureDuration      = 50 * time.Millisecond
 )
 
 type contextKey string
@@ -62,10 +66,10 @@ type Server struct {
 	beaconGenesisTime int64
 	secondsPerSlot    int64
 
-	tracer       trace.Tracer
-	fluentD      fluentstats.Stats
-	accessFilter AccessFilter
-
+	tracer        trace.Tracer
+	fluentD       fluentstats.Stats
+	accessFilter  AccessFilter
+	stats         statistics.FluentdStats
 	authHeaderP2P string // Added until vouch support query params
 
 	ghRatelimit      GetHeaderRateLimitInfo
@@ -718,7 +722,60 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		}
 
 	}()
+	// Capture CPU and Memory stats that might be causing the latency issue
+	go func() {
+		var mem runtime.MemStats
+		runtime.ReadMemStats(&mem)
+		alloc := mem.Alloc
+		Malloc := mem.Mallocs
+		heapInuse := mem.HeapAlloc
+		numGc := mem.NumGC
 
+		// Get CPU percent for the process (approximate)
+		cpuPercentSlice, err := cpu.Percent(CPUCaptureDuration, false)
+		cpuPercent := float64(0)
+		if err == nil && len(cpuPercentSlice) > 0 {
+			cpuPercent = cpuPercentSlice[0]
+		} else {
+			log.Debug().Err(err).Msg("failed to get CPU percent")
+		}
+		logEntry := s.logger.With().
+			Str("method", "HandleGetHeader").
+			Str("clientIP", clientIP).
+			Str("slot", slot).
+			Str("pubKey", pubKey).
+			Time("durationMs", receivedAt).
+			Uint64("alloc", alloc).
+			Uint64("malloc", Malloc).
+			Uint64("heapInuse", heapInuse).
+			Uint32("numGC", numGc).
+			Float64("cpuPercent", cpuPercent).
+			Bool("success", success).
+			Logger()
+
+		logEntry.Debug().Msg("GetHeader cpuPerformance metrics")
+
+		if s.stats.NodeID != "" {
+			record := fluentstats.Record{
+				Type: "TypeGetHeaderMemoryStats",
+				Data: HeaderMemoryMetricsRecord{
+					Method:     "HandleGetHeader",
+					Duration:   receivedAt,
+					Alloc:      alloc,
+					MAlloc:     Malloc,
+					HeapInuse:  heapInuse,
+					NumGC:      numGc,
+					CpuPercent: cpuPercent,
+					Slot:       slot,
+					ClientIP:   clientIP,
+					PublicKey:  pubKey,
+					Success:    success,
+					AccountID:  accountID,
+				},
+			}
+			s.stats.LogToFluentD(record, time.Now(), "stats.get_header_metrics")
+		}
+	}()
 	if !sszResponse {
 		log.Info().Msg("Responding with JSON")
 		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer, true); err == nil {
@@ -883,7 +940,69 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mergeLogMetric.End()
+	go func() {
+		//Capture CPU and Memory stats that might be causing the latency issue for the block submission
+		var st runtime.MemStats
+		runtime.ReadMemStats(&st)
 
+		alloc := st.Alloc
+		malloc := st.Mallocs
+		heapIdle := st.HeapIdle
+		heapInuse := st.HeapInuse
+		numGC := st.NumGC
+
+		cpuPercents, err := cpu.Percent(CPUCaptureDuration, false) // Capture 50ms of CPU usage
+		cpuPercent := float64(0)
+		if err == nil && len(cpuPercents) > 0 {
+			cpuPercent = cpuPercents[0]
+		} else {
+			log.Debug().Err(err).Msg("failed to get CPU percent")
+		}
+		logEntry := s.logger.With().
+			Str("method", method).
+			Str("clientIP", clientIP).
+			Str("remoteAddr", r.RemoteAddr).
+			Str("requestURI", r.RequestURI).
+			Time("Duration", receivedAt).
+			Int64("Size", int64(len(bodyBytes))).
+			Str("userAgent", userAgent).
+			Uint64("alloc", alloc).
+			Uint64("malloc", malloc).
+			Uint64("heapIdle", heapIdle).
+			Uint64("heapInuse", heapInuse).
+			Uint32("numGC", numGC).
+			Float64("cpuPercent", cpuPercent).
+			Str("ValidatorID", validatorID).
+			Str("AccountID", accountID).
+			Str("URL", r.RequestURI).
+			Logger()
+
+		logEntry.Debug().Msg("GetPayload cpuPerformance metrics")
+
+		if s.stats.NodeID != "" {
+			record := statistics.Record{
+				Type: "TypeGetPayloadMemoryStats",
+				Data: GetPayloadMetrics{
+					Method:      method,
+					ClientIP:    clientIP,
+					RequestIP:   r.RemoteAddr,
+					Duration:    receivedAt,
+					Size:        int64(len(bodyBytes)),
+					UserAgent:   userAgent,
+					Alloc:       alloc,
+					Malloc:      malloc,
+					HeapIdle:    heapIdle,
+					HeapInuse:   heapInuse,
+					NumGC:       numGC,
+					CpuPercent:  cpuPercent,
+					ValidatorID: validatorID,
+					AccountID:   accountID,
+					URL:         r.RequestURI,
+				},
+			}
+			s.stats.LogToFluentD(record, time.Now(), "stats.get_payload_latency")
+		}
+	}()
 	// Return response
 	if !sszResponse {
 		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer, true); err == nil {
