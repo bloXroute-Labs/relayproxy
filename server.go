@@ -735,7 +735,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		if err == nil && len(cpuPercentSlice) > 0 {
 			cpuPercent = cpuPercentSlice[0]
 		} else {
-			log.Debug().Err(err).Msg("failed to get CPU percent")
+			log.Info().Err(err).Msg("failed to get CPU percent")
 		}
 		logEntry := s.logger.With().
 			Str("method", getHeader).
@@ -751,7 +751,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 			Bool("success", success).
 			Logger()
 
-		logEntry.Debug().Msg("GetHeader cpuPerformance metrics")
+		logEntry.Info().Msg("GetHeader cpuPerformance metrics")
 
 		if s.NodeID != "" {
 			record := fluentstats.Record{
@@ -954,7 +954,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		if err == nil && len(cpuPercents) > 0 {
 			cpuPercent = cpuPercents[0]
 		} else {
-			log.Debug().Err(err).Msg("failed to get CPU percent")
+			log.Info().Err(err).Msg("failed to get CPU percent")
 		}
 		logEntry := s.logger.With().
 			Str("method", getPayload).
@@ -975,7 +975,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 			Str("URL", r.RequestURI).
 			Logger()
 
-		logEntry.Debug().Msg("GetPayload cpuPerformance metrics")
+		logEntry.Info().Msg("GetPayload cpuPerformance metrics")
 
 		if s.NodeID != "" {
 			record := fluentstats.Record{
