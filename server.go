@@ -1153,6 +1153,69 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 		SlotUID:                   headerSlotUID,
 	})
 
+	go func() {
+		//Capture CPU and Memory stats that might be causing the latency issue for the block submission
+		var st runtime.MemStats
+		runtime.ReadMemStats(&st)
+
+		alloc := st.Alloc
+		malloc := st.Mallocs
+		heapIdle := st.HeapIdle
+		heapInuse := st.HeapInuse
+		numGC := st.NumGC
+
+		cpuPercents, err := cpu.Percent(CPUCaptureDuration, false) // Capture 50ms of CPU usage
+		cpuPercent := float64(0)
+		if err == nil && len(cpuPercents) > 0 {
+			cpuPercent = cpuPercents[0]
+		} else {
+			log.Info().Err(err).Msg("failed to get CPU percent")
+		}
+		logEntry := s.logger.With().
+			Str("method", getPayloadV2).
+			Str("clientIP", clientIP).
+			Str("remoteAddr", r.RemoteAddr).
+			Str("requestURI", r.RequestURI).
+			Time("Duration", receivedAt).
+			Int64("Size", int64(len(bodyBytes))).
+			Str("userAgent", userAgent).
+			Uint64("alloc", alloc).
+			Uint64("malloc", malloc).
+			Uint64("heapIdle", heapIdle).
+			Uint64("heapInuse", heapInuse).
+			Uint32("numGC", numGC).
+			Float64("cpuPercent", cpuPercent).
+			Str("ValidatorID", validatorID).
+			Str("AccountID", accountID).
+			Str("URL", r.RequestURI).
+			Logger()
+
+		logEntry.Info().Msg("GetPayloadV2 cpuPerformance metrics")
+
+		if s.NodeID != "" {
+			record := fluentstats.Record{
+				Type: TypeRelayProxyCPUMetrics,
+				Data: GetPayloadMetrics{
+					Method:      getPayloadV2,
+					ClientIP:    clientIP,
+					RequestIP:   r.RemoteAddr,
+					Duration:    receivedAt,
+					Size:        int64(len(bodyBytes)),
+					UserAgent:   userAgent,
+					Alloc:       alloc,
+					Malloc:      malloc,
+					HeapIdle:    heapIdle,
+					HeapInuse:   heapInuse,
+					NumGC:       numGC,
+					CpuPercent:  cpuPercent,
+					ValidatorID: validatorID,
+					AccountID:   accountID,
+					URL:         r.RequestURI,
+				},
+			}
+			s.fluentD.LogToFluentD(record, time.Now(), s.NodeID, StatsRelayProxyCPUMetrics)
+		}
+	}()
 	// need to confirm eth consensusVersion
 	//w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
 	success = respondStatusAccepted(getPayloadCtx, span, method, w, &log, s.tracer)
