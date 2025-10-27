@@ -22,7 +22,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/bloXroute-Labs/bxgateway-private-go/bxgateway/v2/services/statistics"
 	"github.com/bloXroute-Labs/relay-grpc/stat"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
@@ -69,7 +68,6 @@ type Server struct {
 	tracer        trace.Tracer
 	fluentD       fluentstats.Stats
 	accessFilter  AccessFilter
-	stats         statistics.FluentdStats
 	authHeaderP2P string // Added until vouch support query params
 
 	ghRatelimit      GetHeaderRateLimitInfo
@@ -731,7 +729,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		heapInuse := mem.HeapAlloc
 		numGc := mem.NumGC
 
-		// Get CPU percent for the process (approximate)
+		// Get CPU percent for the process
 		cpuPercentSlice, err := cpu.Percent(CPUCaptureDuration, false)
 		cpuPercent := float64(0)
 		if err == nil && len(cpuPercentSlice) > 0 {
@@ -740,7 +738,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 			log.Debug().Err(err).Msg("failed to get CPU percent")
 		}
 		logEntry := s.logger.With().
-			Str("method", "HandleGetHeader").
+			Str("method", getHeader).
 			Str("clientIP", clientIP).
 			Str("slot", slot).
 			Str("pubKey", pubKey).
@@ -755,11 +753,11 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 
 		logEntry.Debug().Msg("GetHeader cpuPerformance metrics")
 
-		if s.stats.NodeID != "" {
+		if s.NodeID != "" {
 			record := fluentstats.Record{
-				Type: "TypeGetHeaderMemoryStats",
+				Type: TypeRelayProxyCPUMetrics,
 				Data: HeaderMemoryMetricsRecord{
-					Method:     "HandleGetHeader",
+					Method:     getHeader,
 					Duration:   receivedAt,
 					Alloc:      alloc,
 					MAlloc:     Malloc,
@@ -773,7 +771,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 					AccountID:  accountID,
 				},
 			}
-			s.stats.LogToFluentD(record, time.Now(), "stats.get_header_metrics")
+			s.fluentD.LogToFluentD(record, time.Now(), s.NodeID, StatsRelayProxyCPUMetrics)
 		}
 	}()
 	if !sszResponse {
@@ -959,7 +957,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 			log.Debug().Err(err).Msg("failed to get CPU percent")
 		}
 		logEntry := s.logger.With().
-			Str("method", method).
+			Str("method", getPayload).
 			Str("clientIP", clientIP).
 			Str("remoteAddr", r.RemoteAddr).
 			Str("requestURI", r.RequestURI).
@@ -979,11 +977,11 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 
 		logEntry.Debug().Msg("GetPayload cpuPerformance metrics")
 
-		if s.stats.NodeID != "" {
-			record := statistics.Record{
-				Type: "TypeGetPayloadMemoryStats",
+		if s.NodeID != "" {
+			record := fluentstats.Record{
+				Type: TypeRelayProxyCPUMetrics,
 				Data: GetPayloadMetrics{
-					Method:      method,
+					Method:      getPayload,
 					ClientIP:    clientIP,
 					RequestIP:   r.RemoteAddr,
 					Duration:    receivedAt,
@@ -1000,7 +998,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 					URL:         r.RequestURI,
 				},
 			}
-			s.stats.LogToFluentD(record, time.Now(), "stats.get_payload_latency")
+			s.fluentD.LogToFluentD(record, time.Now(), s.NodeID, StatsRelayProxyCPUMetrics)
 		}
 	}()
 	// Return response

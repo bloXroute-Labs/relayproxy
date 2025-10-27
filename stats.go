@@ -13,6 +13,7 @@ const (
 	StatsRelayProxyBlockStreamReceived    = "stats.relay-proxy-blockStreamReceived"
 	StatsRelayProxyGetHeaderExternalRelay = "stats.relay-proxy-getHeader-externalRelay"
 	StatsRelayProxyPerformanceStats       = "builder-relay.stats.performance"
+	StatsRelayProxyCPUMetrics             = "stats.relay-proxy-cpu-metrics"
 
 	TypeRelayProxyGetHeader              = "relay_proxy_provided_header"
 	TypeRelayProxyGetPayload             = "relay_proxy_provided_payload"
@@ -22,6 +23,7 @@ const (
 	TypeRelayProxyGetHeaderExternalRelay = "relay_proxy_external_relay_header"
 	TypeRelayProxyBlockStreamReceived    = "relay_proxy_block_stream_received"
 	TypeRelayProxyPerformanceStats       = "builder-relay.performance_stats"
+	TypeRelayProxyCPUMetrics             = "relay_proxy_cpu_metrics"
 )
 
 type HeaderStreamReceivedRecord struct {
