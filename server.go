@@ -720,60 +720,63 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		}
 
 	}()
-	// Capture CPU and Memory stats that might be causing the latency issue
-	go func() {
-		var mem runtime.MemStats
-		runtime.ReadMemStats(&mem)
-		alloc := mem.Alloc
-		Malloc := mem.Mallocs
-		heapInuse := mem.HeapAlloc
-		numGc := mem.NumGC
+	duration := time.Since(start)
+	if duration > 1000*time.Millisecond {
+		// Capture CPU and Memory stats that might be causing the latency issue
+		go func() {
+			var mem runtime.MemStats
+			runtime.ReadMemStats(&mem)
+			alloc := mem.Alloc
+			Malloc := mem.Mallocs
+			heapInuse := mem.HeapAlloc
+			numGc := mem.NumGC
 
-		// Get CPU percent for the process
-		cpuPercentSlice, err := cpu.Percent(CPUCaptureDuration, false)
-		cpuPercent := float64(0)
-		if err == nil && len(cpuPercentSlice) > 0 {
-			cpuPercent = cpuPercentSlice[0]
-		} else {
-			log.Info().Err(err).Msg("failed to get CPU percent")
-		}
-		logEntry := s.logger.With().
-			Str("method", getHeader).
-			Str("clientIP", clientIP).
-			Str("slot", slot).
-			Str("pubKey", pubKey).
-			Time("durationMs", receivedAt).
-			Uint64("alloc", alloc).
-			Uint64("malloc", Malloc).
-			Uint64("heapInuse", heapInuse).
-			Uint32("numGC", numGc).
-			Float64("cpuPercent", cpuPercent).
-			Bool("success", success).
-			Logger()
-
-		logEntry.Info().Msg("GetHeader cpuPerformance metrics")
-
-		if s.NodeID != "" {
-			record := fluentstats.Record{
-				Type: TypeRelayProxyCPUMetrics,
-				Data: HeaderMemoryMetricsRecord{
-					Method:     getHeader,
-					Duration:   receivedAt,
-					Alloc:      alloc,
-					MAlloc:     Malloc,
-					HeapInuse:  heapInuse,
-					NumGC:      numGc,
-					CpuPercent: cpuPercent,
-					Slot:       slot,
-					ClientIP:   clientIP,
-					PublicKey:  pubKey,
-					Success:    success,
-					AccountID:  accountID,
-				},
+			// Get CPU percent for the process
+			cpuPercentSlice, err := cpu.Percent(CPUCaptureDuration, false)
+			cpuPercent := float64(0)
+			if err == nil && len(cpuPercentSlice) > 0 {
+				cpuPercent = cpuPercentSlice[0]
+			} else {
+				log.Info().Err(err).Msg("failed to get CPU percent")
 			}
-			s.fluentD.LogToFluentD(record, time.Now(), s.NodeID, StatsRelayProxyCPUMetrics)
-		}
-	}()
+			logEntry := s.logger.With().
+				Str("method", getHeader).
+				Str("clientIP", clientIP).
+				Str("slot", slot).
+				Str("pubKey", pubKey).
+				Time("durationMs", receivedAt).
+				Uint64("alloc", alloc).
+				Uint64("malloc", Malloc).
+				Uint64("heapInuse", heapInuse).
+				Uint32("numGC", numGc).
+				Float64("cpuPercent", cpuPercent).
+				Bool("success", success).
+				Logger()
+
+			logEntry.Info().Msg("GetHeader cpuPerformance metrics")
+
+			if s.NodeID != "" {
+				record := fluentstats.Record{
+					Type: TypeRelayProxyCPUMetrics,
+					Data: HeaderMemoryMetricsRecord{
+						Method:     getHeader,
+						Duration:   receivedAt,
+						Alloc:      alloc,
+						MAlloc:     Malloc,
+						HeapInuse:  heapInuse,
+						NumGC:      numGc,
+						CpuPercent: cpuPercent,
+						Slot:       slot,
+						ClientIP:   clientIP,
+						PublicKey:  pubKey,
+						Success:    success,
+						AccountID:  accountID,
+					},
+				}
+				s.fluentD.LogToFluentD(record, time.Now(), s.NodeID, StatsRelayProxyCPUMetrics)
+			}
+		}()
+	}
 	if !sszResponse {
 		log.Info().Msg("Responding with JSON")
 		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer, true); err == nil {
@@ -938,69 +941,74 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mergeLogMetric.End()
-	go func() {
-		//Capture CPU and Memory stats that might be causing the latency issue for the block submission
-		var st runtime.MemStats
-		runtime.ReadMemStats(&st)
 
-		alloc := st.Alloc
-		malloc := st.Mallocs
-		heapIdle := st.HeapIdle
-		heapInuse := st.HeapInuse
-		numGC := st.NumGC
+	duration := time.Since(start)
+	if duration > 500*time.Millisecond {
+		go func() {
+			//Capture CPU and Memory stats that might be causing the latency issue for the block submission
+			var st runtime.MemStats
+			runtime.ReadMemStats(&st)
 
-		cpuPercents, err := cpu.Percent(CPUCaptureDuration, false) // Capture 50ms of CPU usage
-		cpuPercent := float64(0)
-		if err == nil && len(cpuPercents) > 0 {
-			cpuPercent = cpuPercents[0]
-		} else {
-			log.Info().Err(err).Msg("failed to get CPU percent")
-		}
-		logEntry := s.logger.With().
-			Str("method", getPayload).
-			Str("clientIP", clientIP).
-			Str("remoteAddr", r.RemoteAddr).
-			Str("requestURI", r.RequestURI).
-			Time("Duration", receivedAt).
-			Int64("Size", int64(len(bodyBytes))).
-			Str("userAgent", userAgent).
-			Uint64("alloc", alloc).
-			Uint64("malloc", malloc).
-			Uint64("heapIdle", heapIdle).
-			Uint64("heapInuse", heapInuse).
-			Uint32("numGC", numGC).
-			Float64("cpuPercent", cpuPercent).
-			Str("ValidatorID", validatorID).
-			Str("AccountID", accountID).
-			Str("URL", r.RequestURI).
-			Logger()
+			alloc := st.Alloc
+			malloc := st.Mallocs
+			heapIdle := st.HeapIdle
+			heapInuse := st.HeapInuse
+			numGC := st.NumGC
 
-		logEntry.Info().Msg("GetPayload cpuPerformance metrics")
-
-		if s.NodeID != "" {
-			record := fluentstats.Record{
-				Type: TypeRelayProxyCPUMetrics,
-				Data: GetPayloadMetrics{
-					Method:      getPayload,
-					ClientIP:    clientIP,
-					RequestIP:   r.RemoteAddr,
-					Duration:    receivedAt,
-					Size:        int64(len(bodyBytes)),
-					UserAgent:   userAgent,
-					Alloc:       alloc,
-					Malloc:      malloc,
-					HeapIdle:    heapIdle,
-					HeapInuse:   heapInuse,
-					NumGC:       numGC,
-					CpuPercent:  cpuPercent,
-					ValidatorID: validatorID,
-					AccountID:   accountID,
-					URL:         r.RequestURI,
-				},
+			cpuPercents, err := cpu.Percent(CPUCaptureDuration, false) // Capture 50ms of CPU usage
+			cpuPercent := float64(0)
+			if err == nil && len(cpuPercents) > 0 {
+				cpuPercent = cpuPercents[0]
+			} else {
+				log.Info().Err(err).Msg("failed to get CPU percent")
 			}
-			s.fluentD.LogToFluentD(record, time.Now(), s.NodeID, StatsRelayProxyCPUMetrics)
-		}
-	}()
+			logEntry := s.logger.With().
+				Str("method", getPayload).
+				Str("clientIP", clientIP).
+				Str("remoteAddr", r.RemoteAddr).
+				Str("requestURI", r.RequestURI).
+				Time("Duration", receivedAt).
+				Int64("Size", int64(len(bodyBytes))).
+				Str("userAgent", userAgent).
+				Uint64("alloc", alloc).
+				Uint64("malloc", malloc).
+				Uint64("heapIdle", heapIdle).
+				Uint64("heapInuse", heapInuse).
+				Uint32("numGC", numGC).
+				Float64("cpuPercent", cpuPercent).
+				Str("ValidatorID", validatorID).
+				Str("AccountID", accountID).
+				Str("URL", r.RequestURI).
+				Logger()
+
+			logEntry.Info().Msg("GetPayload cpuPerformance metrics")
+
+			if s.NodeID != "" {
+				record := fluentstats.Record{
+					Type: TypeRelayProxyCPUMetrics,
+					Data: GetPayloadMetrics{
+						Method:      getPayload,
+						ClientIP:    clientIP,
+						RequestIP:   r.RemoteAddr,
+						Duration:    receivedAt,
+						Size:        int64(len(bodyBytes)),
+						UserAgent:   userAgent,
+						Alloc:       alloc,
+						Malloc:      malloc,
+						HeapIdle:    heapIdle,
+						HeapInuse:   heapInuse,
+						NumGC:       numGC,
+						CpuPercent:  cpuPercent,
+						ValidatorID: validatorID,
+						AccountID:   accountID,
+						URL:         r.RequestURI,
+					},
+				}
+				s.fluentD.LogToFluentD(record, time.Now(), s.NodeID, StatsRelayProxyCPUMetrics)
+			}
+		}()
+	}
+
 	// Return response
 	if !sszResponse {
 		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer, true); err == nil {
@@ -1153,69 +1161,72 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 		SlotUID:                   headerSlotUID,
 	})
 
-	go func() {
-		//Capture CPU and Memory stats that might be causing the latency issue for the block submission
-		var st runtime.MemStats
-		runtime.ReadMemStats(&st)
+	duration := time.Since(start)
+	if duration > 500*time.Millisecond {
+		go func() {
+			//Capture CPU and Memory stats that might be causing the latency issue for the block submission
+			var st runtime.MemStats
+			runtime.ReadMemStats(&st)
 
-		alloc := st.Alloc
-		malloc := st.Mallocs
-		heapIdle := st.HeapIdle
-		heapInuse := st.HeapInuse
-		numGC := st.NumGC
+			alloc := st.Alloc
+			malloc := st.Mallocs
+			heapIdle := st.HeapIdle
+			heapInuse := st.HeapInuse
+			numGC := st.NumGC
 
-		cpuPercents, err := cpu.Percent(CPUCaptureDuration, false) // Capture 50ms of CPU usage
-		cpuPercent := float64(0)
-		if err == nil && len(cpuPercents) > 0 {
-			cpuPercent = cpuPercents[0]
-		} else {
-			log.Info().Err(err).Msg("failed to get CPU percent")
-		}
-		logEntry := s.logger.With().
-			Str("method", getPayloadV2).
-			Str("clientIP", clientIP).
-			Str("remoteAddr", r.RemoteAddr).
-			Str("requestURI", r.RequestURI).
-			Time("Duration", receivedAt).
-			Int64("Size", int64(len(bodyBytes))).
-			Str("userAgent", userAgent).
-			Uint64("alloc", alloc).
-			Uint64("malloc", malloc).
-			Uint64("heapIdle", heapIdle).
-			Uint64("heapInuse", heapInuse).
-			Uint32("numGC", numGC).
-			Float64("cpuPercent", cpuPercent).
-			Str("ValidatorID", validatorID).
-			Str("AccountID", accountID).
-			Str("URL", r.RequestURI).
-			Logger()
-
-		logEntry.Info().Msg("GetPayloadV2 cpuPerformance metrics")
-
-		if s.NodeID != "" {
-			record := fluentstats.Record{
-				Type: TypeRelayProxyCPUMetrics,
-				Data: GetPayloadMetrics{
-					Method:      getPayloadV2,
-					ClientIP:    clientIP,
-					RequestIP:   r.RemoteAddr,
-					Duration:    receivedAt,
-					Size:        int64(len(bodyBytes)),
-					UserAgent:   userAgent,
-					Alloc:       alloc,
-					Malloc:      malloc,
-					HeapIdle:    heapIdle,
-					HeapInuse:   heapInuse,
-					NumGC:       numGC,
-					CpuPercent:  cpuPercent,
-					ValidatorID: validatorID,
-					AccountID:   accountID,
-					URL:         r.RequestURI,
-				},
+			cpuPercents, err := cpu.Percent(CPUCaptureDuration, false) // Capture 50ms of CPU usage
+			cpuPercent := float64(0)
+			if err == nil && len(cpuPercents) > 0 {
+				cpuPercent = cpuPercents[0]
+			} else {
+				log.Info().Err(err).Msg("failed to get CPU percent")
 			}
-			s.fluentD.LogToFluentD(record, time.Now(), s.NodeID, StatsRelayProxyCPUMetrics)
-		}
-	}()
+			logEntry := s.logger.With().
+				Str("method", getPayloadV2).
+				Str("clientIP", clientIP).
+				Str("remoteAddr", r.RemoteAddr).
+				Str("requestURI", r.RequestURI).
+				Dur("Duration", duration).
+				Int64("Size", int64(len(bodyBytes))).
+				Str("userAgent", userAgent).
+				Uint64("alloc", alloc).
+				Uint64("malloc", malloc).
+				Uint64("heapIdle", heapIdle).
+				Uint64("heapInuse", heapInuse).
+				Uint32("numGC", numGC).
+				Float64("cpuPercent", cpuPercent).
+				Str("ValidatorID", validatorID).
+				Str("AccountID", accountID).
+				Str("URL", r.RequestURI).
+				Logger()
+
+			logEntry.Info().Msg("GetPayloadV2 cpuPerformance metrics")
+
+			if s.NodeID != "" {
+				record := fluentstats.Record{
+					Type: TypeRelayProxyCPUMetrics,
+					Data: GetPayloadMetrics{
+						Method:      getPayloadV2,
+						ClientIP:    clientIP,
+						RequestIP:   r.RemoteAddr,
+						Duration:    receivedAt,
+						Size:        int64(len(bodyBytes)),
+						UserAgent:   userAgent,
+						Alloc:       alloc,
+						Malloc:      malloc,
+						HeapIdle:    heapIdle,
+						HeapInuse:   heapInuse,
+						NumGC:       numGC,
+						CpuPercent:  cpuPercent,
+						ValidatorID: validatorID,
+						AccountID:   accountID,
+						URL:         r.RequestURI,
+					},
+				}
+				s.fluentD.LogToFluentD(record, time.Now(), s.NodeID, StatsRelayProxyCPUMetrics)
+			}
+		}()
+	}
 	// need to confirm eth consensusVersion
 	//w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
 	success = respondStatusAccepted(getPayloadCtx, span, method, w, &log, s.tracer)
