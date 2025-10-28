@@ -7,22 +7,29 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/cors"
-	gjson "github.com/goccy/go-json"
-	"github.com/rs/zerolog"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc/metadata"
-
 	"github.com/bloXroute-Labs/relay-grpc/stat"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors"
+	"github.com/riandyrn/otelchi"
+	"github.com/rs/zerolog"
+	"github.com/shirou/gopsutil/v3/process"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
+
+	gjson "github.com/goccy/go-json"
+	metricruntime "go.opentelemetry.io/contrib/instrumentation/runtime"
+	"google.golang.org/grpc/metadata"
 )
 
 // Router paths
@@ -41,6 +48,7 @@ const (
 	HeaderKeySlotUID        = "X-MEVBoost-SlotID"
 	VouchCluster            = "setup"
 	statsNamePerformance    = "performanceStats"
+	CPUCaptureDuration      = 50 * time.Millisecond
 )
 
 type contextKey string
@@ -51,6 +59,8 @@ var (
 	keyAccountID  contextKey = "accountID"
 	keyClientIP   contextKey = "clientIP"
 	keyOrgID      contextKey = "id"
+
+	_BuildVersion string
 )
 
 type Server struct {
@@ -62,10 +72,9 @@ type Server struct {
 	beaconGenesisTime int64
 	secondsPerSlot    int64
 
-	tracer       trace.Tracer
-	fluentD      fluentstats.Stats
-	accessFilter AccessFilter
-
+	tracer        trace.Tracer
+	fluentD       fluentstats.Stats
+	accessFilter  AccessFilter
 	authHeaderP2P string // Added until vouch support query params
 
 	ghRatelimit      GetHeaderRateLimitInfo
@@ -73,7 +82,7 @@ type Server struct {
 	NodeID           string
 	AdminAccountID   string
 	performanceStats *stat.PerformanceStats
-
+	perfMetrics      *perfMetrics
 	// Callback
 	OnHeaderDelivered func(
 		VersionedSignedBuilderBid *common.VersionedSignedBuilderBid, Slot uint64,
@@ -107,6 +116,14 @@ type account struct {
 	accountID, validatorID string
 }
 
+type perfMetrics struct {
+	reqLatency metric.Float64Histogram
+	cpu        metric.Float64Histogram
+	heapAlloc  metric.Int64Histogram
+	memRSS     metric.Int64Histogram
+	proc       *process.Process
+}
+
 func NewServer(opts ...ServerOption) *Server {
 	server := new(Server)
 
@@ -117,6 +134,52 @@ func NewServer(opts ...ServerOption) *Server {
 	server.ghRatelimit = GetHeaderRateLimitInfo{
 		lastGetHeaderRequest: 0,
 		slotToIPToGHRequest:  NewIntegerMapOf[uint64, map[string]bool](),
+	}
+
+	err := metricruntime.Start(metricruntime.WithMinimumReadMemStatsInterval(10 * time.Millisecond))
+	if err != nil {
+		server.logger.Fatal().Msg("failed to start metric runtime")
+	}
+	meter := otel.Meter(server.NodeID)
+
+	reqLatency, err := meter.Float64Histogram(
+		"http.server.duration",
+		metric.WithDescription("Request duration in seconds per endpoint"),
+	)
+	if err != nil {
+		server.logger.Fatal().Msg("failed to start metric reqLatency")
+	}
+	cpuAtReq, err := meter.Float64Histogram(
+		"process.cpu.utilization.at_request",
+		metric.WithDescription("CPU utilization snapshot when finishing a request"),
+	)
+	if err != nil {
+		server.logger.Fatal().Msg("failed to start metric cpu")
+	}
+	heapAtReq, err := meter.Int64Histogram(
+		"process.runtime.go.mem.heap_alloc.at_request",
+		metric.WithDescription("Go heap alloc snapshot when finishing a request"),
+	)
+	if err != nil {
+		server.logger.Fatal().Msg("failed to get heapAtReq")
+	}
+	rssAtReq, err := meter.Int64Histogram(
+		"process.memory.rss.at_request",
+		metric.WithDescription("RSS snapshot when finishing a request"),
+	)
+	if err != nil {
+		server.logger.Fatal().Msg("failed to start metric RSS snapshot")
+	}
+	proc, err := process.NewProcess(int32(os.Getpid()))
+	if err != nil {
+		server.logger.Fatal().Msg("failed to get process id")
+	}
+	server.perfMetrics = &perfMetrics{
+		reqLatency: reqLatency,
+		cpu:        cpuAtReq,
+		heapAlloc:  heapAtReq,
+		memRSS:     rssAtReq,
+		proc:       proc,
 	}
 
 	return server
@@ -141,6 +204,7 @@ func (s *Server) Start() error {
 
 func (s *Server) InitHandler() *chi.Mux {
 	handler := chi.NewRouter()
+	handler.Use(otelchi.Middleware(s.NodeID))
 	handler.Group(func(r chi.Router) {
 		r.Use(addCORS())
 		r.With(s.MiddlewareAdmin).Get(common.PathDelaySettings, s.HandleGetDelays)
@@ -153,9 +217,9 @@ func (s *Server) InitHandler() *chi.Mux {
 	handler.Get(common.PathIndex, s.HandleStatus)
 	handler.With(s.Middleware).Get(common.PathStatus, s.HandleStatus)
 	handler.With(s.Middleware).Post(common.PathRegisterValidator, s.HandleRegistration)
-	handler.With(s.MiddlewareGetHeader).Get(common.PathGetHeader, s.HandleGetHeader)
-	handler.With(s.Middleware).Post(common.PathGetPayload, s.HandleGetPayload)
-	handler.With(s.Middleware).Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
+	handler.With(s.MiddlewareGetHeader, s.MetricsMiddleware(getHeader)).Get(common.PathGetHeader, s.HandleGetHeader)
+	handler.With(s.Middleware, s.MetricsMiddleware(getPayload)).Post(common.PathGetPayload, s.HandleGetPayload)
+	handler.With(s.Middleware, s.MetricsMiddleware(getPayloadV2)).Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
 	s.logger.Info().Msg("Init relay proxy")
 	return handler
 }
@@ -179,6 +243,57 @@ func (s *Server) MiddlewareAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.authorizeAdmin(w, r, next)
 	})
+}
+
+func (s *Server) MetricsMiddleware(endpoint string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			defer func() {
+				// latency in ms (Uptrace will still compute p50/p90/p99)
+				s.perfMetrics.reqLatency.Record(
+					r.Context(),
+					float64(time.Since(start).Milliseconds()),
+					metric.WithAttributes(
+						attribute.String("endpoint", endpoint),
+						attribute.String("method", r.Method),
+					),
+				)
+
+				// per-request CPU / mem snapshots (use request ctx for exemplars)
+				if s.perfMetrics.proc != nil {
+					if cpuPct, err := s.perfMetrics.proc.CPUPercent(); err == nil {
+						// CPUPercent returns 0..(100 * NumCPU). Normalize to 0..1.
+						normalized := cpuPct / (100.0 * float64(runtime.NumCPU()))
+						s.perfMetrics.cpu.Record(r.Context(), normalized,
+							metric.WithAttributes(
+								attribute.String("endpoint", endpoint),
+								attribute.String("method", r.Method),
+							),
+						)
+					}
+					if mi, err := s.perfMetrics.proc.MemoryInfo(); err == nil {
+						s.perfMetrics.memRSS.Record(r.Context(), int64(mi.RSS),
+							metric.WithAttributes(
+								attribute.String("endpoint", endpoint),
+								attribute.String("method", r.Method),
+							),
+						)
+					}
+				}
+
+				var ms runtime.MemStats
+				runtime.ReadMemStats(&ms)
+				s.perfMetrics.heapAlloc.Record(r.Context(), int64(ms.Alloc),
+					metric.WithAttributes(
+						attribute.String("endpoint", endpoint),
+						attribute.String("method", r.Method),
+					),
+				)
+			}()
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 func (s *Server) Middleware(next http.Handler) http.Handler {
@@ -718,7 +833,6 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		}
 
 	}()
-
 	if !sszResponse {
 		log.Info().Msg("Responding with JSON")
 		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer, true); err == nil {

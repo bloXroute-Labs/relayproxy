@@ -13,6 +13,7 @@ const (
 	StatsRelayProxyBlockStreamReceived    = "stats.relay-proxy-blockStreamReceived"
 	StatsRelayProxyGetHeaderExternalRelay = "stats.relay-proxy-getHeader-externalRelay"
 	StatsRelayProxyPerformanceStats       = "builder-relay.stats.performance"
+	StatsRelayProxyCPUMetrics             = "stats.relay-proxy-cpu-metrics"
 
 	TypeRelayProxyGetHeader              = "relay_proxy_provided_header"
 	TypeRelayProxyGetPayload             = "relay_proxy_provided_payload"
@@ -22,6 +23,7 @@ const (
 	TypeRelayProxyGetHeaderExternalRelay = "relay_proxy_external_relay_header"
 	TypeRelayProxyBlockStreamReceived    = "relay_proxy_block_stream_received"
 	TypeRelayProxyPerformanceStats       = "builder-relay.performance_stats"
+	TypeRelayProxyCPUMetrics             = "relay_proxy_cpu_metrics"
 )
 
 type HeaderStreamReceivedRecord struct {
@@ -217,4 +219,37 @@ type SlotStatsRecord struct {
 	ValidatorID       string `json:"validator_id"`
 	GetHeaderLatency  int64  `json:"get_header_latency"`
 	GetPayloadLatency int64  `json:"get_payload_latency"`
+}
+
+type HeaderMemoryMetricsRecord struct {
+	Method     string    `json:"method"`
+	Duration   time.Time `json:"durationMs"`
+	Alloc      uint64    `json:"alloc"`
+	MAlloc     uint64    `json:"malloc"`
+	HeapInuse  uint64    `json:"heap_inuse"`
+	NumGC      uint32    `json:"num_gc"`
+	CpuPercent float64   `json:"cpu_percent"`
+	Slot       string    `json:"slot"`
+	ClientIP   string    `json:"client_ip"`
+	PublicKey  string    `json:"public_key"`
+	Success    bool      `json:"success"`
+	AccountID  string    `json:"account_id"`
+}
+
+type GetPayloadMetrics struct {
+	Method      string    `json:"method"`
+	ClientIP    string    `json:"client_ip"`
+	RequestIP   string    `json:"request_ip"`
+	Duration    time.Time `json:"duration"`
+	Size        int64     `json:"size"`
+	UserAgent   string    `json:"user_agent"`
+	Alloc       uint64    `json:"alloc"`
+	Malloc      uint64    `json:"malloc"`
+	HeapIdle    uint64    `json:"heap_idle"`
+	HeapInuse   uint64    `json:"heap_inuse"`
+	NumGC       uint32    `json:"num_gc"`
+	CpuPercent  float64   `json:"cpu_percent"`
+	ValidatorID string    `json:"validator_id"`
+	AccountID   string    `json:"account_id"`
+	URL         string    `json:"url"`
 }
