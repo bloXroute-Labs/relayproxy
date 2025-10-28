@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -16,9 +15,13 @@ import (
 	"github.com/go-chi/cors"
 	gjson "github.com/goccy/go-json"
 	"github.com/rs/zerolog"
-	"github.com/shirou/gopsutil/cpu"
+	"github.com/uptrace/uptrace-go/uptrace"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/metadata"
 
@@ -54,6 +57,9 @@ var (
 	keyAccountID  contextKey = "accountID"
 	keyClientIP   contextKey = "clientIP"
 	keyOrgID      contextKey = "id"
+
+	_BuildVersion string
+	_AppName      = ""
 )
 
 type Server struct {
@@ -75,6 +81,7 @@ type Server struct {
 	NodeID           string
 	AdminAccountID   string
 	performanceStats *stat.PerformanceStats
+	reqLatency       metric.Float64Histogram
 
 	// Callback
 	OnHeaderDelivered func(
@@ -120,7 +127,16 @@ func NewServer(opts ...ServerOption) *Server {
 		lastGetHeaderRequest: 0,
 		slotToIPToGHRequest:  NewIntegerMapOf[uint64, map[string]bool](),
 	}
-
+	uptrace.ConfigureOpentelemetry(
+		uptrace.WithServiceName(_AppName),
+		uptrace.WithServiceVersion(_BuildVersion),
+	)
+	_ = runtime.Start(runtime.WithMinimumReadMemStatsInterval(10 * time.Millisecond))
+	meter := otel.Meter(_AppName)
+	server.reqLatency, _ = meter.Float64Histogram(
+		"http.server.duration",
+		metric.WithDescription("Request duration in seconds per endpoint"),
+	)
 	return server
 }
 
@@ -134,6 +150,8 @@ func (s *Server) Start() error {
 		IdleTimeout:       10 * time.Second,
 	}
 
+	wrapped := otelhttp.NewHandler(s.server.Handler, "")
+	s.server.Handler = wrapped
 	err := s.server.ListenAndServe()
 	if err == http.ErrServerClosed {
 		return nil
@@ -155,9 +173,9 @@ func (s *Server) InitHandler() *chi.Mux {
 	handler.Get(common.PathIndex, s.HandleStatus)
 	handler.With(s.Middleware).Get(common.PathStatus, s.HandleStatus)
 	handler.With(s.Middleware).Post(common.PathRegisterValidator, s.HandleRegistration)
-	handler.With(s.MiddlewareGetHeader).Get(common.PathGetHeader, s.HandleGetHeader)
-	handler.With(s.Middleware).Post(common.PathGetPayload, s.HandleGetPayload)
-	handler.With(s.Middleware).Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
+	handler.With(s.MiddlewareGetHeader, s.MetricsMiddleware(s.reqLatency, getHeader)).Get(common.PathGetHeader, s.HandleGetHeader)
+	handler.With(s.Middleware, s.MetricsMiddleware(s.reqLatency, getPayload)).Post(common.PathGetPayload, s.HandleGetPayload)
+	handler.With(s.Middleware, s.MetricsMiddleware(s.reqLatency, getPayloadV2)).Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
 	s.logger.Info().Msg("Init relay proxy")
 	return handler
 }
@@ -181,6 +199,23 @@ func (s *Server) MiddlewareAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.authorizeAdmin(w, r, next)
 	})
+}
+
+func (s *Server) MetricsMiddleware(hist metric.Float64Histogram, endpoint string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			defer hist.Record(
+				r.Context(),
+				float64(time.Since(start).Milliseconds()),
+				metric.WithAttributes(
+					attribute.String("endpoint", endpoint),
+					attribute.String("method", r.Method),
+				),
+			)
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 func (s *Server) Middleware(next http.Handler) http.Handler {
@@ -720,63 +755,6 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		}
 
 	}()
-	duration := time.Since(start)
-	if duration > 1000*time.Millisecond {
-		// Capture CPU and Memory stats that might be causing the latency issue
-		go func() {
-			var mem runtime.MemStats
-			runtime.ReadMemStats(&mem)
-			alloc := mem.Alloc
-			Malloc := mem.Mallocs
-			heapInuse := mem.HeapAlloc
-			numGc := mem.NumGC
-
-			// Get CPU percent for the process
-			cpuPercentSlice, err := cpu.Percent(CPUCaptureDuration, false)
-			cpuPercent := float64(0)
-			if err == nil && len(cpuPercentSlice) > 0 {
-				cpuPercent = cpuPercentSlice[0]
-			} else {
-				log.Info().Err(err).Msg("failed to get CPU percent")
-			}
-			logEntry := s.logger.With().
-				Str("method", getHeader).
-				Str("clientIP", clientIP).
-				Str("slot", slot).
-				Str("pubKey", pubKey).
-				Time("durationMs", receivedAt).
-				Uint64("alloc", alloc).
-				Uint64("malloc", Malloc).
-				Uint64("heapInuse", heapInuse).
-				Uint32("numGC", numGc).
-				Float64("cpuPercent", cpuPercent).
-				Bool("success", success).
-				Logger()
-
-			logEntry.Info().Msg("GetHeader cpuPerformance metrics")
-
-			if s.NodeID != "" {
-				record := fluentstats.Record{
-					Type: TypeRelayProxyCPUMetrics,
-					Data: HeaderMemoryMetricsRecord{
-						Method:     getHeader,
-						Duration:   receivedAt,
-						Alloc:      alloc,
-						MAlloc:     Malloc,
-						HeapInuse:  heapInuse,
-						NumGC:      numGc,
-						CpuPercent: cpuPercent,
-						Slot:       slot,
-						ClientIP:   clientIP,
-						PublicKey:  pubKey,
-						Success:    success,
-						AccountID:  accountID,
-					},
-				}
-				s.fluentD.LogToFluentD(record, time.Now(), s.NodeID, StatsRelayProxyCPUMetrics)
-			}
-		}()
-	}
 	if !sszResponse {
 		log.Info().Msg("Responding with JSON")
 		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer, true); err == nil {
@@ -942,73 +920,6 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	}
 	mergeLogMetric.End()
 
-	duration := time.Since(start)
-	if duration > 500*time.Millisecond {
-		go func() {
-			//Capture CPU and Memory stats that might be causing the latency issue for the block submission
-			var st runtime.MemStats
-			runtime.ReadMemStats(&st)
-
-			alloc := st.Alloc
-			malloc := st.Mallocs
-			heapIdle := st.HeapIdle
-			heapInuse := st.HeapInuse
-			numGC := st.NumGC
-
-			cpuPercents, err := cpu.Percent(CPUCaptureDuration, false) // Capture 50ms of CPU usage
-			cpuPercent := float64(0)
-			if err == nil && len(cpuPercents) > 0 {
-				cpuPercent = cpuPercents[0]
-			} else {
-				log.Info().Err(err).Msg("failed to get CPU percent")
-			}
-			logEntry := s.logger.With().
-				Str("method", getPayload).
-				Str("clientIP", clientIP).
-				Str("remoteAddr", r.RemoteAddr).
-				Str("requestURI", r.RequestURI).
-				Time("Duration", receivedAt).
-				Int64("Size", int64(len(bodyBytes))).
-				Str("userAgent", userAgent).
-				Uint64("alloc", alloc).
-				Uint64("malloc", malloc).
-				Uint64("heapIdle", heapIdle).
-				Uint64("heapInuse", heapInuse).
-				Uint32("numGC", numGC).
-				Float64("cpuPercent", cpuPercent).
-				Str("ValidatorID", validatorID).
-				Str("AccountID", accountID).
-				Str("URL", r.RequestURI).
-				Logger()
-
-			logEntry.Info().Msg("GetPayload cpuPerformance metrics")
-
-			if s.NodeID != "" {
-				record := fluentstats.Record{
-					Type: TypeRelayProxyCPUMetrics,
-					Data: GetPayloadMetrics{
-						Method:      getPayload,
-						ClientIP:    clientIP,
-						RequestIP:   r.RemoteAddr,
-						Duration:    receivedAt,
-						Size:        int64(len(bodyBytes)),
-						UserAgent:   userAgent,
-						Alloc:       alloc,
-						Malloc:      malloc,
-						HeapIdle:    heapIdle,
-						HeapInuse:   heapInuse,
-						NumGC:       numGC,
-						CpuPercent:  cpuPercent,
-						ValidatorID: validatorID,
-						AccountID:   accountID,
-						URL:         r.RequestURI,
-					},
-				}
-				s.fluentD.LogToFluentD(record, time.Now(), s.NodeID, StatsRelayProxyCPUMetrics)
-			}
-		}()
-	}
-
 	// Return response
 	if !sszResponse {
 		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer, true); err == nil {
@@ -1161,72 +1072,6 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 		SlotUID:                   headerSlotUID,
 	})
 
-	duration := time.Since(start)
-	if duration > 500*time.Millisecond {
-		go func() {
-			//Capture CPU and Memory stats that might be causing the latency issue for the block submission
-			var st runtime.MemStats
-			runtime.ReadMemStats(&st)
-
-			alloc := st.Alloc
-			malloc := st.Mallocs
-			heapIdle := st.HeapIdle
-			heapInuse := st.HeapInuse
-			numGC := st.NumGC
-
-			cpuPercents, err := cpu.Percent(CPUCaptureDuration, false) // Capture 50ms of CPU usage
-			cpuPercent := float64(0)
-			if err == nil && len(cpuPercents) > 0 {
-				cpuPercent = cpuPercents[0]
-			} else {
-				log.Info().Err(err).Msg("failed to get CPU percent")
-			}
-			logEntry := s.logger.With().
-				Str("method", getPayloadV2).
-				Str("clientIP", clientIP).
-				Str("remoteAddr", r.RemoteAddr).
-				Str("requestURI", r.RequestURI).
-				Dur("Duration", duration).
-				Int64("Size", int64(len(bodyBytes))).
-				Str("userAgent", userAgent).
-				Uint64("alloc", alloc).
-				Uint64("malloc", malloc).
-				Uint64("heapIdle", heapIdle).
-				Uint64("heapInuse", heapInuse).
-				Uint32("numGC", numGC).
-				Float64("cpuPercent", cpuPercent).
-				Str("ValidatorID", validatorID).
-				Str("AccountID", accountID).
-				Str("URL", r.RequestURI).
-				Logger()
-
-			logEntry.Info().Msg("GetPayloadV2 cpuPerformance metrics")
-
-			if s.NodeID != "" {
-				record := fluentstats.Record{
-					Type: TypeRelayProxyCPUMetrics,
-					Data: GetPayloadMetrics{
-						Method:      getPayloadV2,
-						ClientIP:    clientIP,
-						RequestIP:   r.RemoteAddr,
-						Duration:    receivedAt,
-						Size:        int64(len(bodyBytes)),
-						UserAgent:   userAgent,
-						Alloc:       alloc,
-						Malloc:      malloc,
-						HeapIdle:    heapIdle,
-						HeapInuse:   heapInuse,
-						NumGC:       numGC,
-						CpuPercent:  cpuPercent,
-						ValidatorID: validatorID,
-						AccountID:   accountID,
-						URL:         r.RequestURI,
-					},
-				}
-				s.fluentD.LogToFluentD(record, time.Now(), s.NodeID, StatsRelayProxyCPUMetrics)
-			}
-		}()
-	}
 	// need to confirm eth consensusVersion
 	//w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
 	success = respondStatusAccepted(getPayloadCtx, span, method, w, &log, s.tracer)
