@@ -7,21 +7,24 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/shirou/gopsutil/v3/process"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	gjson "github.com/goccy/go-json"
 	"github.com/rs/zerolog"
-	"github.com/uptrace/uptrace-go/uptrace"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"go.opentelemetry.io/contrib/instrumentation/runtime"
+	metricruntime "go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/metadata"
 
@@ -81,8 +84,7 @@ type Server struct {
 	NodeID           string
 	AdminAccountID   string
 	performanceStats *stat.PerformanceStats
-	reqLatency       metric.Float64Histogram
-
+	perfMetrics      *perfMetrics
 	// Callback
 	OnHeaderDelivered func(
 		VersionedSignedBuilderBid *common.VersionedSignedBuilderBid, Slot uint64,
@@ -116,6 +118,14 @@ type account struct {
 	accountID, validatorID string
 }
 
+type perfMetrics struct {
+	reqLatency metric.Float64Histogram
+	cpu        metric.Float64Histogram
+	heapAlloc  metric.Int64Histogram
+	memRSS     metric.Int64Histogram
+	proc       *process.Process
+}
+
 func NewServer(opts ...ServerOption) *Server {
 	server := new(Server)
 
@@ -127,16 +137,35 @@ func NewServer(opts ...ServerOption) *Server {
 		lastGetHeaderRequest: 0,
 		slotToIPToGHRequest:  NewIntegerMapOf[uint64, map[string]bool](),
 	}
-	uptrace.ConfigureOpentelemetry(
-		uptrace.WithServiceName(_AppName),
-		uptrace.WithServiceVersion(_BuildVersion),
-	)
-	_ = runtime.Start(runtime.WithMinimumReadMemStatsInterval(10 * time.Millisecond))
+
+	_ = metricruntime.Start(metricruntime.WithMinimumReadMemStatsInterval(10 * time.Millisecond))
 	meter := otel.Meter(_AppName)
-	server.reqLatency, _ = meter.Float64Histogram(
+
+	reqLatency, _ := meter.Float64Histogram(
 		"http.server.duration",
 		metric.WithDescription("Request duration in seconds per endpoint"),
 	)
+	cpuAtReq, _ := meter.Float64Histogram(
+		"process.cpu.utilization.at_request",
+		metric.WithDescription("CPU utilization snapshot when finishing a request"),
+	)
+	heapAtReq, _ := meter.Int64Histogram(
+		"process.runtime.go.mem.heap_alloc.at_request",
+		metric.WithDescription("Go heap alloc snapshot when finishing a request"),
+	)
+	rssAtReq, _ := meter.Int64Histogram(
+		"process.memory.rss.at_request",
+		metric.WithDescription("RSS snapshot when finishing a request"),
+	)
+	proc, _ := process.NewProcess(int32(os.Getpid()))
+	server.perfMetrics = &perfMetrics{
+		reqLatency: reqLatency,
+		cpu:        cpuAtReq,
+		heapAlloc:  heapAtReq,
+		memRSS:     rssAtReq,
+		proc:       proc,
+	}
+
 	return server
 }
 
@@ -173,9 +202,9 @@ func (s *Server) InitHandler() *chi.Mux {
 	handler.Get(common.PathIndex, s.HandleStatus)
 	handler.With(s.Middleware).Get(common.PathStatus, s.HandleStatus)
 	handler.With(s.Middleware).Post(common.PathRegisterValidator, s.HandleRegistration)
-	handler.With(s.MiddlewareGetHeader, s.MetricsMiddleware(s.reqLatency, getHeader)).Get(common.PathGetHeader, s.HandleGetHeader)
-	handler.With(s.Middleware, s.MetricsMiddleware(s.reqLatency, getPayload)).Post(common.PathGetPayload, s.HandleGetPayload)
-	handler.With(s.Middleware, s.MetricsMiddleware(s.reqLatency, getPayloadV2)).Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
+	handler.With(s.MiddlewareGetHeader, s.MetricsMiddleware(getHeader)).Get(common.PathGetHeader, s.HandleGetHeader)
+	handler.With(s.Middleware, s.MetricsMiddleware(getPayload)).Post(common.PathGetPayload, s.HandleGetPayload)
+	handler.With(s.Middleware, s.MetricsMiddleware(getPayloadV2)).Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
 	s.logger.Info().Msg("Init relay proxy")
 	return handler
 }
@@ -201,18 +230,52 @@ func (s *Server) MiddlewareAdmin(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Server) MetricsMiddleware(hist metric.Float64Histogram, endpoint string) func(http.Handler) http.Handler {
+func (s *Server) MetricsMiddleware(endpoint string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			defer hist.Record(
-				r.Context(),
-				float64(time.Since(start).Milliseconds()),
-				metric.WithAttributes(
-					attribute.String("endpoint", endpoint),
-					attribute.String("method", r.Method),
-				),
-			)
+			defer func() {
+				// latency in ms (Uptrace will still compute p50/p90/p99)
+				s.perfMetrics.reqLatency.Record(
+					r.Context(),
+					float64(time.Since(start).Milliseconds()),
+					metric.WithAttributes(
+						attribute.String("endpoint", endpoint),
+						attribute.String("method", r.Method),
+					),
+				)
+
+				// per-request CPU / mem snapshots (use request ctx for exemplars)
+				if s.perfMetrics.proc != nil {
+					if cpuPct, err := s.perfMetrics.proc.CPUPercent(); err == nil {
+						// CPUPercent returns 0..(100 * NumCPU). Normalize to 0..1.
+						normalized := cpuPct / (100.0 * float64(runtime.NumCPU()))
+						s.perfMetrics.cpu.Record(r.Context(), normalized,
+							metric.WithAttributes(
+								attribute.String("endpoint", endpoint),
+								attribute.String("method", r.Method),
+							),
+						)
+					}
+					if mi, err := s.perfMetrics.proc.MemoryInfo(); err == nil {
+						s.perfMetrics.memRSS.Record(r.Context(), int64(mi.RSS),
+							metric.WithAttributes(
+								attribute.String("endpoint", endpoint),
+								attribute.String("method", r.Method),
+							),
+						)
+					}
+				}
+
+				var ms runtime.MemStats
+				runtime.ReadMemStats(&ms)
+				s.perfMetrics.heapAlloc.Record(r.Context(), int64(ms.Alloc),
+					metric.WithAttributes(
+						attribute.String("endpoint", endpoint),
+						attribute.String("method", r.Method),
+					),
+				)
+			}()
 			next.ServeHTTP(w, r)
 		})
 	}
