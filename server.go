@@ -61,7 +61,6 @@ var (
 	keyOrgID      contextKey = "id"
 
 	_BuildVersion string
-	_AppName      = ""
 )
 
 type Server struct {
@@ -137,26 +136,44 @@ func NewServer(opts ...ServerOption) *Server {
 		slotToIPToGHRequest:  NewIntegerMapOf[uint64, map[string]bool](),
 	}
 
-	_ = metricruntime.Start(metricruntime.WithMinimumReadMemStatsInterval(10 * time.Millisecond))
-	meter := otel.Meter(_AppName)
+	err := metricruntime.Start(metricruntime.WithMinimumReadMemStatsInterval(10 * time.Millisecond))
+	if err != nil {
+		server.logger.Fatal().Msg("failed to start metric runtime")
+	}
+	meter := otel.Meter(server.NodeID)
 
-	reqLatency, _ := meter.Float64Histogram(
+	reqLatency, err := meter.Float64Histogram(
 		"http.server.duration",
 		metric.WithDescription("Request duration in seconds per endpoint"),
 	)
-	cpuAtReq, _ := meter.Float64Histogram(
+	if err != nil {
+		server.logger.Fatal().Msg("failed to start metric reqLatency")
+	}
+	cpuAtReq, err := meter.Float64Histogram(
 		"process.cpu.utilization.at_request",
 		metric.WithDescription("CPU utilization snapshot when finishing a request"),
 	)
-	heapAtReq, _ := meter.Int64Histogram(
+	if err != nil {
+		server.logger.Fatal().Msg("failed to start metric cpu")
+	}
+	heapAtReq, err := meter.Int64Histogram(
 		"process.runtime.go.mem.heap_alloc.at_request",
 		metric.WithDescription("Go heap alloc snapshot when finishing a request"),
 	)
-	rssAtReq, _ := meter.Int64Histogram(
+	if err != nil {
+		server.logger.Fatal().Msg("failed to get heapAtReq")
+	}
+	rssAtReq, err := meter.Int64Histogram(
 		"process.memory.rss.at_request",
 		metric.WithDescription("RSS snapshot when finishing a request"),
 	)
-	proc, _ := process.NewProcess(int32(os.Getpid()))
+	if err != nil {
+		server.logger.Fatal().Msg("failed to start metric RSS snapshot")
+	}
+	proc, err := process.NewProcess(int32(os.Getpid()))
+	if err != nil {
+		server.logger.Fatal().Msg("failed to get process id")
+	}
 	server.perfMetrics = &perfMetrics{
 		reqLatency: reqLatency,
 		cpu:        cpuAtReq,
@@ -187,7 +204,7 @@ func (s *Server) Start() error {
 
 func (s *Server) InitHandler() *chi.Mux {
 	handler := chi.NewRouter()
-	handler.Use(otelchi.Middleware(_AppName))
+	handler.Use(otelchi.Middleware(s.NodeID))
 	handler.Group(func(r chi.Router) {
 		r.Use(addCORS())
 		r.With(s.MiddlewareAdmin).Get(common.PathDelaySettings, s.HandleGetDelays)
