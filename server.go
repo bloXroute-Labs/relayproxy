@@ -13,24 +13,23 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shirou/gopsutil/v3/process"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
-
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/cors"
-	gjson "github.com/goccy/go-json"
-	"github.com/rs/zerolog"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	metricruntime "go.opentelemetry.io/contrib/instrumentation/runtime"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc/metadata"
-
 	"github.com/bloXroute-Labs/relay-grpc/stat"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors"
+	"github.com/riandyrn/otelchi"
+	"github.com/rs/zerolog"
+	"github.com/shirou/gopsutil/v3/process"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
+
+	gjson "github.com/goccy/go-json"
+	metricruntime "go.opentelemetry.io/contrib/instrumentation/runtime"
+	"google.golang.org/grpc/metadata"
 )
 
 // Router paths
@@ -179,8 +178,6 @@ func (s *Server) Start() error {
 		IdleTimeout:       10 * time.Second,
 	}
 
-	wrapped := otelhttp.NewHandler(s.server.Handler, "")
-	s.server.Handler = wrapped
 	err := s.server.ListenAndServe()
 	if err == http.ErrServerClosed {
 		return nil
@@ -190,6 +187,7 @@ func (s *Server) Start() error {
 
 func (s *Server) InitHandler() *chi.Mux {
 	handler := chi.NewRouter()
+	handler.Use(otelchi.Middleware(_AppName))
 	handler.Group(func(r chi.Router) {
 		r.Use(addCORS())
 		r.With(s.MiddlewareAdmin).Get(common.PathDelaySettings, s.HandleGetDelays)
