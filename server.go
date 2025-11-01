@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	gjson "github.com/goccy/go-json"
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -50,6 +51,13 @@ const (
 			131072*6 + // up to 6 blobs (tune if you expect more)
 			(2 << 20), // +2MiB headroom for payload/overheads
 	)
+	// Hard size cap for getPayload request bodies (blinded block only).
+	//maxGetPayloadBody = int64(2 << 20) // 2 MiB
+
+	// Fixed, conservative body read timeouts
+	bodyReadTimeoutGetPayload   = 400 * time.Millisecond
+	bodyReadTimeoutGetPayloadV2 = 400 * time.Millisecond
+	bodyReadTimeoutRegistration = 200 * time.Millisecond
 )
 
 type contextKey string
@@ -129,7 +137,7 @@ func NewServer(opts ...ServerOption) *Server {
 		slotToIPToGHRequest:  NewIntegerMapOf[uint64, map[string]bool](),
 	}
 	server.getPayloadBodyPool = sync.Pool{
-		New: func() any { b := make([]byte, 64<<10); return &b },
+		New: func() any { return make([]byte, 64<<10) }, // 64 KiB
 	}
 	return server
 }
@@ -138,9 +146,9 @@ func (s *Server) Start() error {
 	s.server = &http.Server{
 		Addr:              s.listenAddress,
 		Handler:           s.InitHandler(),
-		ReadTimeout:       0,
-		ReadHeaderTimeout: 0,
-		WriteTimeout:      0,
+		ReadTimeout:       1 * time.Second,
+		ReadHeaderTimeout: 500 * time.Millisecond,
+		WriteTimeout:      1 * time.Second,
 		IdleTimeout:       10 * time.Second,
 	}
 
@@ -775,12 +783,14 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	receivedAt := time.Now().UTC()
 	success := false
 	defer func() {
-		s.performanceStats.SetEndpointStats(
-			common.PathGetPayload,
-			uint64(time.Since(receivedAt).Microseconds()),
-			success,
-			100,
-		)
+		if s.performanceStats != nil {
+			s.performanceStats.SetEndpointStats(
+				common.PathGetPayload,
+				uint64(time.Since(receivedAt).Microseconds()),
+				success,
+				100,
+			)
+		}
 	}()
 
 	// Keep inbound request context for deadlines/cancellation/metadata.
@@ -837,6 +847,8 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		Time("receivedAt", receivedAt).
 		Str("receivedAtUtc", formatUTCms(receivedAt)).
 		Str("sentAtUtc", sentAtUtc).
+		Int64("maxBytes", maxGetPayloadBody).
+		Int64("contentLength", r.ContentLength).
 		Logger()
 
 	span.SetAttributes(
@@ -867,11 +879,20 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 
 	// --- read body
 	_, readBodyBytesSpan := s.tracer.Start(ctx, GetSpanName(methodName, "readBodyBytes"))
-	bodyBytes, err := s.readAllPooled(w, r, maxGetPayloadBody)
+	bodyBytes, err := s.readAllPooledCtx(ctx, w, r, maxGetPayloadBody, bodyReadTimeoutGetPayload)
 	if err != nil {
 		readBodyBytesSpan.SetStatus(codes.Error, err.Error())
-		log.Error().Err(err).Msg("could not read getPayload")
-		respondError(ctx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "could not read registration"), &log, s.tracer)
+		log.Error().Err(err).Int64("bodyCap_ms", bodyReadTimeoutGetPayload.Milliseconds()).Msg("getPayload: read body failed")
+
+		var mbe *http.MaxBytesError
+		switch {
+		case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
+			respondError(ctx, span, getPayload, w, toErrorResp(http.StatusRequestTimeout, "request body read timeout"), &log, s.tracer)
+		case errors.As(err, &mbe):
+			respondError(ctx, span, getPayload, w, toErrorResp(http.StatusRequestEntityTooLarge, "body too large"), &log, s.tracer)
+		default:
+			respondError(ctx, span, getPayload, w, toErrorResp(http.StatusBadRequest, "failed to read getPayload body"), &log, s.tracer)
+		}
 		readBodyBytesSpan.End()
 		return
 	}
@@ -1235,31 +1256,71 @@ func (s *Server) respondOKWithContextSSZMarshalled(ctx context.Context, parentSp
 	return true
 }
 
-// readAllPooled reads r.Body into a single buffer with:
-//   - hard cap via MaxBytesReader
-//   - pre-size using Content-Length if present
-//   - pooled scratch to avoid per-read allocations
-func (s *Server) readAllPooled(w http.ResponseWriter, r *http.Request, max int64) ([]byte, error) {
-	// Enforce a hard cap so a bad client can’t blow memory.
+// readAllPooledCtx reads r.Body fully with:
+// - hard size cap via MaxBytesReader
+// - per-call timeout via ctx (works for H1/H2)
+// - pooled scratch buffer ([]byte) for fewer allocs
+func (s *Server) readAllPooledCtx(ctx context.Context, w http.ResponseWriter, r *http.Request, max int64, timeout time.Duration) ([]byte, error) {
+	// Hard cap
 	r.Body = http.MaxBytesReader(w, r.Body, max)
-	defer r.Body.Close()
 
-	var buf bytes.Buffer
-	// If ContentLength is known and within max, pre-grow once.
-	if r.ContentLength > 0 && r.ContentLength <= max {
-		// Grow does not change length, only capacity.
-		buf.Grow(int(r.ContentLength))
+	// Deadline for the read
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
 
-	// Use a pooled scratch buffer for the copy.
-	scratch := s.getPayloadBodyPool.Get().([]byte)
-	_, err := io.CopyBuffer(&buf, r.Body, scratch)
-	s.getPayloadBodyPool.Put(scratch)
-	if err != nil {
-		return nil, err
+	type res struct {
+		b   []byte
+		err error
 	}
+	done := make(chan res, 1)
 
-	// bytes.Buffer owns its backing array; returning buf.Bytes() is safe
-	// as long as the caller doesn't mutate beyond len().
-	return buf.Bytes(), nil
+	go func() {
+		defer r.Body.Close()
+
+		var buf bytes.Buffer
+		if r.ContentLength > 0 && r.ContentLength <= max {
+			buf.Grow(int(r.ContentLength))
+		}
+
+		// === robust scratch buffer from pool
+		scratch := s.getPayloadBodyPool.Get().([]byte)
+		if len(scratch) == 0 {
+			// safety: pool might hand back empty slice (or was never initialized)
+			scratch = make([]byte, 64<<10) // 64 KiB
+		}
+		_, err := io.CopyBuffer(&buf, r.Body, scratch)
+
+		// restore shape & return to pool
+		if cap(scratch) > 0 {
+			scratch = scratch[:cap(scratch)]
+		}
+		s.getPayloadBodyPool.Put(scratch)
+
+		done <- res{b: buf.Bytes(), err: err}
+	}()
+
+	select {
+	case r := <-done:
+		return r.b, r.err
+
+	case <-ctx.Done():
+		// Abort the copy; Close() should unblock Read() on real http bodies.
+		_ = r.Body.Close()
+
+		// Give the goroutine a short grace period to finish after Close().
+		select {
+		case rr := <-done:
+			// If the worker didn't see an error, surface the context timeout.
+			if rr.err == nil {
+				return rr.b, ctx.Err()
+			}
+			return nil, rr.err
+		case <-time.After(1 * time.Second):
+			// Defensive: if the underlying reader ignores Close(), return timeout.
+			return nil, ctx.Err()
+		}
+	}
 }
