@@ -970,7 +970,9 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, reqCtx
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	_, unmarshalSpan := s.tracer.Start(reqCtx, "PreFetchGetPayloadPlaceHTTPRequest-unmarshal")
 	var respData common.PreFetchGetPayloadResponseHTTP

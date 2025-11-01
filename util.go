@@ -152,8 +152,10 @@ func fastParseUint(s string) (uint64, error) {
 	return n, nil
 }
 
-func getBoostSendTimeAndLatency(receivedAt time.Time, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS string) (boostSendTime string, latency int64) {
-	var headerValue string
+func getBoostSendTimeAndLatency(receivedAt time.Time, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS string) (boostSendTime string, sentAtUtc string, latency int64) {
+	var (
+		headerValue string
+	)
 	if mevBoostSendTimeUnixMS != "" {
 		headerValue = mevBoostSendTimeUnixMS
 	}
@@ -164,7 +166,17 @@ func getBoostSendTimeAndLatency(receivedAt time.Time, mevBoostSendTimeUnixMS, co
 	boostSendTimeInt, err := strconv.ParseInt(headerValue, 10, 64)
 	if err == nil {
 		latency = receivedAt.UnixMilli() - boostSendTimeInt
+		// toUTCmsFromUnixMS converts a base-10 unix ms string into "YYYY-MM-DDTHH:MM:SS.mmmZ" (UTC).
+		sentAtUtc = time.UnixMilli(boostSendTimeInt).UTC().Format("2006-01-02T15:04:05.000Z")
 	}
 	boostSendTime = headerValue
 	return
+}
+
+func GetSpanName(methodName, op string) string {
+	return "rproxy-" + methodName + "-" + op
+}
+
+func formatUTCms(t time.Time) string {
+	return t.UTC().Format("2006-01-02T15:04:05.000Z") // ISO-8601 UTC with .mmm and 'Z'
 }

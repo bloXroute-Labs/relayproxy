@@ -67,7 +67,6 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 			attribute.String("uniqueKey", uKey),
 			attribute.Int64("latency", latency),
 		)
-		log.Info().Msg("added spans getPayloadTrusted")
 		logTimingSpan.End()
 		span.End()
 	}()
