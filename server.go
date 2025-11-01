@@ -878,7 +878,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		attribute.Int64("duration_us", time.Since(headerLoopStart).Microseconds()),
 	)
 	spanHdrLoop.End()
-
+	_, spanSetAttrs := s.tracer.Start(ctx, GetSpanName(callerMethodName, "setRootAttributes"))
 	// Close preflight
 	span.SetAttributes(
 		attribute.String("reqHost", r.Host),
@@ -908,10 +908,12 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		attribute.String("receivedAtUtc", formatUTCms(receivedAt)),
 		attribute.String("sentAtUtc", sentAtUtc),
 	)
+	spanSetAttrs.End()
 
 	preflight.SetAttributes(attribute.Int64("duration_us", time.Since(preflightStart).Microseconds()))
 	preflight.End()
 
+	_, spanBuildLogger := s.tracer.Start(ctx, GetSpanName(callerMethodName, "buildLogger"))
 	// Logger with context
 	log := s.logger.With().
 		Str("reqHost", r.Host).
@@ -943,8 +945,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		Int64("maxBytes", maxGetPayloadBody).
 		Int64("contentLength", r.ContentLength).
 		Logger()
-
-	log.Info().Msg("received " + callerMethodName)
+	spanBuildLogger.End()
 
 	readStart := time.Now()
 	_, spanRead := s.tracer.Start(ctx, GetSpanName(callerMethodName, "readBodyBytes"))

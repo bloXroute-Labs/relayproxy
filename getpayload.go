@@ -363,7 +363,7 @@ func (s *Service) sendPayloadStats(payload []byte, log *zerolog.Logger, isSuccee
 			}
 		}
 	} else {
-		log.Warn().Str("slotKey", k).Msg("no previous slot stats found, creating new record")
+		log.Debug().Str("slotKey", k).Msg("no previous slot stats found, creating new record")
 	}
 	s.slotStatsEvent.Set(k, statsRecord, cache.DefaultExpiration) // replace with updated slot stats
 
