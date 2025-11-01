@@ -1,6 +1,7 @@
 package relayproxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -41,6 +43,13 @@ const (
 	HeaderKeySlotUID        = "X-MEVBoost-SlotID"
 	VouchCluster            = "setup"
 	statsNamePerformance    = "performanceStats"
+	maxGetPayloadBody       = int64(
+		12 + // 3 offsets
+			48*4096 + // max commitments
+			48*4096 + // max proofs
+			131072*6 + // up to 6 blobs (tune if you expect more)
+			(2 << 20), // +2MiB headroom for payload/overheads
+	)
 )
 
 type contextKey string
@@ -74,6 +83,7 @@ type Server struct {
 	AdminAccountID   string
 	performanceStats *stat.PerformanceStats
 
+	getPayloadBodyPool sync.Pool
 	// Callback
 	OnHeaderDelivered func(
 		VersionedSignedBuilderBid *common.VersionedSignedBuilderBid, Slot uint64,
@@ -118,7 +128,9 @@ func NewServer(opts ...ServerOption) *Server {
 		lastGetHeaderRequest: 0,
 		slotToIPToGHRequest:  NewIntegerMapOf[uint64, map[string]bool](),
 	}
-
+	server.getPayloadBodyPool = sync.Pool{
+		New: func() any { b := make([]byte, 64<<10); return &b },
+	}
 	return server
 }
 
@@ -855,7 +867,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 
 	// --- read body
 	_, readBodyBytesSpan := s.tracer.Start(ctx, GetSpanName(methodName, "readBodyBytes"))
-	bodyBytes, err := io.ReadAll(r.Body)
+	bodyBytes, err := s.readAllPooled(w, r, maxGetPayloadBody)
 	if err != nil {
 		readBodyBytesSpan.SetStatus(codes.Error, err.Error())
 		log.Error().Err(err).Msg("could not read getPayload")
@@ -1221,4 +1233,33 @@ func (s *Server) respondOKWithContextSSZMarshalled(ctx context.Context, parentSp
 	}
 	log.Info().Str("method", method).Msg(method + " succeeded")
 	return true
+}
+
+// readAllPooled reads r.Body into a single buffer with:
+//   - hard cap via MaxBytesReader
+//   - pre-size using Content-Length if present
+//   - pooled scratch to avoid per-read allocations
+func (s *Server) readAllPooled(w http.ResponseWriter, r *http.Request, max int64) ([]byte, error) {
+	// Enforce a hard cap so a bad client can’t blow memory.
+	r.Body = http.MaxBytesReader(w, r.Body, max)
+	defer r.Body.Close()
+
+	var buf bytes.Buffer
+	// If ContentLength is known and within max, pre-grow once.
+	if r.ContentLength > 0 && r.ContentLength <= max {
+		// Grow does not change length, only capacity.
+		buf.Grow(int(r.ContentLength))
+	}
+
+	// Use a pooled scratch buffer for the copy.
+	scratch := s.getPayloadBodyPool.Get().([]byte)
+	_, err := io.CopyBuffer(&buf, r.Body, scratch)
+	s.getPayloadBodyPool.Put(scratch)
+	if err != nil {
+		return nil, err
+	}
+
+	// bytes.Buffer owns its backing array; returning buf.Bytes() is safe
+	// as long as the caller doesn't mutate beyond len().
+	return buf.Bytes(), nil
 }
