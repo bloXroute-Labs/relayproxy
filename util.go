@@ -173,8 +173,8 @@ func getBoostSendTimeAndLatency(receivedAt time.Time, mevBoostSendTimeUnixMS, co
 	return
 }
 
-func GetSpanName(methodName, op string) string {
-	return "rproxy-" + methodName + "-" + op
+func GetSpanName(callerMethodName, op string) string {
+	return "RProxy-" + callerMethodName + "-" + op
 }
 
 func formatUTCms(t time.Time) string {

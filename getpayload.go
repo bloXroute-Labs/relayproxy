@@ -45,7 +45,9 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		Bool("isAuthHeaderProvided", in.AuthHeader != "").
 		Logger()
 	log.Info().Msg("received getPayloadTrusted")
-	ctx, span := s.tracer.Start(ctx, "getPayload-start")
+
+	ctx, span := s.tracer.Start(ctx, GetSpanName(getPayload, "start"))
+
 	var (
 		slotInt       int64
 		blockHashStr  string
@@ -55,7 +57,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		latency       int64
 	)
 	defer func() {
-		_, logTimingSpan := s.tracer.Start(ctx, "getPayload-logTimingSpan")
+		_, logTimingSpan := s.tracer.Start(ctx, GetSpanName(getPayload, "logTiming"))
 		parentSpan.SetAttributes(
 			attribute.String("method", getPayload),
 			attribute.String("reqID", id),
@@ -71,7 +73,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		span.End()
 	}()
 
-	_, timeToRelayRequestSpan := s.tracer.Start(ctx, "getPayload-TimeToRelayRequest")
+	_, timeToRelayRequestSpan := s.tracer.Start(ctx, GetSpanName(getPayload, "timeToRelayRequest"))
 
 	if in.GetPayloadStartTimeUnixMS != "" {
 		if getPayloadStartTime, err := strconv.ParseInt(in.GetPayloadStartTimeUnixMS, 10, 64); err == nil {
@@ -91,7 +93,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 	}
 	timeToRelayRequestSpan.End()
 
-	_, prefetchPayloadToSignedBlindedBeaconBlockSpan := s.tracer.Start(ctx, "getPayload-prefetchPayloadToSignedBlindedBeaconBlockSpan")
+	_, prefetchPayloadToSignedBlindedBeaconBlockSpan := s.tracer.Start(ctx, GetSpanName(getPayload, "prefetchSignedBlindedBeaconBlock"))
 	blindedBeaconBlock, errRes := s.prefetchPayloadToSignedBlindedBeaconBlock(ctx, in.Payload)
 	if errRes != nil {
 		log.Error().Err(errRes).Msg("prefetchPayloadToSignedBlindedBeaconBlock failed")
@@ -142,9 +144,9 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 
 	payloadInfoChan := make(chan *common.VersionedPayloadInfo, 1)
 
-	// validate and  fetch payload from cache
+	// validate and fetch payload from cache
 	go func(ctx context.Context, l zerolog.Logger, parent trace.Span) {
-		ctx, childSpan := s.tracer.Start(ctx, "validateAndFetchPayload")
+		ctx, childSpan := s.tracer.Start(ctx, GetSpanName(getPayload, "validateAndFetchPayload"))
 		defer childSpan.End()
 
 		payloadInfo, err := s.validateAndFetchPayload(ctx, blindedBeaconBlock)
@@ -161,10 +163,10 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		}
 	}(ctx, *log, parentSpan)
 
-	// fetch payload relay
+	// fetch payload from relays (with retry)
 	for _, client := range s.clients {
 		go func(c *common.ParentClient, parent trace.Span) {
-			ctx, childSpan := s.tracer.Start(ctx, "getPayloadWithRetry")
+			ctx, childSpan := s.tracer.Start(ctx, GetSpanName(getPayload, "getPayloadWithRetry"))
 			defer childSpan.End()
 
 			resp, err := s.getPayloadWithRetry(ctx, c.SafeClient, childSpan, req, maxGetPayloadRetry)
@@ -212,7 +214,7 @@ type ErrorRespWithPayload struct {
 
 func (s *Service) getPayloadWithRetry(ctx context.Context, c *common.Client, parentSpan trace.Span, req *relaygrpc.GetPayloadRequest, retryCount int) (*common.VersionedPayloadInfo, *ErrorResp) {
 	for attempt := 0; attempt <= retryCount; attempt++ {
-		_, clientGetPayloadSpan := s.tracer.Start(ctx, "getPayloadWithRetry-getPayloadForClient")
+		_, clientGetPayloadSpan := s.tracer.Start(ctx, GetSpanName("getPayloadWithRetry", "getPayloadForClient"))
 		clientCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		resp, err := c.GetPayload(clientCtx, req)
 		cancel()
@@ -438,7 +440,7 @@ func (s *Service) validateAndFetchPayload(ctx context.Context, signedBlindedBeac
 		return nil, toErrorResp(http.StatusBadRequest, "failed to get parent hash")
 	}
 
-	_, checkRequestTimingSpan := s.tracer.Start(ctx, "validateAndFetchPayload-checkRequestTiming")
+	_, checkRequestTimingSpan := s.tracer.Start(ctx, GetSpanName("validateAndFetchPayload", "checkRequestTiming"))
 
 	slotStartTime := GetSlotStartTime(s.beaconGenesisTime, int64(slot), s.secondsPerSlot)
 	msIntoSlot := time.Since(slotStartTime).Milliseconds()
@@ -455,17 +457,16 @@ func (s *Service) validateAndFetchPayload(ctx context.Context, signedBlindedBeac
 	}
 	checkRequestTimingSpan.End(trace.WithTimestamp(time.Now()))
 
-	_, fetchProposerForSlotSpan := s.tracer.Start(ctx, "validateAndFetchPayload-fetchProposerForSlot")
+	_, fetchProposerForSlotSpan := s.tracer.Start(ctx, GetSpanName("validateAndFetchPayload", "fetchProposerForSlot"))
 	miniSlotDuty, err := s.IDataService.GetSlotDuty(uint64(slot))
 	if err != nil || miniSlotDuty == nil {
 		return nil, toErrorResp(http.StatusBadRequest, fmt.Sprintf("slot %v not found in memory", slot))
 	}
 	pub := miniSlotDuty.Registration.Message.Pubkey
 	pubkeyStr := pub.String()
-
 	fetchProposerForSlotSpan.End(trace.WithTimestamp(time.Now()))
 
-	_, verifySignatureSpan := s.tracer.Start(ctx, "validateAndFetchPayload-verifySignature")
+	_, verifySignatureSpan := s.tracer.Start(ctx, GetSpanName("validateAndFetchPayload", "verifySignature"))
 	ok, err := fastjson.CheckProposerSignature(s.ethNetworkDetails, signedBlindedBeaconBlock, pub[:])
 	if !ok || err != nil {
 		verifySignatureSpan.End(trace.WithTimestamp(time.Now()))
@@ -473,7 +474,7 @@ func (s *Service) validateAndFetchPayload(ctx context.Context, signedBlindedBeac
 	}
 	verifySignatureSpan.End(trace.WithTimestamp(time.Now()))
 
-	_, fetchPayloadFromCacheSpan := s.tracer.Start(ctx, "validateAndFetchPayload-fetchPayloadFromCache")
+	_, fetchPayloadFromCacheSpan := s.tracer.Start(ctx, GetSpanName("validateAndFetchPayload", "fetchPayloadFromCache"))
 	proxyCacheKey := common.GetKeyForCachingPayload(uint64(slot), parentHash.String(), blockHashString, pubkeyStr)
 	defer fetchPayloadFromCacheSpan.End()
 
@@ -507,5 +508,4 @@ func (s *Service) validateAndFetchPayload(ctx context.Context, signedBlindedBeac
 		BlockHash:  blockHashString,
 		Pubkey:     pubkeyStr,
 	}, toErrorResp(http.StatusBadRequest, "pre fetch payload not available in cache after retries")
-
 }

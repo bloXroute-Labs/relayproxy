@@ -778,7 +778,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
-	const methodName = "handleGetPayload"
+	const callerMethodName = "handleGetPayload"
 
 	receivedAt := time.Now().UTC()
 	success := false
@@ -797,7 +797,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Start a root span for this handler.
-	ctx, span := s.tracer.Start(ctx, methodName)
+	ctx, span := s.tracer.Start(ctx, callerMethodName)
 	defer span.End()
 
 	// Request-scoped metadata
@@ -875,10 +875,10 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		attribute.String("sentAtUtc", sentAtUtc),
 	)
 
-	log.Info().Msg("received " + methodName)
+	log.Info().Msg("received " + callerMethodName)
 
 	// --- read body
-	_, readBodyBytesSpan := s.tracer.Start(ctx, GetSpanName(methodName, "readBodyBytes"))
+	_, readBodyBytesSpan := s.tracer.Start(ctx, GetSpanName(callerMethodName, "readBodyBytes"))
 	bodyBytes, err := s.readAllPooledCtx(ctx, w, r, maxGetPayloadBody, bodyReadTimeoutGetPayload)
 	if err != nil {
 		readBodyBytesSpan.SetStatus(codes.Error, err.Error())
@@ -901,7 +901,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	// --- decode SSZ if needed, then canonicalize to JSON for service
 	signedBlindedBeaconBlock := new(common.VersionedSignedBlindedBeaconBlock)
 	if sszRequest {
-		_, decodeSSZSpan := s.tracer.Start(ctx, GetSpanName(methodName, "decodeSSZ"))
+		_, decodeSSZSpan := s.tracer.Start(ctx, GetSpanName(callerMethodName, "decodeSSZ"))
 		if err := signedBlindedBeaconBlock.UnmarshalSSZ(bodyBytes); err != nil {
 			decodeSSZSpan.SetStatus(codes.Error, err.Error())
 			log.Error().Err(err).Msg("failed to decode request payload")
@@ -911,7 +911,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		}
 		decodeSSZSpan.End()
 
-		_, encodeJSONSpan := s.tracer.Start(ctx, GetSpanName(methodName, "encodeJSON"))
+		_, encodeJSONSpan := s.tracer.Start(ctx, GetSpanName(callerMethodName, "encodeJSON"))
 		b, err := signedBlindedBeaconBlock.MarshalJSON()
 		if err != nil {
 			encodeJSONSpan.SetStatus(codes.Error, err.Error())
@@ -925,7 +925,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --- call service
-	span.AddEvent(GetSpanName(methodName, "svcGetPayload"))
+	span.AddEvent(GetSpanName(callerMethodName, "svcGetPayload"))
 	versionedPayloadInfo, err := s.svc.GetPayload(ctx, &log, &PayloadRequestParams{
 		ReceivedAt:                receivedAt,
 		Payload:                   bodyBytes,
@@ -938,7 +938,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		UserAgent:                 userAgent,
 		SlotUID:                   headerSlotUID,
 	})
-	_, mergeLogMetric := s.tracer.Start(ctx, GetSpanName(methodName, "mergeLogMetric"))
+	_, mergeLogMetric := s.tracer.Start(ctx, GetSpanName(callerMethodName, "mergeLogMetric"))
 	if err != nil {
 		log.Error().Err(err).Msg("Error in GetPayload")
 		span.SetAttributes(attribute.String("error", err.Error()))
@@ -957,7 +957,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// SSZ response path
-	_, marshalUnmarshalSpan := s.tracer.Start(ctx, GetSpanName(methodName, "marshalUnmarshal"))
+	_, marshalUnmarshalSpan := s.tracer.Start(ctx, GetSpanName(callerMethodName, "marshalUnmarshal"))
 	payloadResponse := new(common.VersionedSubmitBlindedBlockResponse)
 	if err := payloadResponse.UnmarshalJSON(versionedPayloadInfo.GetResponse()); err != nil {
 		marshalUnmarshalSpan.SetStatus(codes.Error, err.Error())
@@ -983,7 +983,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 
-	const methodName = "handleGetPayloadV2"
+	const callerMethodName = "handleGetPayloadV2"
 
 	receivedAt := time.Now().UTC()
 	success := false
@@ -999,7 +999,7 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Start a root span for this handler.
-	ctx, span := s.tracer.Start(ctx, methodName)
+	ctx, span := s.tracer.Start(ctx, callerMethodName)
 	defer span.End()
 
 	// Request-scoped metadata
@@ -1076,7 +1076,7 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 	)
 
 	// --- read body
-	_, readBodyBytesSpan := s.tracer.Start(ctx, GetSpanName(methodName, "readBodyBytes"))
+	_, readBodyBytesSpan := s.tracer.Start(ctx, GetSpanName(callerMethodName, "readBodyBytes"))
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		readBodyBytesSpan.SetStatus(codes.Error, err.Error())
@@ -1090,7 +1090,7 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 	// --- decode SSZ if needed, then canonicalize to JSON for service
 	signedBlindedBeaconBlock := new(common.VersionedSignedBlindedBeaconBlock)
 	if sszRequest {
-		_, decodeSSZSpan := s.tracer.Start(ctx, GetSpanName(methodName, "decodeSSZ"))
+		_, decodeSSZSpan := s.tracer.Start(ctx, GetSpanName(callerMethodName, "decodeSSZ"))
 		if err := signedBlindedBeaconBlock.UnmarshalSSZ(bodyBytes); err != nil {
 			decodeSSZSpan.SetStatus(codes.Error, err.Error())
 			log.Error().Err(err).Msg("failed to decode request payload")
@@ -1100,7 +1100,7 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 		}
 		decodeSSZSpan.End()
 
-		_, encodeJSONSpan := s.tracer.Start(ctx, GetSpanName(methodName, "encodeJSON"))
+		_, encodeJSONSpan := s.tracer.Start(ctx, GetSpanName(callerMethodName, "encodeJSON"))
 		b, err := signedBlindedBeaconBlock.MarshalJSON()
 		if err != nil {
 			encodeJSONSpan.SetStatus(codes.Error, err.Error())
@@ -1146,7 +1146,7 @@ func respondStatusAccepted(ctx context.Context, parentSpan trace.Span, method st
 }
 
 func respondOK(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, response any, log *zerolog.Logger, tracer trace.Tracer, logMessage bool) error {
-	_, span := tracer.Start(ctx, "respondOK-"+method)
+	_, span := tracer.Start(ctx, GetSpanName(method, "respondOK"))
 	defer span.End()
 	parentSpan.SetAttributes(
 		attribute.Int("responseCode", 200),
@@ -1168,7 +1168,7 @@ func respondOK(ctx context.Context, parentSpan trace.Span, method string, w http
 
 func respondError(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, err error, log *zerolog.Logger, tracer trace.Tracer) {
 
-	_, span := tracer.Start(ctx, "respondError-"+method)
+	_, span := tracer.Start(ctx, GetSpanName(method, "respondError"))
 	defer span.End()
 
 	resp, ok := err.(*ErrorResp)
@@ -1231,7 +1231,7 @@ func parseQuery(query string, value string, log *zerolog.Logger) (bool, error) {
 }
 
 func (s *Server) respondOKWithContextSSZMarshalled(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, resBytes []byte, log *zerolog.Logger, tracer trace.Tracer) bool {
-	_, span := tracer.Start(ctx, fmt.Sprintf("respondOKSSZ-%s", method))
+	_, span := tracer.Start(ctx, GetSpanName(method, "respondOKSSZ"))
 	defer span.End()
 	parentSpan.SetAttributes(
 		attribute.Int("responseCode", 200),
