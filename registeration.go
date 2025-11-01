@@ -90,14 +90,14 @@ func (s *Service) RegisterValidator(ctx context.Context, log *zerolog.Logger, ou
 	case <-respChan:
 		return struct{}{}, nil
 	case <-timer.C:
-		log.Error().Msg("timer hit: relay request timeout")
+		log.Debug().Msg("timer hit: relay request timeout")
 		return struct{}{}, nil
 	}
 	spanSuccess.End(trace.WithTimestamp(time.Now()))
 
 	if _err != nil {
 		if _err.Code == http.StatusRequestTimeout {
-			log.Info().Msg("relay request timeout")
+			log.Debug().Msg("relay request timeout")
 			return struct{}{}, nil
 		}
 	}
