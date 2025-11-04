@@ -96,8 +96,8 @@ type Service struct {
 
 	clients                       []*common.ParentClient
 	streamingClients              []*common.ParentClient
-	streamingBlockClients         []*common.ParentClient
 	uniqueStreamingClients        []*common.ParentClient
+	streamingBlockClients         []*common.ParentClient
 	registrationClients           []*common.ParentClient
 	currentRegistrationRelayIndex int
 	registrationRelayMutex        sync.Mutex
