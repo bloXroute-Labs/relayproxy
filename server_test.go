@@ -117,6 +117,10 @@ func (m *MockService) GetPayload(ctx context.Context, log *zerolog.Logger, in *P
 	return nil, nil
 }
 
+func (m *MockService) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) *ErrorResp {
+	return nil
+}
+
 func TestServer_HandleRegistration(t *testing.T) {
 	testCases := map[string]struct {
 		requestBody  []byte
