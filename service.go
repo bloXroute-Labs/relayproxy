@@ -353,11 +353,11 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 		// Process header
 		lm := logMetric.Copy()
 
-		k := s.keyForCachingBids(header.GetSlot(), header.GetParentHash(), header.GetPubkey())
-		uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", header.GetSlot(), header.GetBlockHash(), header.GetParentHash())
+		keyForCachingBids := s.keyForCachingBids(header.GetSlot(), header.GetParentHash(), header.GetPubkey())
+		uniqueKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", header.GetSlot(), header.GetBlockHash(), header.GetParentHash())
 
 		lm.Fields(map[string]any{
-			"keyForCachingBids":   k,
+			"keyForCachingBids":   keyForCachingBids,
 			"slot":                header.GetSlot(),
 			"in.ParentHash":       header.GetParentHash(),
 			"blockHash":           header.GetBlockHash(),
@@ -365,13 +365,17 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			"builderPubKey":       header.GetBuilderPubkey(),
 			"extraData":           header.GetBuilderExtraData(),
 			"traceID":             parentSpan.SpanContext().TraceID().String(),
-			"uniqueKey":           uKey,
+			"uniqueKey":           uniqueKey,
 			"receivedAt":          receivedAt,
 			"paidBlxr":            header.GetPaidBlxr(),
 			"accountID":           header.GetAccountId(),
 			"payloadFetchUrl":     header.GetPayloadFetchUrl(),
 			"blockSequenceNumber": header.GetBlockSequenceNumber(),
 		})
+
+		if s.skipBidForOldBlockSequenceNumber(keyForCachingBids, header.GetBuilderPubkey(), blockSequenceNumber) {
+			continue
+		}
 
 		var (
 			duplicateReceiveTime int64
@@ -392,9 +396,10 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 				"source":     source,
 			})
 
-			s.logger.Debug().Fields(lm.GetFields()).Msg("block hash already exist")
+			s.logger.Debug().Fields(lm.GetFields()).Msg("block hash already exists")
 			continue
 		}
+
 		// update block hash map if not seen already
 		s.builderExistingBlockHash.Set(header.GetBlockHash(), common.DuplicateBlock{
 			Time:   time.Now().UTC().UnixMilli(),
@@ -459,7 +464,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			"",
 			blockSequenceNumber,
 		)
-		s.setBuilderBidForProxySlot(k, header.GetBuilderPubkey(), bid, header.GetSlot())
+		s.setBuilderBidForProxySlot(keyForCachingBids, header.GetBuilderPubkey(), bid, header.GetSlot())
 		storeBidsSpan.SetAttributes(
 			attribute.String("method", method),
 			attribute.String("nodeID", client.NodeID),
@@ -470,7 +475,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			attribute.String("streamSentAt", header.GetSendTime().AsTime().String()),
 			attribute.Int64("streamLatencyInMs", latency),
 
-			attribute.String("keyForCachingBids", k),
+			attribute.String("keyForCachingBids", keyForCachingBids),
 			attribute.Int64("slot", int64(header.GetSlot())),
 			attribute.String("in.ParentHash", header.GetParentHash()),
 			attribute.String("blockHash", header.GetBlockHash()),
@@ -478,7 +483,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			attribute.String("builderPubKey", header.GetBuilderPubkey()),
 			attribute.String("extraData", header.GetBuilderExtraData()),
 			attribute.String("traceID", parentSpan.SpanContext().TraceID().String()),
-			attribute.String("uniqueKey", uKey),
+			attribute.String("uniqueKey", uniqueKey),
 			attribute.String("receivedAt", receivedAt.String()),
 			attribute.Bool("paidBlxr", header.GetPaidBlxr()),
 			attribute.String("accountID", header.GetAccountId()),
@@ -539,7 +544,6 @@ func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, e
 }
 
 func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey string, bid *common.Bid, slot uint64) {
-
 	var builderBidsMap *SyncMap[string, *common.Bid]
 
 	// if the cache key does not exist, create a new syncmap and store it in the cache
@@ -571,7 +575,6 @@ func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey strin
 	builderBidsMap.Store(builderPubkey, bid)
 }
 
-// This is only used for testing
 func (s *Service) getBuilderBidForSlot(cacheKey string, builderPubkey string) (*common.Bid, bool) {
 	if entry, bidsMapFound := s.builderBidsForProxySlot.Get(cacheKey); bidsMapFound {
 		builderBidsMap := entry.(*SyncMap[string, *common.Bid])
@@ -579,6 +582,25 @@ func (s *Service) getBuilderBidForSlot(cacheKey string, builderPubkey string) (*
 		return builderBid, found
 	}
 	return nil, false
+}
+
+func (s *Service) skipBidForOldBlockSequenceNumber(cacheKey string, builderPubkey string, blockSequenceNumber *uint64) bool {
+	existingBid, found := s.getBuilderBidForSlot(cacheKey, builderPubkey)
+	if !found || existingBid.BlockSequenceNumber == nil || blockSequenceNumber == nil {
+		return false
+	}
+
+	skipBid := *blockSequenceNumber <= *existingBid.BlockSequenceNumber
+	if skipBid {
+		s.logger.Warn().
+			Uint64("existingBlockSequenceNumber", *existingBid.BlockSequenceNumber).
+			Uint64("blockSequenceNumber", *blockSequenceNumber).
+			Str("cacheKey", cacheKey).
+			Str("builderPubkey", builderPubkey).
+			Msg("skipping bid for old block sequence")
+	}
+
+	return skipBid
 }
 
 func (s *Service) EmitSlotStats(ctx context.Context) {
