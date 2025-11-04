@@ -96,8 +96,8 @@ type Service struct {
 
 	clients                       []*common.ParentClient
 	streamingClients              []*common.ParentClient
-	uniqueStreamingClients        []*common.ParentClient
 	streamingBlockClients         []*common.ParentClient
+	uniqueStreamingClients        []*common.ParentClient
 	registrationClients           []*common.ParentClient
 	currentRegistrationRelayIndex int
 	registrationRelayMutex        sync.Mutex
@@ -344,6 +344,12 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			continue
 		}
 
+		var blockSequenceNumber *uint64
+		headerBlockSequenceNumber := header.GetBlockSequenceNumber()
+		if headerBlockSequenceNumber != 0 {
+			blockSequenceNumber = &headerBlockSequenceNumber
+		}
+
 		// Process header
 		lm := logMetric.Copy()
 
@@ -351,19 +357,20 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 		uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", header.GetSlot(), header.GetBlockHash(), header.GetParentHash())
 
 		lm.Fields(map[string]any{
-			"keyForCachingBids": k,
-			"slot":              header.GetSlot(),
-			"in.ParentHash":     header.GetParentHash(),
-			"blockHash":         header.GetBlockHash(),
-			"pubKey":            header.GetPubkey(),
-			"builderPubKey":     header.GetBuilderPubkey(),
-			"extraData":         header.GetBuilderExtraData(),
-			"traceID":           parentSpan.SpanContext().TraceID().String(),
-			"uniqueKey":         uKey,
-			"receivedAt":        receivedAt,
-			"paidBlxr":          header.GetPaidBlxr(),
-			"accountID":         header.GetAccountId(),
-			"payloadFetchUrl":   header.GetPayloadFetchUrl(),
+			"keyForCachingBids":   k,
+			"slot":                header.GetSlot(),
+			"in.ParentHash":       header.GetParentHash(),
+			"blockHash":           header.GetBlockHash(),
+			"pubKey":              header.GetPubkey(),
+			"builderPubKey":       header.GetBuilderPubkey(),
+			"extraData":           header.GetBuilderExtraData(),
+			"traceID":             parentSpan.SpanContext().TraceID().String(),
+			"uniqueKey":           uKey,
+			"receivedAt":          receivedAt,
+			"paidBlxr":            header.GetPaidBlxr(),
+			"accountID":           header.GetAccountId(),
+			"payloadFetchUrl":     header.GetPayloadFetchUrl(),
+			"blockSequenceNumber": header.GetBlockSequenceNumber(),
 		})
 
 		var (
@@ -450,6 +457,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			header.GetPayloadFetchUrl(),
 			header.GetRelayReceiveTime().AsTime(),
 			"",
+			blockSequenceNumber,
 		)
 		s.setBuilderBidForProxySlot(k, header.GetBuilderPubkey(), bid, header.GetSlot())
 		storeBidsSpan.SetAttributes(
@@ -623,486 +631,6 @@ func (s *Service) EmitSlotStats(ctx context.Context) {
 			return
 		}
 	}
-}
-
-func (s *Service) StartStreamBlocks(ctx context.Context, wg *sync.WaitGroup) {
-	for _, client := range s.streamingBlockClients {
-		wg.Add(1)
-		go func(_ctx context.Context, c *common.ParentClient) {
-			defer wg.Done()
-			s.handleBlockStream(_ctx, c)
-		}(ctx, client)
-	}
-	go s.handleForwardedBlockResponse()
-	wg.Wait()
-}
-
-func (s *Service) handleBlockStream(ctx context.Context, client *common.ParentClient) {
-	parentSpan := trace.SpanFromContext(ctx)
-	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
-	_, span := s.tracer.Start(ctx, "handleBlockStream-streamBlock")
-	defer span.End(trace.WithTimestamp(time.Now().UTC()))
-
-	traceID := parentSpan.SpanContext().TraceID().String()
-
-	span.SetAttributes(
-		attribute.String("method", "streamBlock"),
-		attribute.String("url", client.SafeClient.URL),
-		attribute.String("traceID", traceID),
-	)
-
-	var lastConnectTime time.Time
-
-	for {
-		select {
-		case <-ctx.Done():
-			s.logger.Warn().
-				Str("traceID", traceID).
-				Msg("stream block context cancelled")
-			return
-		default:
-			active, safe := client.GetActiveClient(lastConnectTime)
-			if safe {
-				s.logger.Warn().Str("method", "streamBlock").Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("Fallback to safe IP used")
-			}
-			lastConnectTime = time.Now()
-			if _, err := s.StreamBlock(ctx, active); err != nil {
-				s.logger.Warn().
-					Str("url", active.URL).
-					Str("traceID", traceID).
-					Err(err).
-					Msg("failed to stream block. Sleeping and then reconnecting")
-
-				span.SetAttributes(
-					attribute.Int64("sleepingFor", reconnectTime),
-					attribute.String("error", err.Error()),
-				)
-			} else {
-				s.logger.Warn().
-					Str("url", active.URL).
-					Str("traceID", traceID).
-					Msg("stream block stopped. Sleeping and then reconnecting")
-
-				span.SetAttributes(
-					attribute.Int64("sleepingFor", reconnectTime),
-					attribute.String("error", "stream header stopped."),
-				)
-			}
-			time.Sleep(reconnectTime * time.Millisecond)
-		}
-	}
-}
-
-func (s *Service) StreamBlock(ctx context.Context, client *common.Client) (*relaygrpc.StreamBlockResponse, error) {
-	parentSpan := trace.SpanFromContext(ctx)
-	method := "streamBlock"
-	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
-	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
-	_, port, err := net.SplitHostPort(s.listenAddress)
-	if err != nil {
-		s.logger.Warn().Err(err).Msg("failed to split host port")
-		return nil, err
-	}
-	ctx = metadata.AppendToOutgoingContext(ctx, "listenAddress", port)
-	ctx = metadata.AppendToOutgoingContext(ctx, "grpcListenAddress", s.GrpcListenAddress)
-	streamBlockCtx, span := s.tracer.Start(ctx, "streamBlock-start")
-	defer span.End(trace.WithTimestamp(time.Now().UTC()))
-	id := uuid.NewString()
-	client.NodeID = fmt.Sprintf("%v-%v-%v-%v", s.nodeID, client.URL, id, time.Now().UTC().Format("15:04:05.999999999"))
-	stream, err := client.StreamBlock(ctx, &relaygrpc.StreamBlockRequest{
-		ReqId:       id,
-		NodeId:      client.NodeID,
-		Version:     s.version,
-		SecretToken: s.secretToken,
-	})
-	logMetric := NewLogMetric(
-		map[string]any{
-			"method": method,
-			"nodeID": client.NodeID,
-			"reqID":  id,
-			"url":    client.URL,
-		},
-	)
-	span.SetAttributes(
-		attribute.String("method", method),
-		attribute.String("nodeID", client.NodeID),
-		attribute.String("url", client.URL),
-		attribute.String("reqID", id),
-	)
-
-	s.logger.Info().Fields(logMetric.GetFields()).Msg("streaming blocks")
-	if err != nil {
-		logMetric.Error(err)
-		s.logger.Warn().Fields(logMetric.GetFields()).Msg("failed to stream block")
-		span.SetStatus(otelcodes.Error, err.Error())
-		return nil, err
-	}
-	done := make(chan struct{})
-	var once sync.Once
-	closeDone := func() {
-		once.Do(func() {
-			s.logger.Info().Msg("calling close done once")
-			close(done)
-		})
-	}
-	logMetricCopy := logMetric.Copy()
-	go func(lm *LogMetric) {
-		select {
-		case <-stream.Context().Done():
-			lm.Error(stream.Context().Err())
-			s.logger.Warn().Fields(lm.GetFields()).Msg("stream context cancelled, closing connection")
-			closeDone()
-		case <-ctx.Done():
-			logMetric.Error(ctx.Err())
-			s.logger.Warn().Fields(lm.GetFields()).Msg("context cancelled, closing connection")
-			closeDone()
-		}
-	}(logMetricCopy)
-
-	_, streamReceiveSpan := s.tracer.Start(streamBlockCtx, "StreamBlock-streamReceive")
-	clientIP := GetHost(client.URL)
-	for {
-		select {
-		case <-done:
-			return nil, nil
-		default:
-		}
-		block, err := stream.Recv()
-		receivedAt := time.Now().UTC()
-		if err == io.EOF {
-			s.logger.Warn().Err(err).Fields(logMetric.GetFields()).Msg("stream received EOF")
-			streamReceiveSpan.SetStatus(otelcodes.Error, err.Error())
-			closeDone()
-			break
-		}
-		_s, ok := status.FromError(err)
-		if !ok {
-			s.logger.Warn().Err(err).Fields(logMetric.GetFields()).Msg("invalid grpc error status")
-			streamReceiveSpan.SetStatus(otelcodes.Error, "invalid grpc error status")
-			continue
-		}
-
-		if _s.Code() == codes.Canceled {
-			logMetric.Error(err)
-			s.logger.Warn().Err(err).Fields(logMetric.GetFields()).Msg("received cancellation signal, shutting down")
-			// mark as canceled to stop the upstream retry loop
-			streamReceiveSpan.SetStatus(otelcodes.Error, "received cancellation signal")
-			closeDone()
-			break
-		}
-
-		if _s.Code() != codes.OK {
-			s.logger.Warn().Err(_s.Err()).Str("code", _s.Code().String()).Fields(logMetric.GetFields()).Msg("server unavailable,try reconnecting")
-			streamReceiveSpan.SetStatus(otelcodes.Error, "server unavailable,try reconnecting")
-			closeDone()
-			break
-		}
-		if err != nil {
-			s.logger.Warn().Err(err).Fields(logMetric.GetFields()).Msg("failed to receive stream, disconnecting the stream")
-			streamReceiveSpan.SetStatus(otelcodes.Error, err.Error())
-			closeDone()
-			break
-		}
-		// Added empty streaming as a temporary workaround to maintain streaming alive
-		// TODO: this need to be handled by adding settings for keep alive params on both server and client
-		if block.GetBlockHash() == "" {
-			s.logger.Warn().Fields(logMetric.GetFields()).Msg("received empty stream")
-			continue
-		}
-		latency := receivedAt.Sub(block.GetSendTime().AsTime()).Milliseconds()
-		processTime := time.Since(receivedAt).Milliseconds()
-		go s.handleStreamBlockResponse(streamBlockCtx, block, logMetric, receivedAt, latency, parentSpan.SpanContext().TraceID().String(), method, clientIP, processTime)
-	}
-	<-done
-	streamReceiveSpan.End(trace.WithTimestamp(time.Now()))
-
-	s.logger.Warn().Fields(logMetric.GetFields()).Msg("closing connection")
-	return nil, nil
-}
-
-func (s *Service) handleForwardedBlockResponse() {
-	s.logger.Info().Msg("start handling forwarded block response")
-	for forwardedBlockInfo := range *s.forwardedBlockCh {
-		// s.logger.Info().Msg("received forwarded block from channel")
-
-		lm := NewLogMetric(
-			map[string]any{
-				"method": forwardedBlockInfo.Method,
-			},
-		)
-		if forwardedBlockInfo.Block == nil || forwardedBlockInfo.Block.GetBlockHash() == "" {
-			s.logger.Warn().Fields(lm.GetFields()).Msg("received empty forwarded block")
-			continue
-		}
-		go s.handleStreamBlockResponse(
-			forwardedBlockInfo.Context,
-			forwardedBlockInfo.Block,
-			lm,
-			forwardedBlockInfo.ReceivedAt,
-			forwardedBlockInfo.Latency,
-			forwardedBlockInfo.TraceID,
-			forwardedBlockInfo.Method,
-			forwardedBlockInfo.ClientIP,
-			forwardedBlockInfo.ProcessTime,
-		)
-	}
-	s.logger.Info().Msg("stop handling forwarded block response")
-}
-
-func (s *Service) handleStreamBlockResponse(
-	ctx context.Context,
-	block *relaygrpc.StreamBlockResponse,
-	logMetric *LogMetric,
-	receivedAt time.Time,
-	latency int64,
-	traceId string,
-	method string,
-	clientIP string,
-	processTime int64,
-) {
-	// check if the block hash has already been received
-	handleStart := time.Now().UTC()
-	lm := logMetric.Copy()
-
-	k := s.keyForCachingBids(block.GetSlot(), block.GetParentHash(), block.GetPubkey())
-	uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", block.GetSlot(), block.GetBlockHash(), block.GetParentHash())
-	payloadSize := len(block.GetPayload())
-	payloadType := ""
-	extraData := block.GetBuilderExtraData()
-
-	lm.Fields(map[string]any{
-		"keyForCachingBids": k,
-		"slot":              block.GetSlot(),
-		"parentHash":        block.GetParentHash(),
-		"blockHash":         block.GetBlockHash(),
-		"pubKey":            block.GetPubkey(),
-		"builderPubKey":     block.GetBuilderPubkey(),
-		"extraData":         extraData,
-		"traceID":           traceId,
-		"uniqueKey":         uKey,
-		"receivedAt":        receivedAt,
-		"paidBlxr":          block.GetPaidBlxr(),
-		"accountID":         block.GetAccountId(),
-		"streamLatencyInMs": latency,
-		"processLatency":    processTime,
-		"httpPayloadSize":   int64(payloadSize),
-	})
-
-	spanCtx, span := s.tracer.Start(ctx, "handleStreamBlockResponse")
-	diff := int64(0)
-	defer func() {
-		handleTime := time.Since(handleStart).Milliseconds()
-		span.SetAttributes(
-			attribute.String("keyForCachingBids", k),
-			attribute.Int64("slot", int64(block.GetSlot())),
-			attribute.String("parentHash", block.GetParentHash()),
-			attribute.String("blockHash", block.GetBlockHash()),
-			attribute.String("pubKey", block.GetPubkey()),
-			attribute.String("builderPubKey", block.GetBuilderPubkey()),
-			attribute.String("extraData", extraData),
-			attribute.String("traceID", traceId),
-			attribute.String("blockHash", block.GetBlockHash()),
-		)
-		span.End()
-		go s.logBlockReceivedStream(
-			block,
-			receivedAt,
-			latency,
-			clientIP,
-			method,
-			payloadType,
-			processTime,
-			diff,
-			handleTime,
-			int64(payloadSize),
-			extraData,
-		)
-	}()
-
-	if val, exist := s.builderExistingBlockHash.Get(block.GetBlockHash()); exist {
-		var addedAt int64
-		var source string
-		if v, ok := val.(common.DuplicateBlock); ok {
-			addedAt = v.Time
-			source = v.Source
-		}
-		duplicateReceiveTime := time.Now().UTC().UnixMilli()
-		diff := duplicateReceiveTime - addedAt
-		lm.Fields(map[string]any{
-			"addedAt":              addedAt,
-			"duplicateReceiveTime": duplicateReceiveTime,
-			"diff":                 diff,
-			"source":               source,
-		})
-		span.SetAttributes(
-			attribute.Int64("diff", diff),
-			attribute.Int64("addedAt", addedAt),
-			attribute.String("source", source),
-		)
-		s.logger.Warn().Fields(lm.GetFields()).Msg("block hash already exist")
-		return
-	}
-
-	grpcPayload := block.GetGrpcPayload()
-	httpPayload := block.GetPayload()
-	submitBlockRequest := new(common.VersionedSubmitBlockRequest)
-	_, unmarshalSpan := s.tracer.Start(spanCtx, "handleStreamBlockResponse-unmarshal")
-	if grpcPayload != nil {
-		submission, err := relaygrpc.ProtoRequestToVersionedRequest(grpcPayload)
-		if err != nil {
-			s.logger.Error().Err(err).Msg("could not convert block to versioned block")
-			unmarshalSpan.End()
-			return
-		}
-		submitBlockRequest = &common.VersionedSubmitBlockRequest{VersionedSubmitBlockRequest: *submission}
-		payloadType = "grpc"
-	} else if httpPayload != nil {
-		payloadType = "json"
-		if err := submitBlockRequest.UnmarshalJSON(httpPayload); err != nil {
-			if err := submitBlockRequest.UnmarshalSSZ(httpPayload); err != nil {
-				s.logger.Error().Err(err).Msg("could not decode ssz http payload")
-				unmarshalSpan.End()
-				return
-			}
-			payloadType = "ssz"
-		}
-	} else {
-		s.logger.Error().Msg("empty payload")
-		return
-	}
-	unmarshalSpan.End()
-
-	lm.Fields(map[string]any{
-		"blockValue":     new(big.Int).SetBytes(block.GetValue()).String(),
-		"relayReceiveAt": block.GetRelayReceiveTime().AsTime(),
-		"streamSentAt":   block.GetSendTime().AsTime(),
-		"payloadType":    payloadType,
-	})
-	span.SetAttributes(
-		attribute.String("blockValue", new(big.Int).SetBytes(block.GetValue()).String()),
-		attribute.String("relayReceiveAt", block.GetRelayReceiveTime().AsTime().String()),
-		attribute.String("streamSentAt", block.GetSendTime().AsTime().String()),
-		attribute.String("payloadType", payloadType),
-	)
-
-	_, signSpan := s.tracer.Start(spanCtx, "handleStreamBlockResponse-sign")
-	headerSubmissionV3, err := common.BuildHeaderSubmissionV3(submitBlockRequest)
-	if err != nil {
-		s.logger.Error().Err(err).Msg("failed to build header submission")
-		signSpan.End()
-		return
-	}
-	relayProxyGetHeaderResponse, err := common.BuildGetHeaderResponseAndSign(headerSubmissionV3, s.secretKey, &s.publicKey, s.builderSigningDomain)
-	if err != nil {
-		s.logger.Error().Err(err).Msg("failed to sign header")
-		signSpan.End()
-		return
-	}
-	signSpan.End()
-
-	wrapped := &common.VersionedSignedBuilderBid{VersionedSignedBuilderBid: *relayProxyGetHeaderResponse}
-	_, marshalSpan := s.tracer.Start(spanCtx, "handleStreamBlockResponse-marshal")
-	relayProxyBidBytes, err := json.Marshal(wrapped)
-	if err != nil {
-		s.logger.Error().Err(err).Msg("failed to marshal header")
-		marshalSpan.End()
-		return
-	}
-	marshalSpan.End()
-
-	if extraData == "" {
-		extraDataBytes, err := wrapped.ExtraData()
-		if err != nil {
-			s.logger.Error().Err(err).Msg("failed to get extra data")
-		} else {
-			extraData = common.DecodeExtraData(extraDataBytes)
-		}
-	}
-
-	bid := common.NewBid(
-		block.GetValue(),
-		relayProxyBidBytes,
-		headerSubmissionV3,
-		block.GetBlockHash(),
-		block.GetBuilderPubkey(),
-		extraData,
-		block.GetAccountId(),
-		nil,
-		"",
-		block.RelayReceiveTime.AsTime(),
-		"",
-	)
-
-	// update block hash map if not seen already
-	s.builderExistingBlockHash.Set(block.GetBlockHash(), common.DuplicateBlock{
-		Time:   time.Now().UTC().UnixMilli(),
-		Source: "proxy-block-" + clientIP,
-	}, cache.DefaultExpiration)
-
-	s.logger.Info().Fields(lm.GetFields()).Msg("received streamed block")
-
-	_, storeBidsSpan := s.tracer.Start(spanCtx, "StreamHeader-storeBids")
-	s.setBuilderBidForProxySlot(k, block.GetBuilderPubkey(), bid, block.GetSlot())
-	storeBidsSpan.End(trace.WithTimestamp(time.Now()))
-
-	//go func() {
-	//	headerStream := HeaderStreamReceivedRecord{
-	//		RelayReceivedAt:   block.GetRelayReceiveTime().AsTime(),
-	//		ReceivedAt:        receivedAt,
-	//		SentAt:            block.GetSendTime().AsTime(),
-	//		StreamLatencyInMS: latency,
-	//		Slot:              int64(block.GetSlot()),
-	//		ParentHash:        block.GetParentHash(),
-	//		PubKey:            block.GetPubkey(),
-	//		BlockHash:         block.GetBlockHash(),
-	//		BlockValue:        weiToEther(new(big.Int).SetBytes(block.GetValue())),
-	//		BuilderPubKey:     block.GetBuilderPubkey(),
-	//		BuilderExtraData:  extraData,
-	//		PaidBLXR:          block.GetPaidBlxr(),
-	//		ClientIP:          clientIP,
-	//		NodeID:            s.nodeID,
-	//		AccountID:         block.GetAccountId(),
-	//		Method:            method + "-" + payloadType,
-	//		PayloadFetchUrl:   "",
-	//	}
-	//	s.fluentD.LogToFluentD(fluentstats.Record{
-	//		//UniqueKey: "block_hash__node_id",
-	//		Type: TypeRelayProxyHeaderStreamReceived,
-	//		Data: headerStream,
-	//	}, time.Now().UTC(), s.nodeID, StatsRelayProxyHeaderStreamReceived)
-	//}()
-}
-
-func (s *Service) logBlockReceivedStream(block *relaygrpc.StreamBlockResponse, receivedAt time.Time, latency int64, clientIP string, method string, payloadType string, processLatency int64, diff int64, handleLatency int64, payloadSize int64, extraData string) {
-	// log block received stream
-	blockStream := BlockStreamReceivedRecord{
-		RelayReceivedAt:   block.GetRelayReceiveTime().AsTime(),
-		ReceivedAt:        receivedAt,
-		SentAt:            block.GetSendTime().AsTime(),
-		StreamLatencyInMS: latency,
-		Slot:              int64(block.GetSlot()),
-		ParentHash:        block.GetParentHash(),
-		PubKey:            block.GetPubkey(),
-		BlockHash:         block.GetBlockHash(),
-		BlockValue:        weiToEther(new(big.Int).SetBytes(block.GetValue())),
-		BuilderPubKey:     block.GetBuilderPubkey(),
-		BuilderExtraData:  extraData,
-		PaidBLXR:          block.GetPaidBlxr(),
-		ClientIP:          clientIP,
-		NodeID:            s.nodeID,
-		AccountID:         block.GetAccountId(),
-		Method:            method + "-" + payloadType,
-		ProcessLatency:    processLatency,
-		Diff:              diff,
-		HandleLatency:     handleLatency,
-		PayloadSize:       payloadSize,
-	}
-	s.fluentD.LogToFluentD(fluentstats.Record{
-		//UniqueKey: "block_hash__node_id",
-		Type: TypeRelayProxyBlockStreamReceived,
-		Data: blockStream,
-	}, time.Now().UTC(), s.nodeID, StatsRelayProxyBlockStreamReceived)
-
 }
 
 func isVouch(userAgent string) bool {
