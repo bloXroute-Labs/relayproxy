@@ -177,7 +177,7 @@ func TestServer_HandleRegistration(t *testing.T) {
 			go dataSvc.SetAccounts(context.Background())
 			h := server.Middleware(http.HandlerFunc(server.HandleRegistration))
 			h.ServeHTTP(rr, req)
-			assert.Equal(t, rr.Code, tc.expectedCode)
+			assert.Equal(t, tc.expectedCode, rr.Code)
 		})
 	}
 }
@@ -270,14 +270,14 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			h := server.Middleware(http.HandlerFunc(server.HandleGetHeader))
 			h.ServeHTTP(rr, req)
 
-			assert.Equal(t, rr.Code, tc.expectedCode)
+			assert.Equal(t, tc.expectedCode, rr.Code)
 			if tc.expectedOutput != "" {
 				out := strings.TrimSpace(rr.Body.String())
 				out = strings.Trim(out, "\"")
-				assert.Equal(t, out, tc.expectedOutput)
+				assert.Equal(t, tc.expectedOutput, out)
 				return
 			}
-			assert.Equal(t, rr.Body.String(), tc.expectedOutput)
+			assert.Equal(t, tc.expectedOutput, rr.Body.String())
 		})
 	}
 }
@@ -324,12 +324,12 @@ func TestServer_HandleGetPayload(t *testing.T) {
 			h := server.Middleware(http.HandlerFunc(server.HandleGetPayload))
 			h.ServeHTTP(rr, req)
 
-			assert.Equal(t, rr.Code, tc.expectedCode)
+			assert.Equal(t, tc.expectedCode, rr.Code)
 			out := new(ErrorResp)
 			err = json.NewDecoder(rr.Body).Decode(out)
 			assert.NoError(t, err)
 			if tc.expectedError != "" {
-				assert.Equal(t, out.Message, tc.expectedError)
+				assert.Equal(t, tc.expectedError, out.Message)
 			}
 		})
 	}
@@ -407,17 +407,17 @@ func TestServer_HandleSetDelays(t *testing.T) {
 			svc := NewService(opts...)
 			server := &Server{svc: svc, logger: zerolog.Nop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
 			server.HandleSetDelays(rrPost, tc.reqPostFunc())
-			assert.Equal(t, rrPost.Code, tc.expectedPostCode)
+			assert.Equal(t, tc.expectedPostCode, rrPost.Code)
 
 			rrGet := httptest.NewRecorder()
 			server.HandleGetDelays(rrGet, tc.reqGetFunc())
-			assert.Equal(t, rrGet.Code, tc.expectedGetCode)
+			assert.Equal(t, tc.expectedGetCode, rrGet.Code)
 			out := make(map[string]DelaySettings)
 			err := json.NewDecoder(rrGet.Body).Decode(&out)
 			assert.NoError(t, err)
 			assert.Equal(t, tc.expectedGetOut, out)
 			//if tc.expectedError != "" {
-			//	assert.Equal(t, out.Message, tc.expectedError)
+			//	assert.Equal(t, tc.expectedError, out.Message)
 			//}
 		})
 	}
