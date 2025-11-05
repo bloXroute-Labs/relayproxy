@@ -341,17 +341,18 @@ func NewParentClient(safeUrl string, safeConn *grpc.ClientConn, fastUrl string, 
 }
 
 type Bid struct {
-	Value              []byte // block value
-	payload            []byte // blinded block
-	HeaderSubmissionV3 *optimisticv3.HeaderSubmissionV3
-	BlockHash          string
-	BuilderPubkey      string
-	BuilderExtraData   string
-	AccountID          string
-	Client             *ParentClient
-	PayloadFetchUrl    string
-	ReceivedAt         time.Time
-	AuthHeader         string
+	Value               []byte // block value
+	payload             []byte // blinded block
+	HeaderSubmissionV3  *optimisticv3.HeaderSubmissionV3
+	BlockHash           string
+	BuilderPubkey       string
+	BuilderExtraData    string
+	AccountID           string
+	Client              *ParentClient
+	PayloadFetchUrl     string
+	ReceivedAt          time.Time
+	AuthHeader          string
+	BlockSequenceNumber *uint64
 }
 
 func NewBid(Value []byte,
@@ -365,19 +366,21 @@ func NewBid(Value []byte,
 	payloadFetchUrl string,
 	receivedAt time.Time,
 	authHeader string,
+	blockSequenceNumber *uint64,
 ) *Bid {
 	return &Bid{
-		Value:              Value,
-		payload:            payload,
-		HeaderSubmissionV3: headerSubmissionV3,
-		BlockHash:          blockHash,
-		BuilderPubkey:      builderPubkey,
-		BuilderExtraData:   builderExtraData,
-		AccountID:          accountID,
-		Client:             client,
-		PayloadFetchUrl:    payloadFetchUrl,
-		ReceivedAt:         receivedAt,
-		AuthHeader:         authHeader,
+		Value:               Value,
+		payload:             payload,
+		HeaderSubmissionV3:  headerSubmissionV3,
+		BlockHash:           blockHash,
+		BuilderPubkey:       builderPubkey,
+		BuilderExtraData:    builderExtraData,
+		AccountID:           accountID,
+		Client:              client,
+		PayloadFetchUrl:     payloadFetchUrl,
+		ReceivedAt:          receivedAt,
+		AuthHeader:          authHeader,
+		BlockSequenceNumber: blockSequenceNumber,
 	}
 }
 

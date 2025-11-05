@@ -302,6 +302,7 @@ func TestBlockCancellation(t *testing.T) {
 		"",
 		time.Now(),
 		"",
+		nil,
 	)
 	bidsMap.Store(testBuilderPubkey1, lowBid)
 
@@ -318,6 +319,7 @@ func TestBlockCancellation(t *testing.T) {
 		"",
 		time.Now(),
 		"",
+		nil,
 	)
 	bidsMap.Store(testBuilderPubkey2, highBid)
 
@@ -334,6 +336,7 @@ func TestBlockCancellation(t *testing.T) {
 		"",
 		time.Now(),
 		"",
+		nil,
 	)
 	bidsMap.Store(testBuilderPubkey3, mediumBid)
 
@@ -378,6 +381,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		"",
 		time.Now(),
 		"",
+		nil,
 	)
 	bidsMap.Store(testBuilderPubkey1, lowBid)
 
@@ -394,6 +398,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		"",
 		time.Now(),
 		"",
+		nil,
 	)
 	bidsMap.Store(testBuilderPubkey1, highBid)
 
@@ -410,6 +415,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		"",
 		time.Now(),
 		"",
+		nil,
 	)
 	bidsMap.Store(testBuilderPubkey1, mediumBid)
 
@@ -427,6 +433,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		"",
 		time.Now(),
 		"",
+		nil,
 	)
 	bidsMap.Store(testBuilderPubkey2, lowBid1)
 
@@ -443,6 +450,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		"",
 		time.Now(),
 		"",
+		nil,
 	)
 	bidsMap.Store(testBuilderPubkey2, mediumBid1)
 
@@ -459,6 +467,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		"",
 		time.Now(),
 		"",
+		nil,
 	)
 	bidsMap.Store(testBuilderPubkey2, highBid1)
 
@@ -476,6 +485,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		"",
 		time.Now(),
 		"",
+		nil,
 	)
 	bidsMap.Store(testBuilderPubkey3, mediumBid2)
 
@@ -492,6 +502,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		"",
 		time.Now(),
 		"",
+		nil,
 	)
 	bidsMap.Store(testBuilderPubkey3, highBid2)
 
@@ -508,6 +519,7 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		"",
 		time.Now(),
 		"",
+		nil,
 	)
 	bidsMap.Store(testBuilderPubkey3, lowBid2)
 
