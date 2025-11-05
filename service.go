@@ -597,7 +597,7 @@ func (s *Service) skipBidForOldBlockSequenceNumber(cacheKey string, builderPubke
 			Uint64("blockSequenceNumber", *blockSequenceNumber).
 			Str("cacheKey", cacheKey).
 			Str("builderPubkey", builderPubkey).
-			Msg("skipping bid for old block sequence")
+			Msg("skipping bid for old block sequence number")
 	}
 
 	return skipBid
