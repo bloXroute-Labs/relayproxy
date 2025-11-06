@@ -7,8 +7,9 @@ toolchain go1.24.2
 require (
 	github.com/attestantio/go-builder-client v0.6.3
 	github.com/attestantio/go-eth2-client v0.26.0
-	github.com/bloXroute-Labs/relay-grpc v0.0.63
+	github.com/bloXroute-Labs/relay-grpc v0.0.63-rc.1-hot-fix-blobs-unmarshal
 	github.com/ethereum/go-ethereum v1.16.3
+	github.com/ferranbt/fastssz v0.1.4
 	github.com/flashbots/go-boost-utils v1.9.0
 	github.com/fluent/fluent-logger-golang v1.9.0
 	github.com/go-chi/chi/v5 v5.1.0
@@ -25,6 +26,7 @@ require (
 	github.com/uptrace/uptrace-go v1.35.0
 	github.com/valyala/fastjson v1.6.4
 	go.opentelemetry.io/otel v1.36.0
+	go.opentelemetry.io/otel/sdk v1.36.0
 	go.opentelemetry.io/otel/trace v1.36.0
 	go.uber.org/zap v1.27.0
 	google.golang.org/grpc v1.74.2
@@ -44,7 +46,6 @@ require (
 	github.com/emicklei/dot v1.8.0 // indirect
 	github.com/ethereum/c-kzg-4844/v2 v2.1.0 // indirect
 	github.com/ethereum/go-verkle v0.2.2 // indirect
-	github.com/ferranbt/fastssz v0.1.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
@@ -80,7 +81,6 @@ require (
 	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.35.0 // indirect
 	go.opentelemetry.io/otel/log v0.11.0 // indirect
 	go.opentelemetry.io/otel/metric v1.36.0 // indirect
-	go.opentelemetry.io/otel/sdk v1.36.0 // indirect
 	go.opentelemetry.io/otel/sdk/log v0.11.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.36.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.5.0 // indirect
