@@ -44,20 +44,22 @@ const (
 	HeaderKeySlotUID        = "X-MEVBoost-SlotID"
 	VouchCluster            = "setup"
 	statsNamePerformance    = "performanceStats"
-	maxGetPayloadBody       = int64(
+
+	// payload
+	maxGetPayloadBody = int64(
 		12 + // 3 offsets
 			48*4096 + // max commitments
 			48*4096 + // max proofs
 			131072*6 + // up to 6 blobs (tune if you expect more)
 			(2 << 20), // +2MiB headroom for payload/overheads
 	)
-	// Hard size cap for getPayload request bodies (blinded block only).
-	//maxGetPayloadBody = int64(2 << 20) // 2 MiB
-
-	// Fixed, conservative body read timeouts
 	bodyReadTimeoutGetPayload   = 400 * time.Millisecond
 	bodyReadTimeoutGetPayloadV2 = 400 * time.Millisecond
-	bodyReadTimeoutRegistration = 200 * time.Millisecond
+
+	// registration
+	maxRegistrationBody         = int64(2 << 20) // 2 MiB; adjust as needed
+	bodyReadTimeoutRegistration = 3 * time.Second
+	ctxTimeoutRegistration      = 4 * time.Second
 )
 
 type contextKey string
@@ -146,9 +148,9 @@ func (s *Server) Start() error {
 	s.server = &http.Server{
 		Addr:              s.listenAddress,
 		Handler:           s.InitHandler(),
-		ReadTimeout:       1 * time.Second,
+		ReadTimeout:       2 * time.Second,
 		ReadHeaderTimeout: 500 * time.Millisecond,
-		WriteTimeout:      1 * time.Second,
+		WriteTimeout:      4 * time.Second,
 		IdleTimeout:       10 * time.Second,
 	}
 
@@ -458,6 +460,9 @@ func (s *Server) HandleSetDelays(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+	defer cancel()
+	r = r.WithContext(ctx)
 
 	receivedAt := time.Now().UTC()
 	success := false
@@ -469,7 +474,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 			100)
 	}()
 
-	parentSpan := trace.SpanFromContext(r.Context())
+	parentSpan := trace.SpanFromContext(ctx)
 	parentSpanCtx := trace.ContextWithSpan(context.Background(), parentSpan)
 	handleRegistrationCtx, handleRegistrationSpan := s.tracer.Start(parentSpanCtx, "handleRegistration-start")
 	defer parentSpan.End()
@@ -538,34 +543,41 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 		attribute.String("receivedAtUtc", formatUTCms(receivedAt)),
 		attribute.String("sentAtUtc", sentAtUtc),
 	)
+	log.Info().Msg("received registration")
+
 	hasProposerMevProtect, err := GetProposerMevProtectQueryAny(parsedURL, &log)
 	if err != nil {
 		handleRegistrationSpan.SetStatus(codes.Error, err.Error())
 		log.Error().Err(err).Msg("could not parse proposer_mev_protect query parameter")
-		respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, toErrorResp(http.StatusInternalServerError, "could not parse boolean proposer_mev_protect"), &log, s.tracer)
+		respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w,
+			toErrorResp(http.StatusInternalServerError, "could not parse boolean proposer_mev_protect"), &log, s.tracer)
 		return
 	}
 	isSkipOptimism := false
 	if skipOptimismQuery != "" {
-		var err error
-		isSkipOptimism, err = strconv.ParseBool(skipOptimismQuery)
-		if err != nil {
-			handleRegistrationSpan.SetStatus(codes.Error, err.Error())
-			log.Error().Err(err).Msg("could not parse skip_optimism query parameter")
-			respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, toErrorResp(http.StatusInternalServerError, "could not parse boolean skip_optimism: "+skipOptimismQuery), &log, s.tracer)
+		var perr error
+		isSkipOptimism, perr = strconv.ParseBool(skipOptimismQuery)
+		if perr != nil {
+			handleRegistrationSpan.SetStatus(codes.Error, perr.Error())
+			log.Error().Err(perr).Msg("could not parse skip_optimism query parameter")
+			respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w,
+				toErrorResp(http.StatusInternalServerError, "could not parse boolean skip_optimism: "+skipOptimismQuery), &log, s.tracer)
 			return
 		}
 	}
 	handleRegistrationSpan.SetAttributes(
 		attribute.Bool("proposerMevProtect", hasProposerMevProtect),
 	)
-	bodyBytes, err := io.ReadAll(r.Body)
+
+	bodyBytes, err := s.readAllPooledCtx(ctx, w, r, maxRegistrationBody, bodyReadTimeoutRegistration)
 	if err != nil {
 		handleRegistrationSpan.SetStatus(codes.Error, err.Error())
 		log.Error().Err(err).Msg("could not read registration")
-		respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, toErrorResp(http.StatusInternalServerError, "could not read registration"), &log, s.tracer)
+		respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w,
+			toErrorResp(http.StatusInternalServerError, "could not read registration"), &log, s.tracer)
 		return
 	}
+
 	handleRegistrationSpan.AddEvent("handleRegistration- svcRegisterValidator")
 	go func() {
 		_, err := s.svc.RegisterValidator(handleRegistrationCtx, &log, outgoingCtx, &RegistrationParams{
@@ -581,9 +593,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			handleRegistrationSpan.SetStatus(codes.Error, err.Error())
-			handleRegistrationSpan.SetAttributes(
-				attribute.String("error", err.Error()),
-			)
+			handleRegistrationSpan.SetAttributes(attribute.String("error", err.Error()))
 			log.Error().Err(err).Msg("error in RegisterValidator")
 			return
 		}
