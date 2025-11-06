@@ -35,13 +35,6 @@ type MockService struct {
 	DelayGetHeaderFunc        func(ctx context.Context, params DelayGetHeaderParams) (DelayGetHeaderResponse, error)
 }
 
-func (m *MockService) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) *ErrorResp {
-	if m.GetPayloadV2Func != nil {
-		return m.GetPayloadV2Func(ctx, in)
-	}
-	return nil
-}
-
 func (m *MockService) GetAccounts(ctx context.Context) map[string]any {
 	if m.GetAccountsFunc != nil {
 		return m.GetAccountsFunc(ctx)
@@ -126,6 +119,9 @@ func (m *MockService) GetPayload(ctx context.Context, log *zerolog.Logger, in *P
 }
 
 func (m *MockService) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) *ErrorResp {
+	if m.GetPayloadV2Func != nil {
+		return m.GetPayloadV2Func(ctx, in)
+	}
 	return nil
 }
 
