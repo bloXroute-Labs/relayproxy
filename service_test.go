@@ -564,7 +564,9 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	if err != nil {
 		t.Fatal("Failed to create client connection", zap.Error(err))
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 	dSvc := NewDataService(WithDataSvcLogger(zerolog.Nop()))
 	svcOpts := make([]ServiceOption, 0)
 	c := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn)

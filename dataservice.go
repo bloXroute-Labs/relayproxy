@@ -139,56 +139,45 @@ func (s *DataService) shouldRequestDelayed(ip, slotWithParentHash string) bool {
 }
 
 func (s *DataService) DelayGetHeader(ctx context.Context, in DelayGetHeaderParams) (DelayGetHeaderResponse, error) {
+	var resp DelayGetHeaderResponse
 
 	slotInt := AToI(in.Slot)
 	slotStartTime := GetSlotStartTime(s.beaconGenesisTime, slotInt, s.secondsPerSlot)
 	msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds()
 
-	// first request from an IP is responded immediately
-	// subsequent request from same IP will be delayed
-	if s.accountsLists.AccountIDToInfo[in.AccountID] != nil &&
-		s.accountsLists.AccountIDToInfo[in.AccountID].InstantReturnFirstRequest {
+	resp.SlotStartTime = slotStartTime
+	resp.Latency = in.Latency
+
+	if info := s.accountsLists.AccountIDToInfo[in.AccountID]; info != nil && info.InstantReturnFirstRequest {
 		if ok := s.shouldRequestDelayed(in.ClientIP, in.SlotWithParentHash); !ok {
-			return DelayGetHeaderResponse{
-				Sleep:              0,
-				MaxSleep:           0,
-				Latency:            in.Latency,
-				SlotStartTime:      slotStartTime,
-				ReplacementDelayMs: 0,
-			}, nil
+			return resp, nil
 		}
 	}
-	var (
-		sleep, maxSleep, replacementDelayMs int64
-		err                                 error
-	)
+
 	if GetHeaderRequestCutoffMs > 0 && msIntoSlot > GetHeaderRequestCutoffMs {
-		return DelayGetHeaderResponse{}, common.ErrLateHeader
-	}
-	sleep, maxSleep, replacementDelayMs, err = s.dynamicFuncWrapper(in.AccountID, msIntoSlot, in.Cluster, in.UserAgent, in.Latency, in.ClientIP)
-	if err != nil {
-		return DelayGetHeaderResponse{}, err
+		return resp, common.ErrLateHeader
 	}
 
-	delayFunc := func() {
+	sleep, maxSleep, replacementDelayMs, err := s.dynamicFuncWrapper(
+		in.AccountID, msIntoSlot, in.Cluster, in.UserAgent, in.Latency, in.ClientIP,
+	)
+	if err != nil {
+		return resp, err
+	}
+
+	if msIntoSlot < maxSleep {
 		maxSleepTime := slotStartTime.Add(time.Duration(maxSleep) * time.Millisecond)
-		if time.Now().UTC().Add(time.Duration(sleep) * time.Millisecond).After(maxSleepTime) {
+		if nowPlusSleep := time.Now().UTC().Add(time.Duration(sleep) * time.Millisecond); nowPlusSleep.After(maxSleepTime) {
 			time.Sleep(maxSleepTime.Sub(time.Now().UTC()))
 		} else {
 			time.Sleep(time.Duration(sleep) * time.Millisecond)
 		}
 	}
-	if msIntoSlot < maxSleep {
-		delayFunc()
-	}
 
-	return DelayGetHeaderResponse{
-		Sleep:              sleep + replacementDelayMs,
-		MaxSleep:           maxSleep,
-		Latency:            in.Latency,
-		SlotStartTime:      slotStartTime,
-		ReplacementDelayMs: replacementDelayMs,
-	}, nil
+	resp.Sleep = sleep + replacementDelayMs
+	resp.MaxSleep = maxSleep
+	resp.ReplacementDelayMs = replacementDelayMs
+	return resp, nil
 }
 
 func (s *DataService) GetDelaySettings(ctx context.Context) map[string]DelaySettings {
