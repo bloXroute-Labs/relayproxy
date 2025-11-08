@@ -603,37 +603,36 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		clientURL string
 		success   bool
 	)
+
 	startTime := time.Now().UTC()
+
+	spanCtx, span := s.tracer.Start(ctx, GetSpanName("prefetch", "START"))
 	defer func() {
-		s.performancestats.SetEndpointStats("PreFetchGetPayload-rproxy", uint64(time.Since(startTime).Microseconds()), success, 100)
+		totalMs := time.Since(startTime).Milliseconds()
+		span.SetAttributes(
+			attribute.Int64("prefetch.total_ms", totalMs),
+			attribute.Bool("prefetch.success", success),
+			attribute.Int64("prefetch.slot", int64(fields.slot)),
+			attribute.String("prefetch.blockHash", fields.blockHash),
+			attribute.String("prefetch.parentHash", fields.parentHash),
+			attribute.String("prefetch.proposerPubkey", fields.proposerPubKey),
+		)
+		span.End()
+
+		// metrics still in µs, but total time aligned with span
+		s.performancestats.SetEndpointStats(
+			"PreFetchGetPayload-rproxy",
+			uint64(time.Since(startTime).Microseconds()),
+			success,
+			100,
+		)
 	}()
 
 	id := uuid.NewString()
 
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
 
-	spanCtx, span := s.tracer.Start(ctx, GetSpanName("prefetch", "START"))
 	uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", fields.slot, fields.blockHash, fields.parentHash)
-	defer func() {
-		now := time.Now()
-		span.SetAttributes(
-			attribute.String("method", preFetchPayload),
-			attribute.String("clientIP", fields.clientIP),
-			attribute.String("clientURL", clientURL),
-			attribute.String("reqID", id),
-			attribute.Int64("receivedAt_unix", startTime.Unix()),
-			attribute.String("traceID", span.SpanContext().TraceID().String()),
-			attribute.String("authHeader", fields.authHeader),
-			attribute.String("secretToken", s.secretToken),
-			attribute.String("uKey", uKey),
-			attribute.Int64("slot", int64(fields.slot)),
-			attribute.String("blockHash", fields.blockHash),
-			attribute.Int64("prefetch_started_at_ms", startTime.UnixMilli()),
-			attribute.Int64("prefetch_completed_at_ms", now.UnixMilli()),
-			attribute.Int64("prefetch_duration_ms", now.Sub(startTime).Milliseconds()),
-		)
-		span.End()
-	}()
 
 	if fields.client != nil {
 		clientURL = fields.client.SafeClient.URL
@@ -659,7 +658,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	if fields.payloadFetchUrl != "" {
 		subStart := time.Now()
 		_, sub := s.tracer.Start(spanCtx, GetSpanName("prefetch", "builderHTTPorGRPC"))
-		success = s.prefetchPayloadFromBuilder(spanCtx, spanCtx, &fields, logMetric.Copy())
+		success = s.prefetchPayloadFromBuilder(ctx, spanCtx, &fields, logMetric.Copy())
 		sub.SetAttributes(
 			attribute.Bool("success", success),
 			attribute.Int64("duration_ms", time.Since(subStart).Milliseconds()),
@@ -849,13 +848,20 @@ func (s *Service) prefetchPayloadGRPC(
 				MarshalledPayloadResponse: out.VersionedExecutionPayload,
 				BlockValue:                fields.blockValue,
 			}
+			payloadSize := len(out.VersionedExecutionPayload)
+
 			// Treat "already exists" as success (payload ready).
 			if err := s.getPayloadResponseForProxySlot.Add(proxyCacheKey, payloadResponse, cache.DefaultExpiration); err != nil {
 				s.logger.Debug().Fields(logMetric.GetFields()).Err(err).Msg("PreFetchPayload :: cache already has payload (ok)")
 			}
-			s.logger.Info().Fields(logMetric.GetFields()).Int("payload_size_bytes", len(out.VersionedExecutionPayload)).Msg("PreFetchPayload :: prefetch succeeded")
-			loopSpan.SetAttributes(attribute.Int("payload_size_bytes", len(out.VersionedExecutionPayload)))
-			loopSpan.AddEvent("winner", trace.WithAttributes(attribute.String("cacheKey", proxyCacheKey)))
+			s.logger.Info().Fields(logMetric.GetFields()).
+				Int("payload_size_bytes", payloadSize).
+				Msg("PreFetchPayload :: prefetch succeeded")
+
+			loopSpan.AddEvent("winner", trace.WithAttributes(
+				attribute.String("cacheKey", proxyCacheKey),
+				attribute.Int("payload_size_bytes", payloadSize),
+			))
 			return
 		}
 	}
@@ -951,9 +957,16 @@ func (s *Service) clientPreFetchGetPayloadHTTP(ctx context.Context, logMetric *L
 		url := payloadUrl + common.PathGetPayloadV3
 		go func(url string) {
 			result := new(common.VersionedSubmitBlockRequest)
+			reqStart := time.Now()
 			code, durationMS, err := httpclient.FetchSSZ(http.MethodPost, url, payload, result, nil, true)
 			if err != nil {
-				s.logger.Debug().Fields(logMetric.GetFields()).Err(err).Str("url", url).Int("code", code).Int64("durationMS", durationMS).Msg("failed to prefetch payload with HTTP")
+				s.logger.Debug().Fields(logMetric.GetFields()).
+					Err(err).
+					Str("url", url).
+					Int("code", code).
+					Int64("durationMS", durationMS).
+					Int64("duration_ms_measured", time.Since(reqStart).Milliseconds()).
+					Msg("failed to prefetch payload with HTTP")
 				return
 			}
 			responseChan <- result
@@ -1061,9 +1074,9 @@ func (s *Service) prefetchPayload(
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		reqStart := time.Now()
 		_, childSpan := s.tracer.Start(spanctx, GetSpanName("prefetch", "gRPC"))
 		childSpan.SetAttributes(attribute.String("url", client.URL), attribute.String("nodeID", client.NodeID))
-		reqStart := time.Now()
 		out, err := client.PreFetchGetPayload(clientCtx, req)
 		reqDurMs := time.Since(reqStart).Milliseconds()
 		if err == nil && out != nil && out.Code == uint32(codes.OK) {
@@ -1146,8 +1159,8 @@ func (s *Service) prefetchPayload(
 // ========================= HTTP placement helper =========================
 
 func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(
-	ctx context.Context, // this should be the hedged clientCtx
-	spanCtx context.Context, // context for tracing
+	ctx context.Context,
+	spanCtx context.Context,
 	origReq *relaygrpc.PreFetchGetPayloadRequest,
 	url string,
 	nodeID string,
@@ -1160,7 +1173,6 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(
 		ClientIp:   origReq.GetClientIp(),
 		ReceivedAt: origReq.GetReceivedAt(),
 	}
-
 	_, marshalSpan := s.tracer.Start(spanCtx, GetSpanName("prefetch.httpPlace", "marshal"))
 	reqJSON, err := json.Marshal(reqData)
 	marshalSpan.End()
@@ -1191,7 +1203,6 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	httpCli := getPrefetchHTTPClient()
-
 	reqStart := time.Now()
 	_, requestSpan := s.tracer.Start(spanCtx, GetSpanName("prefetch.httpPlace", "request"))
 	resp, err := httpCli.Do(httpReq)
