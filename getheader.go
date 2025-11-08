@@ -180,16 +180,19 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		specStart := time.Now()
 		_, specSpan := s.tracer.Start(ctx, GetSpanName("svc.getHeader", "speculativePrefetch"))
 		s.preFetchPayloadChan <- preFetcherFields{
-			clientIP:        in.ClientIP,
-			authHeader:      in.AuthHeader,
-			slot:            _slot,
-			parentHash:      in.ParentHash,
-			blockHash:       slotBestHeader.BlockHash,
-			proposerPubKey:  in.PubKey,
-			builderPubKey:   slotBestHeader.BuilderPubkey,
-			blockValue:      weiToEther(new(big.Int).SetBytes(slotBestHeader.Value)),
-			client:          slotBestHeader.Client,
-			payloadFetchUrl: slotBestHeader.PayloadFetchUrl,
+			clientIP:                          in.ClientIP,
+			authHeader:                        in.AuthHeader,
+			slot:                              _slot,
+			parentHash:                        in.ParentHash,
+			blockHash:                         slotBestHeader.BlockHash,
+			proposerPubKey:                    in.PubKey,
+			builderPubKey:                     slotBestHeader.BuilderPubkey,
+			blockValue:                        weiToEther(new(big.Int).SetBytes(slotBestHeader.Value)),
+			client:                            slotBestHeader.Client,
+			payloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
+			slotStartTime:                     slotStartTime,
+			msIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
+			getHeaderReqID:                    id,
 		}
 		specSpan.SetAttributes(
 			attribute.String("prefetch.blockHash", slotBestHeader.BlockHash),
@@ -534,16 +537,19 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	enqStart := time.Now()
 	_, enqSpan := s.tracer.Start(ctx, GetSpanName("svc.getHeader", "enqueueFinalPrefetch"))
 	s.preFetchPayloadChan <- preFetcherFields{
-		clientIP:        in.ClientIP,
-		authHeader:      in.AuthHeader,
-		slot:            _slot,
-		parentHash:      in.ParentHash,
-		blockHash:       slotBestHeader.BlockHash,
-		proposerPubKey:  in.PubKey,
-		builderPubKey:   slotBestHeader.BuilderPubkey,
-		blockValue:      weiToEther(blockValue),
-		client:          slotBestHeader.Client,
-		payloadFetchUrl: slotBestHeader.PayloadFetchUrl,
+		clientIP:                          in.ClientIP,
+		authHeader:                        in.AuthHeader,
+		slot:                              _slot,
+		parentHash:                        in.ParentHash,
+		blockHash:                         slotBestHeader.BlockHash,
+		proposerPubKey:                    in.PubKey,
+		builderPubKey:                     slotBestHeader.BuilderPubkey,
+		blockValue:                        weiToEther(blockValue),
+		client:                            slotBestHeader.Client,
+		payloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
+		slotStartTime:                     slotStartTime,
+		msIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
+		getHeaderReqID:                    id,
 	}
 	enqSpan.SetAttributes(
 		attribute.String("prefetch.blockHash", slotBestHeader.BlockHash),
@@ -606,9 +612,18 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 
 	startTime := time.Now().UTC()
 
+	var msIntoSlotPrefetchStart int64
+	if !fields.slotStartTime.IsZero() {
+		msIntoSlotPrefetchStart = time.Since(fields.slotStartTime).Milliseconds()
+	}
 	spanCtx, span := s.tracer.Start(ctx, GetSpanName("prefetch", "START"))
 	defer func() {
 		totalMs := time.Since(startTime).Milliseconds()
+		var msIntoSlotPrefetchEnd int64
+		if !fields.slotStartTime.IsZero() {
+			msIntoSlotPrefetchEnd = time.Since(fields.slotStartTime).Milliseconds()
+		}
+
 		span.SetAttributes(
 			attribute.Int64("prefetch.total_ms", totalMs),
 			attribute.Bool("prefetch.success", success),
@@ -616,10 +631,13 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 			attribute.String("prefetch.blockHash", fields.blockHash),
 			attribute.String("prefetch.parentHash", fields.parentHash),
 			attribute.String("prefetch.proposerPubkey", fields.proposerPubKey),
+			attribute.Int64("prefetch.msIntoSlot_start", msIntoSlotPrefetchStart),
+			attribute.Int64("prefetch.msIntoSlot_end", msIntoSlotPrefetchEnd),
+			attribute.Int64("prefetch.msIntoSlot_getHeader_including_delay", fields.msIntoSlotGetHeaderIncludingDelay),
+			attribute.String("prefetch.getHeader_req_id", fields.getHeaderReqID),
 		)
 		span.End()
 
-		// metrics still in µs, but total time aligned with span
 		s.performancestats.SetEndpointStats(
 			"PreFetchGetPayload-rproxy",
 			uint64(time.Since(startTime).Microseconds()),
@@ -640,15 +658,18 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 
 	logMetric := NewLogMetric(
 		map[string]any{
-			"method":     preFetchPayload,
-			"receivedAt": startTime,
-			"clientIP":   fields.clientIP,
-			"clientURL":  clientURL,
-			"reqID":      id,
-			"traceID":    span.SpanContext().TraceID().String(),
-			"uKey":       uKey,
-			"slot":       int64(fields.slot),
-			"blockHash":  fields.blockHash,
+			"method":                            preFetchPayload,
+			"prefetchStartedAt":                 startTime,
+			"clientIP":                          fields.clientIP,
+			"clientURL":                         clientURL,
+			"reqID":                             id,
+			"traceID":                           span.SpanContext().TraceID().String(),
+			"uKey":                              uKey,
+			"slot":                              int64(fields.slot),
+			"blockHash":                         fields.blockHash,
+			"msIntoSlotStart":                   msIntoSlotPrefetchStart,
+			"msIntoSlotGetHeaderIncludingDelay": fields.msIntoSlotGetHeaderIncludingDelay,
+			"getHeaderReqID":                    fields.getHeaderReqID,
 		},
 	)
 
