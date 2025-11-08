@@ -1193,6 +1193,7 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(
 		Pubkey:     origReq.GetPubkey(),
 		ClientIp:   origReq.GetClientIp(),
 		ReceivedAt: origReq.GetReceivedAt(),
+		ReqID:      origReq.GetReqId(),
 	}
 	_, marshalSpan := s.tracer.Start(spanCtx, GetSpanName("prefetch.httpPlace", "marshal"))
 	reqJSON, err := json.Marshal(reqData)

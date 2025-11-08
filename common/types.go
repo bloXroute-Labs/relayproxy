@@ -512,6 +512,7 @@ type PreFetchGetPayloadRequestHTTP struct {
 	BlockHash  string
 	Pubkey     string
 	ClientIp   string
+	ReqID      string
 	ReceivedAt *timestamppb.Timestamp
 }
 
