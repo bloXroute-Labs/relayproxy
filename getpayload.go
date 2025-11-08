@@ -554,7 +554,7 @@ func (s *Service) validateAndFetchPayload(ctx context.Context, signedBlindedBeac
 	if found {
 		versionedPayloadInfo, err := payloadResponse.BuildVersionedPayloadInfo(uint64(slot), parentHash.String(), blockHashString, pubkeyStr)
 		if err != nil {
-			return nil, toErrorResp(http.StatusOK, "failed to build versioned payload info")
+			return nil, toErrorResp(http.StatusOK, fmt.Sprintf("failed to build versioned payload info,reason : %v", err.Error()))
 		}
 		return versionedPayloadInfo, nil
 	}
