@@ -261,28 +261,6 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 					slotBestHeader = replacementHeader
 					getErr = nil
 					log.Debug().Msg("got new bid after repick from channel")
-
-					// Prefetch replacement as well
-					repSpecStart := time.Now()
-					_, repSpecSpan := s.tracer.Start(ctx, GetSpanName("svc.getHeader", "repickPrefetch"))
-					s.preFetchPayloadChan <- preFetcherFields{
-						clientIP:        in.ClientIP,
-						authHeader:      in.AuthHeader,
-						slot:            _slot,
-						parentHash:      in.ParentHash,
-						blockHash:       slotBestHeader.BlockHash,
-						proposerPubKey:  in.PubKey,
-						builderPubKey:   slotBestHeader.BuilderPubkey,
-						blockValue:      weiToEther(new(big.Int).SetBytes(slotBestHeader.Value)),
-						client:          slotBestHeader.Client,
-						payloadFetchUrl: slotBestHeader.PayloadFetchUrl,
-					}
-					repSpecSpan.SetAttributes(
-						attribute.String("prefetch.blockHash", slotBestHeader.BlockHash),
-						attribute.String("prefetch.builderPubkey", slotBestHeader.BuilderPubkey),
-						attribute.Int64("svc.getHeader_repick_prefetch_ms", time.Since(repSpecStart).Milliseconds()),
-					)
-					repSpecSpan.End()
 				} else {
 					log.Debug().Msg("got nil bid after repick from channel")
 				}
@@ -304,29 +282,6 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 				secondBestHeader = secondBidHeader
 				getErr = err
 				log.Debug().Msg("got new bid after repick wait")
-
-				if slotBestHeader != nil {
-					repickUpdateStart := time.Now()
-					_, repUpdSpan := s.tracer.Start(ctx, GetSpanName("svc.getHeader", "repickPrefetchAfterWait"))
-					s.preFetchPayloadChan <- preFetcherFields{
-						clientIP:        in.ClientIP,
-						authHeader:      in.AuthHeader,
-						slot:            _slot,
-						parentHash:      in.ParentHash,
-						blockHash:       slotBestHeader.BlockHash,
-						proposerPubKey:  in.PubKey,
-						builderPubKey:   slotBestHeader.BuilderPubkey,
-						blockValue:      "",
-						client:          slotBestHeader.Client,
-						payloadFetchUrl: slotBestHeader.PayloadFetchUrl,
-					}
-					repUpdSpan.SetAttributes(
-						attribute.String("prefetch.blockHash", slotBestHeader.BlockHash),
-						attribute.String("prefetch.builderPubkey", slotBestHeader.BuilderPubkey),
-						attribute.Int64("svc.getHeader_repick_update_prefetch_ms", time.Since(repickUpdateStart).Milliseconds()),
-					)
-					repUpdSpan.End()
-				}
 			}
 		}
 	}
@@ -472,6 +427,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 				SlotKey:   k,
 				UserAgent: in.UserAgent,
 			}
+
 		} else {
 			slotStatsSlice := v.([]SlotStatsRecord)
 			slotStatsSlice = append(slotStatsSlice, slotStats)
@@ -871,7 +827,6 @@ func (s *Service) prefetchPayloadGRPC(
 			}
 		case out := <-respChan:
 			if out == nil {
-				loopSpan.AddEvent("nil_response")
 				continue
 			}
 			proxyCacheKey := common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey)
@@ -1181,8 +1136,9 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, reqCtx
 	finalURL := "http://" + url + port + common.PathPrefetchBlock
 	s.logger.Debug().Str("nodeID", nodeID).Str("finalURL", finalURL).Str("originalURL", originalURL).Msg("making prefetch request")
 
-	req, err := http.NewRequest(http.MethodPost, finalURL, bytes.NewReader(reqJSON))
+	req, err := http.NewRequest(http.MethodGet, finalURL, bytes.NewReader(reqJSON))
 	if err != nil {
+		s.logger.Error().Str("nodeID", nodeID).Str("finalURL", finalURL).Str("originalURL", originalURL).Msg("prefetch.httpPlace failed ")
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -1203,7 +1159,6 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, reqCtx
 		return nil, err
 	}
 	unmarshalSpan.End()
-
 	return &relaygrpc.PreFetchGetPayloadResponse{
 		Code:                      respData.Code,
 		Message:                   respData.Message,
