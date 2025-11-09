@@ -172,6 +172,10 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	fetchSpan.SetAttributes(
 		attribute.Int64("svc.getHeader_fetch_bid_ms", time.Since(fetchStart).Milliseconds()),
 		attribute.Bool("haveBestHeader", slotBestHeader != nil && getErr == nil),
+		attribute.String("svc.slotBestHeader.blockHash", slotBestHeader.BlockHash),
+		attribute.String("svc.slotBestHeader.builderPubkey", slotBestHeader.BuilderPubkey),
+		attribute.String("svc.slotBestHeader.payloadFetchUrl", slotBestHeader.PayloadFetchUrl),
+		attribute.String("svc.slotBestHeader.blockHashReceivedAt", slotBestHeader.ReceivedAt.String()),
 	)
 	fetchSpan.End()
 

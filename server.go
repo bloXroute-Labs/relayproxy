@@ -841,6 +841,15 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if onHeaderDeliveredParams != nil {
+		span.SetAttributes(
+			attribute.String("blockHash", onHeaderDeliveredParams.BlockHash),
+		)
+		log = log.With().
+			Str("blockHash", onHeaderDeliveredParams.BlockHash).
+			Logger()
+	}
+
 	// H) Callback (fire-and-forget), with its own child span
 	go func(ctx context.Context, shp *common.OnHeaderDeliveredParams) {
 		if shp == nil || s.OnHeaderDelivered == nil {
@@ -884,59 +893,62 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		)
 	}(ctx, onHeaderDeliveredParams)
 
+	out = []byte(`header disabled`)
+	respondOK(ctx, span, getHeader, w, out, &log, s.tracer, true)
+
 	// -----------------------------
 	// I) Response encoding
 	// -----------------------------
-	if !sszResponse {
-		respondStart := time.Now()
-		_, spanRespond := s.tracer.Start(ctx, GetSpanName(callerMethodName, "respondJSON"))
-		log.Debug().Msg("Responding with JSON")
-		if err := respondOK(ctx, span, getHeader, w, out, &log, s.tracer, true); err == nil {
-			success = true
-		}
-		spanRespond.SetAttributes(attribute.Int64("respond_json_duration_ms", time.Since(respondStart).Milliseconds()))
-		spanRespond.End()
-		return
-	}
-
-	// SSZ response path
-	sszMarshalStart := time.Now()
-	_, spanSSZ := s.tracer.Start(ctx, GetSpanName(callerMethodName, "marshalSSZ"))
-	versionedBid := new(common.VersionedSignedBuilderBid)
-	if err := versionedBid.UnmarshalJSON(out); err != nil {
-		spanSSZ.SetStatus(codes.Error, err.Error())
-		spanSSZ.SetAttributes(attribute.Int64("ssz_prep_duration_ms", time.Since(sszMarshalStart).Milliseconds()))
-		spanSSZ.End()
-
-		log.Error().Err(err).Msg("getHeader: failed to unmarshal JSON before SSZ marshal")
-		respondError(ctx, span, getHeader, w, toErrorResp(http.StatusInternalServerError, err.Error()), &log, s.tracer)
-		return
-	}
-	sszBytes, err := versionedBid.MarshalSSZ()
-	if err != nil {
-		spanSSZ.SetStatus(codes.Error, err.Error())
-		spanSSZ.SetAttributes(attribute.Int64("ssz_marshal_duration_ms", time.Since(sszMarshalStart).Milliseconds()))
-		spanSSZ.End()
-
-		log.Error().Err(err).Msg("getHeader: SSZ marshal failed; falling back to JSON")
-		fallbackStart := time.Now()
-		if err := respondOK(ctx, span, getHeader, w, out, &log, s.tracer, true); err == nil {
-			success = true
-		}
-		span.SetAttributes(attribute.Int64("respond_json_fallback_duration_ms", time.Since(fallbackStart).Milliseconds()))
-		return
-	}
-	spanSSZ.SetAttributes(attribute.Int64("ssz_full_marshal_duration_ms", time.Since(sszMarshalStart).Milliseconds()))
-	spanSSZ.End()
-
-	w.Header().Set(common.HeaderEthConsensusVersion, versionedBid.Version.String())
-
-	respondSSZStart := time.Now()
-	_, spanRespondSSZ := s.tracer.Start(ctx, GetSpanName(callerMethodName, "respondSSZ"))
-	log.Info().Msg("Responding with SSZ")
-	success = s.respondOKWithContextSSZMarshalled(ctx, span, getHeader, w, sszBytes, &log, s.tracer)
-	spanRespondSSZ.SetAttributes(attribute.Int64("respond_ssz_duration_ms", time.Since(respondSSZStart).Milliseconds()))
-	spanRespondSSZ.End()
+	//if !sszResponse {
+	//	respondStart := time.Now()
+	//	_, spanRespond := s.tracer.Start(ctx, GetSpanName(callerMethodName, "respondJSON"))
+	//	log.Debug().Msg("Responding with JSON")
+	//	if err := respondOK(ctx, span, getHeader, w, out, &log, s.tracer, true); err == nil {
+	//		success = true
+	//	}
+	//	spanRespond.SetAttributes(attribute.Int64("respond_json_duration_ms", time.Since(respondStart).Milliseconds()))
+	//	spanRespond.End()
+	//	return
+	//}
+	//
+	//// SSZ response path
+	//sszMarshalStart := time.Now()
+	//_, spanSSZ := s.tracer.Start(ctx, GetSpanName(callerMethodName, "marshalSSZ"))
+	//versionedBid := new(common.VersionedSignedBuilderBid)
+	//if err := versionedBid.UnmarshalJSON(out); err != nil {
+	//	spanSSZ.SetStatus(codes.Error, err.Error())
+	//	spanSSZ.SetAttributes(attribute.Int64("ssz_prep_duration_ms", time.Since(sszMarshalStart).Milliseconds()))
+	//	spanSSZ.End()
+	//
+	//	log.Error().Err(err).Msg("getHeader: failed to unmarshal JSON before SSZ marshal")
+	//	respondError(ctx, span, getHeader, w, toErrorResp(http.StatusInternalServerError, err.Error()), &log, s.tracer)
+	//	return
+	//}
+	//sszBytes, err := versionedBid.MarshalSSZ()
+	//if err != nil {
+	//	spanSSZ.SetStatus(codes.Error, err.Error())
+	//	spanSSZ.SetAttributes(attribute.Int64("ssz_marshal_duration_ms", time.Since(sszMarshalStart).Milliseconds()))
+	//	spanSSZ.End()
+	//
+	//	log.Error().Err(err).Msg("getHeader: SSZ marshal failed; falling back to JSON")
+	//	fallbackStart := time.Now()
+	//	if err := respondOK(ctx, span, getHeader, w, out, &log, s.tracer, true); err == nil {
+	//		success = true
+	//	}
+	//	span.SetAttributes(attribute.Int64("respond_json_fallback_duration_ms", time.Since(fallbackStart).Milliseconds()))
+	//	return
+	//}
+	//spanSSZ.SetAttributes(attribute.Int64("ssz_full_marshal_duration_ms", time.Since(sszMarshalStart).Milliseconds()))
+	//spanSSZ.End()
+	//
+	//w.Header().Set(common.HeaderEthConsensusVersion, versionedBid.Version.String())
+	//
+	//respondSSZStart := time.Now()
+	//_, spanRespondSSZ := s.tracer.Start(ctx, GetSpanName(callerMethodName, "respondSSZ"))
+	//log.Info().Msg("Responding with SSZ")
+	//success = s.respondOKWithContextSSZMarshalled(ctx, span, getHeader, w, sszBytes, &log, s.tracer)
+	//spanRespondSSZ.SetAttributes(attribute.Int64("respond_ssz_duration_ms", time.Since(respondSSZStart).Milliseconds()))
+	//spanRespondSSZ.End()
 }
 
 func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
