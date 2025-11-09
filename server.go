@@ -893,7 +893,8 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		)
 	}(ctx, onHeaderDeliveredParams)
 
-	out = []byte(`header disabled`)
+	out = json.RawMessage([]byte(`{"message":"header disabled"}`))
+
 	respondOK(ctx, span, getHeader, w, out, &log, s.tracer, true)
 
 	// -----------------------------
