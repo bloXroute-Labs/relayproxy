@@ -837,7 +837,7 @@ func (s *Service) prefetchPayloadGRPC(
 
 			durationMs := time.Since(start).Milliseconds()
 			// record cache fastpath as prefetch success (non-blocking)
-			go s.IDataService.GetFlowService().RecordPrefetchDone(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey, reqID, "", true, durationMs, FlowSourcePrefetchCache, "", "", payloadSize, "")
+			go s.IDataService.GetFlowService().RecordPrefetchDone(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey, reqID, getHeaderReqID, true, durationMs, FlowSourcePrefetchCache, "", "", payloadSize, "")
 
 			// Add a small outcome event on the parent span for visibility
 			parentSpan.AddEvent("cache_fastpath_return", trace.WithAttributes(
