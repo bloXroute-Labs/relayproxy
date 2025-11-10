@@ -59,6 +59,9 @@ type PrefetchFlowEvent struct {
 	DurationMs              int64      `json:"durationMs"`
 	Success                 bool       `json:"success"`
 	Source                  FlowSource `json:"source"`
+	serverURL               string     `json:"serverUrl"`
+	serverNodeID            string     `json:"serverNodeID"`
+	payloadSizeBytes        int        `json:"payloadSizeBytes"`
 	Error                   string     `json:"error"`
 }
 
@@ -113,7 +116,7 @@ type IFlowService interface {
 		ev PrefetchFlowEvent,
 	)
 
-	RecordPrefetchDone(slot uint64, parentHash, blockHash, proposerPubkey, reqID, getHeaderReqID string, success bool, durationMs int64, source FlowSource, errStr string)
+	RecordPrefetchDone(slot uint64, parentHash, blockHash, proposerPubkey, reqID, getHeaderReqID string, success bool, durationMs int64, source FlowSource, serverURL, serverNodeID string, payloadSizeBytes int, errStr string)
 
 	RecordGetPayload(
 		slot uint64,
@@ -211,7 +214,7 @@ func (fs *FlowService) RecordPrefetchStart(
 	rec.Prefetches = append(rec.Prefetches, ev)
 }
 
-func (fs *FlowService) RecordPrefetchDone(slot uint64, parentHash, blockHash, proposerPubkey, reqID, getHeaderReqID string, success bool, durationMs int64, source FlowSource, errStr string) {
+func (fs *FlowService) RecordPrefetchDone(slot uint64, parentHash, blockHash, proposerPubkey, reqID, getHeaderReqID string, success bool, durationMs int64, source FlowSource, serverURL, serverNodeID string, payloadSizeBytes int, errStr string) {
 	if fs.flowCache == nil {
 		return
 	}
@@ -239,6 +242,9 @@ func (fs *FlowService) RecordPrefetchDone(slot uint64, parentHash, blockHash, pr
 			if source != "" {
 				rec.Prefetches[i].Source = source
 			}
+			rec.Prefetches[i].serverURL = serverURL
+			rec.Prefetches[i].serverNodeID = serverNodeID
+			rec.Prefetches[i].payloadSizeBytes = payloadSizeBytes
 			rec.Prefetches[i].Error = errStr
 			return
 		}
