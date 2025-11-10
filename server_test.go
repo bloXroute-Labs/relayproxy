@@ -35,6 +35,11 @@ type MockService struct {
 	DelayGetHeaderFunc        func(ctx context.Context, params DelayGetHeaderParams) (DelayGetHeaderResponse, error)
 }
 
+func (m *MockService) GetFlowService() IFlowService {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (m *MockService) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) *ErrorResp {
 	if m.GetPayloadV2Func != nil {
 		return m.GetPayloadV2Func(ctx, in)

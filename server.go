@@ -169,6 +169,9 @@ func (s *Server) InitHandler() *chi.Mux {
 		r.With(s.MiddlewareAdmin).Options(common.PathDelaySettings, s.HandleOptions)
 		r.With(s.MiddlewareAdmin).Post(common.PathDelaySettings, s.HandleSetDelays)
 		r.With(s.MiddlewareAdmin).Get(common.PathGetAccounts, s.HandleGetAccounts)
+		r.With(s.MiddlewareAdmin).Get(common.PathGetFlows, s.HandleGetAllFlow)
+		r.With(s.MiddlewareAdmin).Get(common.PathGetFlowBySlot, s.HandleGetFlowBySlot)
+		r.With(s.MiddlewareAdmin).Get(common.PathGetFlowBySlotAndBlockHash, s.HandleGetFlowBySlotAndBlockHash)
 	})
 
 	handler.Get(common.PathNode, s.HandleNode)
@@ -418,6 +421,49 @@ func (s *Server) HandleGetAccounts(w http.ResponseWriter, r *http.Request) {
 	out, err := json.Marshal(accounts)
 	if err != nil {
 		s.writeErrorResponse(w, "failed to fetch accounts", err, http.StatusInternalServerError)
+		return
+	}
+	s.writeSuccessResponse(w, out)
+}
+
+func (s *Server) HandleGetAllFlow(w http.ResponseWriter, r *http.Request) {
+	flows := s.svc.GetFlowService().GetAllFlowsSnapshot()
+	out, err := json.Marshal(flows)
+	if err != nil {
+		s.writeErrorResponse(w, "failed to fetch all flows", err, http.StatusInternalServerError)
+		return
+	}
+	s.writeSuccessResponse(w, out)
+}
+
+func (s *Server) HandleGetFlowBySlot(w http.ResponseWriter, r *http.Request) {
+	slot := chi.URLParam(r, "slot")
+	slotInt, err := strconv.ParseUint(slot, 10, 64)
+	if err != nil {
+		s.writeErrorResponse(w, fmt.Sprintf("failed to fetch  flow by slot : %v, reason :%v", slot, err), err, http.StatusInternalServerError)
+		return
+	}
+	flow := s.svc.GetFlowService().GetFlowsBySlot(slotInt)
+	out, err := json.Marshal(flow)
+	if err != nil {
+		s.writeErrorResponse(w, "failed to fetch  flows by slot", err, http.StatusInternalServerError)
+		return
+	}
+	s.writeSuccessResponse(w, out)
+}
+
+func (s *Server) HandleGetFlowBySlotAndBlockHash(w http.ResponseWriter, r *http.Request) {
+	slot := chi.URLParam(r, "slot")
+	blockHash := chi.URLParam(r, "block_hash")
+	slotInt, err := strconv.ParseUint(slot, 10, 64)
+	if err != nil || blockHash == "" {
+		s.writeErrorResponse(w, fmt.Sprintf("failed to fetch flow by slot: %v blockHash:%v, reason :%v", slot, blockHash, err), err, http.StatusInternalServerError)
+		return
+	}
+	flow := s.svc.GetFlowService().GetFlowsBySlotAndBlock(slotInt, blockHash)
+	out, err := json.Marshal(flow)
+	if err != nil {
+		s.writeErrorResponse(w, "failed to fetch  flows by slot", err, http.StatusInternalServerError)
 		return
 	}
 	s.writeSuccessResponse(w, out)

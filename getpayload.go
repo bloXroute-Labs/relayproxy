@@ -99,7 +99,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		spanPrefetch.SetStatus(otelcodes.Error, errRes.Error())
 		spanPrefetch.End()
 		log.Error().Err(errRes).Msg("prefetchSignedBlindedBeaconBlock failed")
-		go s.sendPayloadStats(in.Payload, log, false, nil, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latencyMs, in.Cluster, in.UserAgent, in.SlotUID)
+		go s.sendPayloadStats(in.Payload, log, false, nil, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latencyMs, in.Cluster, in.UserAgent, in.SlotUID, errRes.Error())
 		return nil, errRes
 	}
 
@@ -238,7 +238,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 			attribute.Int64("duration_ms", duration.Milliseconds()),
 		)
 
-		go s.sendPayloadStats(in.Payload, log, true, payloadInfo, in.ReceivedAt, startTime, slotStartTime, msIntoSlot, id, in.ClientIP, in.ValidatorID, in.AccountID, latencyMs, in.Cluster, in.UserAgent, in.SlotUID)
+		go s.sendPayloadStats(in.Payload, log, true, payloadInfo, in.ReceivedAt, startTime, slotStartTime, msIntoSlot, id, in.ClientIP, in.ValidatorID, in.AccountID, latencyMs, in.Cluster, in.UserAgent, in.SlotUID, "no error")
 
 		*log = log.With().
 			Int64("latency", latencyMs).
@@ -259,7 +259,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 			Str("blockHash", blockHashStr).
 			Str("parentHash", parentHashStr).
 			Msg("timeout waiting for payload response")
-		go s.sendPayloadStats(in.Payload, log, false, nil, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latencyMs, in.Cluster, in.UserAgent, in.SlotUID)
+		go s.sendPayloadStats(in.Payload, log, false, nil, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latencyMs, in.Cluster, in.UserAgent, in.SlotUID, "timed out, no execution payload for this request")
 		return nil, toErrorResp(http.StatusBadRequest, "no execution payload for this request")
 	}
 }
@@ -328,7 +328,8 @@ func (s *Service) getPayloadWithRetry(ctx context.Context, c *common.Client, par
 	return nil, toErrorResp(http.StatusInternalServerError, "all relay retries failed")
 }
 
-func (s *Service) sendPayloadStats(payload []byte, log *zerolog.Logger, isSucceeded bool, resp *common.VersionedPayloadInfo, receivedAt, startTime, slotStartTime time.Time, msIntoSlot int64, id, clientIP, validatorID, accountID string, latency int64, cluster, userAgent, slotUID string) {
+func (s *Service) sendPayloadStats(payload []byte, log *zerolog.Logger, isSucceeded bool, resp *common.VersionedPayloadInfo, receivedAt, startTime, slotStartTime time.Time, msIntoSlot int64, id, clientIP, validatorID, accountID string, latency int64, cluster, userAgent, slotUID, error string) {
+
 	// 3 different scenario calling sendPayload stats
 	// case 1 : resp success
 	// case 2: Err case with resp
@@ -373,6 +374,29 @@ func (s *Service) sendPayloadStats(payload []byte, log *zerolog.Logger, isSuccee
 	if cluster != "" {
 		statsUserAgent = fmt.Sprintf("%s/%s", statsUserAgent, cluster)
 	}
+
+	go s.IDataService.GetFlowService().RecordGetPayload(
+		out.GetSlot(),
+		out.GetParentHash(),
+		out.GetBlockHash(),
+		out.GetPubkey(),
+		GetPayloadFlowEvent{
+			FlowEventSentAt: time.Now().UTC(),
+			ReqID:           id,
+			ClientIP:        clientIP,
+			Success:         isSucceeded,
+			DurationMs:      time.Since(startTime).Milliseconds(),
+			MsIntoSlotStart: msIntoSlot,
+			BlockValueEth:   out.GetBlockHash(),
+			Error:           error,
+			UserAgent:       statsUserAgent,
+			AccountID:       accountID,
+			ValidatorID:     validatorID,
+			Latency:         latency,
+			SlotUID:         slotUID,
+			NodeID:          s.nodeID,
+		},
+	)
 
 	statsRecord := SlotStatsRecord{
 		PayloadReqID:              id,
