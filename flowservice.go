@@ -12,21 +12,21 @@ type FlowSource string
 
 const (
 	FlowSourceUnknown         FlowSource = ""
-	FlowSourceLocalBidCache   FlowSource = "local_bid_cache"
-	FlowSourceRemoteRelay     FlowSource = "remote_relay"
+	FlowSourceLocalBidCache   FlowSource = "localBidCache"
+	FlowSourceRemoteRelay     FlowSource = "remoteRelay"
 	FlowSourceBuilder         FlowSource = "builder"
-	FlowSourcePrefetchCache   FlowSource = "prefetch_cache"
-	FlowSourcePrefetchGRPC    FlowSource = "prefetch_grpc"
-	FlowSourcePrefetchHTTP    FlowSource = "prefetch_http"
-	FlowSourceGetPayloadLocal FlowSource = "getpayload_local"
-	FlowSourceGetPayloadRelay FlowSource = "getpayload_remote_relay"
-	FlowSourceGetPayloadBldr  FlowSource = "getpayload_builder"
+	FlowSourcePrefetchCache   FlowSource = "prefetchCache"
+	FlowSourcePrefetchGRPC    FlowSource = "prefetchGrpc"
+	FlowSourcePrefetchHTTP    FlowSource = "prefetchHttp"
+	FlowSourceGetPayloadLocal FlowSource = "getPayloadLocal"
+	FlowSourceGetPayloadRelay FlowSource = "getPayloadRemoteRelay"
+	FlowSourceGetPayloadBldr  FlowSource = "getPayloadBuilder"
 )
 
 type HeaderFlowEvent struct {
 	FlowEventSentAt      time.Time  `json:"at"`
 	ServedByThisNode     bool       `json:"servedByThisNode"`
-	SlotStartTime        time.Time  `json:"slot_start_time"`
+	SlotStartTime        time.Time  `json:"slotStartTime"`
 	MsIntoSlot           int64      `json:"msIntoSlot"`
 	MsIntoSlotWithDelay  int64      `json:"msIntoSlotWithDelay"`
 	AccountID            string     `json:"accountId"`
@@ -34,24 +34,25 @@ type HeaderFlowEvent struct {
 	Source               FlowSource `json:"source"`
 	GetHeaderReqID       string     `json:"getHeaderReqId"`
 	GetHeaderStartUnixMs string     `json:"getHeaderStartUnixMs"`
-	BlockValue           string     `json:"block_value"`
+	BlockValue           string     `json:"blockValue"`
 	BuilderPubkey        string     `json:"builderPubkey"`
 	BuilderExtraData     string     `json:"builderExtraData"`
-	BlockHashReceivedAt  time.Time  `json:"block_hash_received_at"`
+	BlockHashReceivedAt  time.Time  `json:"blockHashReceivedAt"`
 	RelayURL             string     `json:"relayUrl"`
-	BlockSequenceNumber  *uint64    `json:"block_sequence_number"`
+	BlockSequenceNumber  *uint64    `json:"blockSequenceNumber"`
 	Latency              int64      `json:"latency"`
 	Sleep                int64      `json:"sleep"`
-	MaxSleep             int64      `json:"max_sleep"`
-	ClientIP             string     `json:"client_ip"`
-	NodeID               string     `json:"node_id"`
-	SlotUID              string     `json:"slot_uid"`
-	HeaderUserAgent      string     `json:"header_user_agent"`
+	MaxSleep             int64      `json:"maxSleep"`
+	ClientIP             string     `json:"clientIp"`
+	NodeID               string     `json:"nodeId"`
+	SlotUID              string     `json:"slotUid"`
+	HeaderUserAgent      string     `json:"headerUserAgent"`
+	RepickedBlock        bool       `json:"repicked"`
 }
 
 type PrefetchFlowEvent struct {
 	ReqID                   string     `json:"reqId"`
-	GetHeaderReqID          string     `json:"get_header_req_id"`
+	GetHeaderReqID          string     `json:"getHeaderReqId"`
 	StartedAt               time.Time  `json:"startedAt"`
 	MsIntoSlotPrefetchStart int64      `json:"msIntoSlotStart"`
 	FinishedAt              time.Time  `json:"finishedAt"`
@@ -63,26 +64,27 @@ type PrefetchFlowEvent struct {
 
 type GetPayloadFlowEvent struct {
 	FlowEventSentAt       time.Time  `json:"at"`
-	ReqID                 string     `json:"reqID"`
-	ClientIP              string     `json:"clientIP"`
-	Source                FlowSource `json:"source"` // local_cache / prefetch / remote etc
+	ReqID                 string     `json:"reqId"`
+	ClientIP              string     `json:"clientIp"`
+	Source                FlowSource `json:"source"` // localCache / prefetch / remote etc
 	Success               bool       `json:"success"`
 	DurationMs            int64      `json:"durationMs"`
 	MsIntoSlotStart       int64      `json:"msIntoSlotStart"`
 	MsIntoSlotEnd         int64      `json:"msIntoSlotEnd"`
 	PayloadSizeBytes      int        `json:"payloadSizeBytes"`
 	BlockValueEth         string     `json:"blockValueEth"`
-	RelayURL              string     `json:"relayURL"`
+	RelayURL              string     `json:"relayUrl"`
 	Error                 string     `json:"error"`
-	GetHeaderReqID        string     `json:"getHeaderReqID"`
+	GetHeaderReqID        string     `json:"getHeaderReqId"`
+	GetPayloadStartUnixMs string     `json:"getPayloadStartUnixMs"`
 	SlotStartTimeUnix     int64      `json:"slotStartTimeUnix"`
 	MsIntoSlotHeaderStart int64      `json:"msIntoSlotHeaderStart"`
-	UserAgent             string     `json:"user_agent"`
-	AccountID             string     `json:"account_id"`
-	ValidatorID           string     `json:"validator_id"`
+	UserAgent             string     `json:"userAgent"`
+	AccountID             string     `json:"accountId"`
+	ValidatorID           string     `json:"validatorId"`
 	Latency               int64      `json:"latency"`
-	SlotUID               string     `json:"slot_uid"`
-	NodeID                string     `json:"node_id"`
+	SlotUID               string     `json:"slotUid"`
+	NodeID                string     `json:"nodeId"`
 }
 
 // Root record keyed by common.GetKeyForCachingPayload()
@@ -90,7 +92,7 @@ type FlowRecord struct {
 	Slot           uint64 `json:"slot"`
 	ParentHash     string `json:"parentHash"`
 	BlockHash      string `json:"blockHash"`
-	BlockValue     string `json:"block_value"`
+	BlockValue     string `json:"blockValue"`
 	ProposerPubkey string `json:"proposerPubkey"`
 
 	BuilderPubkey    string `json:"builderPubkey"`
@@ -103,11 +105,7 @@ type FlowRecord struct {
 }
 
 type IFlowService interface {
-	RecordHeaderFlow(
-		slot uint64,
-		parentHash, blockHash, proposerPubkey string,
-		ev HeaderFlowEvent,
-	)
+	RecordHeaderFlow(slot uint64, parentHash, blockHash, blockValue, proposerPubkey string, ev HeaderFlowEvent)
 
 	RecordPrefetchStart(
 		slot uint64,
@@ -166,11 +164,7 @@ func (fs *FlowService) getOrCreateFlowRecord(
 
 // ---------------------- Flow write methods ----------------------
 
-func (fs *FlowService) RecordHeaderFlow(
-	slot uint64,
-	parentHash, blockHash, proposerPubkey string,
-	ev HeaderFlowEvent,
-) {
+func (fs *FlowService) RecordHeaderFlow(slot uint64, parentHash, blockHash, blockValue, proposerPubkey string, ev HeaderFlowEvent) {
 	if fs.flowCache == nil {
 		return
 	}
