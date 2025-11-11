@@ -92,6 +92,7 @@ type GetPayloadFlowEvent struct {
 
 // Root record keyed by common.GetKeyForCachingPayload()
 type FlowRecord struct {
+	NodeID         string `json:"nodeId"`
 	Slot           uint64 `json:"slot"`
 	ParentHash     string `json:"parentHash"`
 	BlockHash      string `json:"blockHash"`
@@ -108,21 +109,13 @@ type FlowRecord struct {
 }
 
 type IFlowService interface {
-	RecordHeaderFlow(slot uint64, parentHash, blockHash, blockValue, proposerPubkey string, ev HeaderFlowEvent)
+	RecordHeaderFlow(slot uint64, parentHash, blockHash, blockValue, proposerPubkey, nodeID string, ev HeaderFlowEvent)
 
-	RecordPrefetchStart(
-		slot uint64,
-		parentHash, blockHash, proposerPubkey string,
-		ev PrefetchFlowEvent,
-	)
+	RecordPrefetchStart(slot uint64, parentHash, blockHash, proposerPubkey, blockValue, nodeID string, ev PrefetchFlowEvent)
 
 	RecordPrefetchDone(slot uint64, parentHash, blockHash, proposerPubkey, reqID, getHeaderReqID string, success bool, durationMs int64, source FlowSource, serverURL, serverNodeID string, payloadSizeBytes int, errStr string)
 
-	RecordGetPayload(
-		slot uint64,
-		parentHash, blockHash, proposerPubkey string,
-		ev GetPayloadFlowEvent,
-	)
+	RecordGetPayload(slot uint64, parentHash, blockHash, proposerPubkey, blockValue, nodeID string, ev GetPayloadFlowEvent)
 
 	GetAllFlowsSnapshot() map[string]*FlowRecord
 	GetFlowsBySlot(slot uint64) []*FlowRecord
@@ -140,11 +133,7 @@ func NewFlowService(defaultTTL, cleanupInterval time.Duration) *FlowService {
 	}
 }
 
-func (fs *FlowService) getOrCreateFlowRecord(
-	key string,
-	slot uint64,
-	parentHash, blockHash, proposerPubkey string,
-) *FlowRecord {
+func (fs *FlowService) getOrCreateFlowRecord(key string, slot uint64, parentHash, blockHash, proposerPubkey, blockValue, nodeID string) *FlowRecord {
 	if fs.flowCache == nil {
 		return nil
 	}
@@ -160,6 +149,8 @@ func (fs *FlowService) getOrCreateFlowRecord(
 		ParentHash:     parentHash,
 		BlockHash:      blockHash,
 		ProposerPubkey: proposerPubkey,
+		BlockValue:     blockValue,
+		NodeID:         nodeID,
 	}
 	fs.flowCache.Set(key, rec, cache.DefaultExpiration)
 	return rec
@@ -167,7 +158,7 @@ func (fs *FlowService) getOrCreateFlowRecord(
 
 // ---------------------- Flow write methods ----------------------
 
-func (fs *FlowService) RecordHeaderFlow(slot uint64, parentHash, blockHash, blockValue, proposerPubkey string, ev HeaderFlowEvent) {
+func (fs *FlowService) RecordHeaderFlow(slot uint64, parentHash, blockHash, blockValue, proposerPubkey, nodeID string, ev HeaderFlowEvent) {
 	if fs.flowCache == nil {
 		return
 	}
@@ -176,7 +167,7 @@ func (fs *FlowService) RecordHeaderFlow(slot uint64, parentHash, blockHash, bloc
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	rec := fs.getOrCreateFlowRecord(key, slot, parentHash, blockHash, proposerPubkey)
+	rec := fs.getOrCreateFlowRecord(key, slot, parentHash, blockHash, proposerPubkey, blockValue, nodeID)
 	if rec == nil {
 		return
 	}
@@ -192,13 +183,10 @@ func (fs *FlowService) RecordHeaderFlow(slot uint64, parentHash, blockHash, bloc
 	if ev.RelayURL != "" {
 		rec.RelayURL = ev.RelayURL
 	}
+
 }
 
-func (fs *FlowService) RecordPrefetchStart(
-	slot uint64,
-	parentHash, blockHash, proposerPubkey string,
-	ev PrefetchFlowEvent,
-) {
+func (fs *FlowService) RecordPrefetchStart(slot uint64, parentHash, blockHash, proposerPubkey, blockValue, nodeID string, ev PrefetchFlowEvent) {
 	if fs.flowCache == nil {
 		return
 	}
@@ -207,7 +195,7 @@ func (fs *FlowService) RecordPrefetchStart(
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	rec := fs.getOrCreateFlowRecord(key, slot, parentHash, blockHash, proposerPubkey)
+	rec := fs.getOrCreateFlowRecord(key, slot, parentHash, blockHash, proposerPubkey, blockValue, nodeID)
 	if rec == nil {
 		return
 	}
@@ -265,11 +253,7 @@ func (fs *FlowService) RecordPrefetchDone(slot uint64, parentHash, blockHash, pr
 	})
 }
 
-func (fs *FlowService) RecordGetPayload(
-	slot uint64,
-	parentHash, blockHash, proposerPubkey string,
-	ev GetPayloadFlowEvent,
-) {
+func (fs *FlowService) RecordGetPayload(slot uint64, parentHash, blockHash, proposerPubkey, blockValue, nodeID string, ev GetPayloadFlowEvent) {
 	if fs.flowCache == nil {
 		return
 	}
@@ -278,7 +262,7 @@ func (fs *FlowService) RecordGetPayload(
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	rec := fs.getOrCreateFlowRecord(key, slot, parentHash, blockHash, proposerPubkey)
+	rec := fs.getOrCreateFlowRecord(key, slot, parentHash, blockHash, proposerPubkey, blockValue, nodeID)
 	if rec == nil {
 		return
 	}

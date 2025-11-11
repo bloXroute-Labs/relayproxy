@@ -365,6 +365,11 @@ func (s *Service) sendPayloadStats(payload []byte, log *zerolog.Logger, isSuccee
 					} else {
 						out.SetParentHash(parentHash.String())
 					}
+					var pubKeyStr string
+					if miniSlotDuty, err := s.IDataService.GetSlotDuty(uint64(_slot)); err == nil && miniSlotDuty != nil && miniSlotDuty.Registration != nil && miniSlotDuty.Registration.Message != nil {
+						pubKeyStr = miniSlotDuty.Registration.Message.Pubkey.String()
+					}
+					out.SetPubkey(pubKeyStr)
 				}
 			}
 		}
@@ -375,36 +380,30 @@ func (s *Service) sendPayloadStats(payload []byte, log *zerolog.Logger, isSuccee
 		statsUserAgent = fmt.Sprintf("%s/%s", statsUserAgent, cluster)
 	}
 
-	go s.IDataService.GetFlowService().RecordGetPayload(
-		out.GetSlot(),
-		out.GetParentHash(),
-		out.GetBlockHash(),
-		out.GetPubkey(),
-		GetPayloadFlowEvent{
-			FlowEventSentAt:       time.Now().UTC(),
-			ReqID:                 id,
-			ClientIP:              clientIP,
-			Source:                "",
-			Success:               isSucceeded,
-			DurationMs:            time.Since(startTime).Milliseconds(),
-			MsIntoSlotStart:       msIntoSlot,
-			MsIntoSlotEnd:         0,
-			PayloadSizeBytes:      0,
-			BlockValueEth:         out.GetBlockValue(),
-			RelayURL:              "",
-			Error:                 error,
-			GetHeaderReqID:        "",
-			GetPayloadStartUnixMs: proposerStartTimeUnixMS,
-			SlotStartTimeUnix:     0,
-			MsIntoSlotHeaderStart: 0,
-			UserAgent:             statsUserAgent,
-			AccountID:             accountID,
-			ValidatorID:           validatorID,
-			Latency:               latency,
-			SlotUID:               slotUID,
-			NodeID:                s.nodeID,
-		},
-	)
+	go s.IDataService.GetFlowService().RecordGetPayload(out.GetSlot(), out.GetParentHash(), out.GetBlockHash(), out.GetPubkey(), out.GetBlockValue(), s.nodeID, GetPayloadFlowEvent{
+		FlowEventSentAt:       time.Now().UTC(),
+		ReqID:                 id,
+		ClientIP:              clientIP,
+		Source:                "",
+		Success:               isSucceeded,
+		DurationMs:            time.Since(startTime).Milliseconds(),
+		MsIntoSlotStart:       msIntoSlot,
+		MsIntoSlotEnd:         0,
+		PayloadSizeBytes:      0,
+		BlockValueEth:         out.GetBlockValue(),
+		RelayURL:              "",
+		Error:                 error,
+		GetHeaderReqID:        "",
+		GetPayloadStartUnixMs: proposerStartTimeUnixMS,
+		SlotStartTimeUnix:     0,
+		MsIntoSlotHeaderStart: 0,
+		UserAgent:             statsUserAgent,
+		AccountID:             accountID,
+		ValidatorID:           validatorID,
+		Latency:               latency,
+		SlotUID:               slotUID,
+		NodeID:                s.nodeID,
+	})
 
 	statsRecord := SlotStatsRecord{
 		PayloadReqID:              id,

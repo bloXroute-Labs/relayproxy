@@ -437,7 +437,7 @@ func (s *Server) HandleGetAllFlow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleGetFlowBySlot(w http.ResponseWriter, r *http.Request) {
-	slot := chi.URLParam(r, "slot")
+	slot := r.URL.Query().Get("slot")
 	slotInt, err := strconv.ParseUint(slot, 10, 64)
 	if err != nil {
 		s.writeErrorResponse(w, fmt.Sprintf("failed to fetch  flow by slot : %v, reason :%v", slot, err), err, http.StatusInternalServerError)
@@ -453,8 +453,8 @@ func (s *Server) HandleGetFlowBySlot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleGetFlowBySlotAndBlockHash(w http.ResponseWriter, r *http.Request) {
-	slot := chi.URLParam(r, "slot")
-	blockHash := chi.URLParam(r, "block_hash")
+	slot := r.URL.Query().Get("slot")
+	blockHash := r.URL.Query().Get("block_hash")
 	slotInt, err := strconv.ParseUint(slot, 10, 64)
 	if err != nil || blockHash == "" {
 		s.writeErrorResponse(w, fmt.Sprintf("failed to fetch flow by slot: %v blockHash:%v, reason :%v", slot, blockHash, err), err, http.StatusInternalServerError)
