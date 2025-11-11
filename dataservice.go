@@ -21,7 +21,7 @@ const (
 	GetHeaderRequestCutoffMs             = 3000
 	delayEligibilityCacheCleanupInterval = 60 * time.Second
 
-	flowRetention       = 7 * 24 * time.Hour // keep in-memory for 7 days
+	flowRetention       = 3 * 24 * time.Hour // keep in-memory for 3 days
 	flowCleanupInterval = 5 * time.Minute    // how often expired entries are purged
 )
 
