@@ -2,12 +2,10 @@ package common
 
 const (
 	// Proxy
-	PathIndex                     = "/"
-	PathDelaySettings             = "/relay_proxy/v1/delay_settings"
-	PathGetAccounts               = "/relay_proxy/v1/accounts"
-	PathGetFlows                  = "/relay_proxy/v1/flows"
-	PathGetFlowBySlot             = "/relay_proxy/v1/flow_by_Slot"
-	PathGetFlowBySlotAndBlockHash = "/relay_proxy/v1/flow_by_Slot_and_block"
+	PathIndex         = "/"
+	PathDelaySettings = "/relay_proxy/v1/delay_settings"
+	PathGetAccounts   = "/relay_proxy/v1/accounts"
+	PathGetFlows      = "/relay_proxy/v1/flows"
 
 	// Relay
 	PathStatus            = "/eth/v1/builder/status"

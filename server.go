@@ -170,8 +170,8 @@ func (s *Server) InitHandler() *chi.Mux {
 		r.With(s.MiddlewareAdmin).Post(common.PathDelaySettings, s.HandleSetDelays)
 		r.With(s.MiddlewareAdmin).Get(common.PathGetAccounts, s.HandleGetAccounts)
 		r.With(s.MiddlewareAdmin).Get(common.PathGetFlows, s.HandleGetAllFlow)
-		r.With(s.MiddlewareAdmin).Get(common.PathGetFlowBySlot, s.HandleGetFlowBySlot)
-		r.With(s.MiddlewareAdmin).Get(common.PathGetFlowBySlotAndBlockHash, s.HandleGetFlowBySlotAndBlockHash)
+		r.With(s.MiddlewareAdmin).Get(common.PathGetFlows, s.HandleGetFlowBySlot)
+		r.With(s.MiddlewareAdmin).Get(common.PathGetFlows, s.HandleGetFlowBySlotAndBlockHash)
 	})
 
 	handler.Get(common.PathNode, s.HandleNode)
