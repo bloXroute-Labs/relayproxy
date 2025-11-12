@@ -217,7 +217,6 @@ func (s *Service) prefetchGRPC(
 
 			select {
 			case resultCh <- res:
-				cancel()
 			default:
 			}
 		}(parent.SafeClient, url, req)
