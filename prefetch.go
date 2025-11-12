@@ -54,8 +54,10 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	//	MsIntoSlotPrefetchStart: msIntoSlotPrefetchStart,
 	//})
 	clients := s.clients
+	clientURL := ""
 	if fields.client != nil {
 		clients = append(clients, fields.client)
+		clientURL = fields.client.String()
 	}
 
 	spanCtx, span := s.tracer.Start(ctx, GetSpanName("prefetch", "START"))
@@ -78,7 +80,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 			attribute.Int64("msIntoSlot_getHeader_including_delay", fields.msIntoSlotGetHeaderIncludingDelay),
 			attribute.String("getHeader_req_id", fields.getHeaderReqID),
 			attribute.String("id", prefetchID),
-			attribute.String("clientURL", fields.client.String()),
+			attribute.String("clientURL", clientURL),
 		)
 		span.End()
 
@@ -95,7 +97,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		Str("method", preFetchPayload).
 		Time("prefetchStartedAt", startTime).
 		Str("clientIP", fields.clientIP).
-		Str("clientURL", fields.client.String()).
+		Str("clientURL", clientURL).
 		Str("prefetchID", prefetchID).
 		Str("traceID", span.SpanContext().TraceID().String()).
 		Str("uKey", uKey).
@@ -166,7 +168,6 @@ func (s *Service) prefetchGRPC(
 		} else {
 			baseLogger.Error().Err(err).
 				Int("payload_size_bytes", payloadSize).
-				Str("url", result.url).
 				Int64("endedAt", durationMs).
 				Msg("prefetchGRPC :: failed")
 		}
