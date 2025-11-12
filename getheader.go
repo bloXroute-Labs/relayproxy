@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -16,22 +15,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/attestantio/go-eth2-client/spec/phase0"
 	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
-	"github.com/bloXroute-Labs/relay-grpc/optimisticv3"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fastjson"
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
-	"github.com/bloXroute-Labs/relayproxy/httpclient"
-	gethcommon "github.com/ethereum/go-ethereum/common"
-	"github.com/flashbots/go-boost-utils/ssz"
 	"github.com/google/uuid"
 	"github.com/patrickmn/go-cache"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -169,31 +162,63 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	fetchGetHeaderStartTime := time.Now().UTC()
 	keyForCachingBids := s.keyForCachingBids(_slot, in.ParentHash, in.PubKey)
 	slotBestHeader, secondBestHeader, getErr := s.GetTopBuilderBid(keyForCachingBids)
+
 	fetchSpan.SetAttributes(
 		attribute.Int64("svc.getHeader_fetch_bid_ms", time.Since(fetchStart).Milliseconds()),
 		attribute.Bool("haveBestHeader", slotBestHeader != nil && getErr == nil),
+		attribute.String("svc.slotBestHeader.blockHash", func() string {
+			if slotBestHeader != nil {
+				return slotBestHeader.BlockHash
+			}
+			return ""
+		}()),
+		attribute.String("svc.slotBestHeader.builderPubkey", func() string {
+			if slotBestHeader != nil {
+				return slotBestHeader.BuilderPubkey
+			}
+			return ""
+		}()),
+		attribute.String("svc.slotBestHeader.blockHashReceivedAt", func() string {
+			if slotBestHeader != nil {
+				return slotBestHeader.ReceivedAt.String()
+			}
+			return ""
+		}()),
+		attribute.String("svc.slotBestHeader.clientURL", slotBestHeader.Client.String()),
 	)
 	fetchSpan.End()
+
+	if slotBestHeader != nil {
+		log.Info().
+			Str("best_header_block_hash", slotBestHeader.BlockHash).
+			Str("best_header_builder_pubkey", slotBestHeader.BuilderPubkey).
+			Str("best_header_client_url", slotBestHeader.Client.String()).
+			Msg("GetHeader: selected best header")
+	}
 
 	// ---- SPECULATIVE PREFETCH (non-blocking) ----
 	if getErr == nil && slotBestHeader != nil {
 		specStart := time.Now()
 		_, specSpan := s.tracer.Start(ctx, GetSpanName("svc.getHeader", "speculativePrefetch"))
 		s.preFetchPayloadChan <- preFetcherFields{
-			clientIP:        in.ClientIP,
-			authHeader:      in.AuthHeader,
-			slot:            _slot,
-			parentHash:      in.ParentHash,
-			blockHash:       slotBestHeader.BlockHash,
-			proposerPubKey:  in.PubKey,
-			builderPubKey:   slotBestHeader.BuilderPubkey,
-			blockValue:      weiToEther(new(big.Int).SetBytes(slotBestHeader.Value)),
-			client:          slotBestHeader.Client,
-			payloadFetchUrl: slotBestHeader.PayloadFetchUrl,
+			clientIP:                          in.ClientIP,
+			authHeader:                        in.AuthHeader,
+			slot:                              _slot,
+			parentHash:                        in.ParentHash,
+			blockHash:                         slotBestHeader.BlockHash,
+			proposerPubKey:                    in.PubKey,
+			builderPubKey:                     slotBestHeader.BuilderPubkey,
+			blockValue:                        weiToEther(new(big.Int).SetBytes(slotBestHeader.Value)),
+			client:                            slotBestHeader.Client,
+			payloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
+			slotStartTime:                     slotStartTime,
+			msIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
+			getHeaderReqID:                    id,
 		}
 		specSpan.SetAttributes(
 			attribute.String("prefetch.blockHash", slotBestHeader.BlockHash),
 			attribute.String("prefetch.builderPubkey", slotBestHeader.BuilderPubkey),
+			attribute.String("prefetch.clientURL", slotBestHeader.Client.String()),
 			attribute.Int64("svc.getHeader_speculative_prefetch_ms", time.Since(specStart).Milliseconds()),
 		)
 		specSpan.End()
@@ -261,28 +286,6 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 					slotBestHeader = replacementHeader
 					getErr = nil
 					log.Debug().Msg("got new bid after repick from channel")
-
-					// Prefetch replacement as well
-					repSpecStart := time.Now()
-					_, repSpecSpan := s.tracer.Start(ctx, GetSpanName("svc.getHeader", "repickPrefetch"))
-					s.preFetchPayloadChan <- preFetcherFields{
-						clientIP:        in.ClientIP,
-						authHeader:      in.AuthHeader,
-						slot:            _slot,
-						parentHash:      in.ParentHash,
-						blockHash:       slotBestHeader.BlockHash,
-						proposerPubKey:  in.PubKey,
-						builderPubKey:   slotBestHeader.BuilderPubkey,
-						blockValue:      weiToEther(new(big.Int).SetBytes(slotBestHeader.Value)),
-						client:          slotBestHeader.Client,
-						payloadFetchUrl: slotBestHeader.PayloadFetchUrl,
-					}
-					repSpecSpan.SetAttributes(
-						attribute.String("prefetch.blockHash", slotBestHeader.BlockHash),
-						attribute.String("prefetch.builderPubkey", slotBestHeader.BuilderPubkey),
-						attribute.Int64("svc.getHeader_repick_prefetch_ms", time.Since(repSpecStart).Milliseconds()),
-					)
-					repSpecSpan.End()
 				} else {
 					log.Debug().Msg("got nil bid after repick from channel")
 				}
@@ -304,29 +307,6 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 				secondBestHeader = secondBidHeader
 				getErr = err
 				log.Debug().Msg("got new bid after repick wait")
-
-				if slotBestHeader != nil {
-					repickUpdateStart := time.Now()
-					_, repUpdSpan := s.tracer.Start(ctx, GetSpanName("svc.getHeader", "repickPrefetchAfterWait"))
-					s.preFetchPayloadChan <- preFetcherFields{
-						clientIP:        in.ClientIP,
-						authHeader:      in.AuthHeader,
-						slot:            _slot,
-						parentHash:      in.ParentHash,
-						blockHash:       slotBestHeader.BlockHash,
-						proposerPubKey:  in.PubKey,
-						builderPubKey:   slotBestHeader.BuilderPubkey,
-						blockValue:      "",
-						client:          slotBestHeader.Client,
-						payloadFetchUrl: slotBestHeader.PayloadFetchUrl,
-					}
-					repUpdSpan.SetAttributes(
-						attribute.String("prefetch.blockHash", slotBestHeader.BlockHash),
-						attribute.String("prefetch.builderPubkey", slotBestHeader.BuilderPubkey),
-						attribute.Int64("svc.getHeader_repick_update_prefetch_ms", time.Since(repickUpdateStart).Milliseconds()),
-					)
-					repUpdSpan.End()
-				}
 			}
 		}
 	}
@@ -428,6 +408,34 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		Time("repickTime", time.Now().Add(time.Duration(delayGetHeaderResponse.ReplacementDelayMs)*time.Millisecond)).
 		Logger()
 
+	// -------- flow : record header info -------
+	go s.IDataService.GetFlowService().RecordHeaderFlow(_slot, in.ParentHash, slotBestHeader.BlockHash, weiToEther(blockValue), in.PubKey, s.nodeID, HeaderFlowEvent{
+		FlowEventSentAt:      time.Now().UTC(),
+		ServedByThisNode:     true,
+		SlotStartTime:        slotStartTime,
+		MsIntoSlot:           msIntoSlot,
+		MsIntoSlotWithDelay:  msIntoSlotIncludingDelay,
+		AccountID:            in.AccountID,
+		ValidatorID:          in.ValidatorID,
+		Source:               FlowSourceLocalBidCache, // adjust if needed
+		GetHeaderReqID:       id,
+		GetHeaderStartUnixMs: in.GetHeaderStartTimeUnixMS,
+		BlockValue:           weiToEther(blockValue),
+		BuilderPubkey:        slotBestHeader.BuilderPubkey,
+		BuilderExtraData:     slotBestHeader.BuilderExtraData,
+		BlockHashReceivedAt:  slotBestHeader.ReceivedAt,
+		RelayURL:             slotBestHeader.Client.String(),
+		BlockSequenceNumber:  slotBestHeader.BlockSequenceNumber,
+		Latency:              latency,
+		Sleep:                sleep,
+		MaxSleep:             maxSleep,
+		ClientIP:             in.ClientIP,
+		NodeID:               s.nodeID,
+		SlotUID:              in.SlotUID,
+		HeaderUserAgent:      statsUserAgent,
+		RepickedBlock:        usedRepick,
+	})
+
 	// -------- Stats logging goroutine --------
 	go func(statsStart time.Time) {
 		statsSpanStart := time.Now()
@@ -443,23 +451,18 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			HeaderSucceeded:           true,
 			HeaderDeliveredBlockHash:  slotBestHeader.BlockHash,
 			HeaderBlockValue:          weiToEther(blockValue),
-			HeaderUserAgent: func() string {
-				if in.Cluster != "" {
-					return in.UserAgent + "/" + in.Cluster
-				}
-				return in.UserAgent
-			}(),
-			HeaderStartTimeUnixMs: in.GetHeaderStartTimeUnixMS,
-			Slot:                  _slot,
-			SlotStartTime:         slotStartTime,
-			ParentHash:            in.ParentHash,
-			PubKey:                in.PubKey,
-			ClientIP:              in.ClientIP,
-			NodeID:                s.nodeID,
-			AccountID:             in.AccountID,
-			ValidatorID:           in.ValidatorID,
-			GetHeaderLatency:      latency,
-			HeaderSlotUID:         in.SlotUID,
+			HeaderUserAgent:           statsUserAgent,
+			HeaderStartTimeUnixMs:     in.GetHeaderStartTimeUnixMS,
+			Slot:                      _slot,
+			SlotStartTime:             slotStartTime,
+			ParentHash:                in.ParentHash,
+			PubKey:                    in.PubKey,
+			ClientIP:                  in.ClientIP,
+			NodeID:                    s.nodeID,
+			AccountID:                 in.AccountID,
+			ValidatorID:               in.ValidatorID,
+			GetHeaderLatency:          latency,
+			HeaderSlotUID:             in.SlotUID,
 		}
 
 		if v, ok := s.slotStats.Get(k); !ok {
@@ -472,6 +475,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 				SlotKey:   k,
 				UserAgent: in.UserAgent,
 			}
+
 		} else {
 			slotStatsSlice := v.([]SlotStatsRecord)
 			slotStatsSlice = append(slotStatsSlice, slotStats)
@@ -578,20 +582,24 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	enqStart := time.Now()
 	_, enqSpan := s.tracer.Start(ctx, GetSpanName("svc.getHeader", "enqueueFinalPrefetch"))
 	s.preFetchPayloadChan <- preFetcherFields{
-		clientIP:        in.ClientIP,
-		authHeader:      in.AuthHeader,
-		slot:            _slot,
-		parentHash:      in.ParentHash,
-		blockHash:       slotBestHeader.BlockHash,
-		proposerPubKey:  in.PubKey,
-		builderPubKey:   slotBestHeader.BuilderPubkey,
-		blockValue:      weiToEther(blockValue),
-		client:          slotBestHeader.Client,
-		payloadFetchUrl: slotBestHeader.PayloadFetchUrl,
+		clientIP:                          in.ClientIP,
+		authHeader:                        in.AuthHeader,
+		slot:                              _slot,
+		parentHash:                        in.ParentHash,
+		blockHash:                         slotBestHeader.BlockHash,
+		proposerPubKey:                    in.PubKey,
+		builderPubKey:                     slotBestHeader.BuilderPubkey,
+		blockValue:                        weiToEther(blockValue),
+		client:                            slotBestHeader.Client,
+		payloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
+		slotStartTime:                     slotStartTime,
+		msIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
+		getHeaderReqID:                    id,
 	}
 	enqSpan.SetAttributes(
 		attribute.String("prefetch.blockHash", slotBestHeader.BlockHash),
 		attribute.String("prefetch.builderPubkey", slotBestHeader.BuilderPubkey),
+		attribute.String("prefetch.clientURL", slotBestHeader.Client.String()),
 		attribute.Int64("svc.getHeader_enqueue_prefetch_ms", time.Since(enqStart).Milliseconds()),
 	)
 	enqSpan.End()
@@ -630,96 +638,15 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	return json.RawMessage(signedHeaderResponse), onHeaderDeliveredParams, nil
 }
 
-// ========================= Prefetcher Loop =========================
-
-func (s *Service) StartPreFetcher(ctx context.Context) {
-	for fields := range s.preFetchPayloadChan {
-		go func(fields preFetcherFields) {
-			_ctx, cancel := context.WithTimeout(ctx, preFetcherRequestTimeout)
-			defer cancel()
-			s.PreFetchGetPayload(_ctx, fields)
-		}(fields)
-	}
-}
-
-func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherFields) {
-	var (
-		clientURL string
-		success   bool
-	)
-	startTime := time.Now().UTC()
-	defer func() {
-		s.performancestats.SetEndpointStats("PreFetchGetPayload-rproxy", uint64(time.Since(startTime).Microseconds()), success, 100)
-	}()
-
-	id := uuid.NewString()
-
-	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
-
-	spanCtx, span := s.tracer.Start(ctx, GetSpanName("prefetch", "START"))
-	uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", fields.slot, fields.blockHash, fields.parentHash)
-	defer func() {
-		span.SetAttributes(
-			attribute.String("method", preFetchPayload),
-			attribute.String("clientIP", fields.clientIP),
-			attribute.String("clientURL", clientURL),
-			attribute.String("reqID", id),
-			attribute.Int64("receivedAt_unix", startTime.Unix()),
-			attribute.String("traceID", span.SpanContext().TraceID().String()),
-			attribute.String("authHeader", fields.authHeader),
-			attribute.String("secretToken", s.secretToken),
-			attribute.String("uKey", uKey),
-			attribute.Int64("slot", int64(fields.slot)),
-			attribute.String("blockHash", fields.blockHash),
-		)
-		span.End()
-	}()
-
-	if fields.client != nil {
-		clientURL = fields.client.SafeClient.URL
-	}
-
-	logMetric := NewLogMetric(
-		map[string]any{
-			"method":     preFetchPayload,
-			"receivedAt": startTime,
-			"clientIP":   fields.clientIP,
-			"clientURL":  clientURL,
-			"reqID":      id,
-			"traceID":    span.SpanContext().TraceID().String(),
-			"uKey":       uKey,
-			"slot":       int64(fields.slot),
-			"blockHash":  fields.blockHash,
-		},
-	)
-
-	s.logger.Debug().Fields(logMetric.GetFields()).Msg("received preFetchGetPayload")
-
-	// If necessary, fetch the Optimistic V3 payload directly from the specified builder URL(s)
-	if fields.payloadFetchUrl != "" {
-		subStart := time.Now()
-		_, sub := s.tracer.Start(spanCtx, GetSpanName("prefetch", "builderHTTPorGRPC"))
-		success = s.prefetchPayloadFromBuilder(spanCtx, spanCtx, &fields, logMetric.Copy())
-		sub.SetAttributes(
-			attribute.Bool("success", success),
-			attribute.Int64("duration_ms", time.Since(subStart).Milliseconds()),
-		)
-		sub.End()
-		return
-	}
-
-	// gRPC/HTTP fanout core
-	fanoutStart := time.Now()
-	_, fanoutSpan := s.tracer.Start(spanCtx, GetSpanName("prefetch", "grpcFanout"))
-	s.prefetchPayloadGRPC(spanCtx, spanCtx, &fields, logMetric.Copy(), span, id, startTime, &success)
-	fanoutSpan.SetAttributes(
-		attribute.Bool("success", success),
-		attribute.Int64("duration_ms", time.Since(fanoutStart).Milliseconds()),
-	)
-	fanoutSpan.End()
-}
-
 // ========================= prefetchPayloadGRPC (core fanout) =========================
+
+// wrapper for downstream prefetch result so we can track source + URL + nodeID
+type prefetchResult struct {
+	resp   *relaygrpc.PreFetchGetPayloadResponse
+	source FlowSource
+	url    string
+	nodeID string
+}
 
 func (s *Service) prefetchPayloadGRPC(
 	ctx context.Context,
@@ -730,6 +657,7 @@ func (s *Service) prefetchPayloadGRPC(
 	reqID string,
 	startTime time.Time,
 	success *bool,
+	getHeaderReqID string,
 ) {
 	start := time.Now()
 	spanCtx, svcSpan := s.tracer.Start(spanctx, GetSpanName("prefetch", "grpcFanoutCore"))
@@ -751,12 +679,11 @@ func (s *Service) prefetchPayloadGRPC(
 	}
 
 	var (
-		errChan            = make(chan *ErrorResp, len(s.clients)+2)
-		respChan           = make(chan *relaygrpc.PreFetchGetPayloadResponse, len(s.clients)+2)
-		payloadCacheKey    = common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey)
-		wg                 sync.WaitGroup
-		prefetchedRequests = 0
-		succeededEarly     = false
+		errChan         = make(chan *ErrorResp, len(s.clients)+2)
+		respChan        = make(chan *prefetchResult, len(s.clients)+2)
+		payloadCacheKey = common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey)
+		wg              sync.WaitGroup
+		requestCount    = 0
 	)
 
 	tracker := &protoLogTracker{}
@@ -767,7 +694,7 @@ func (s *Service) prefetchPayloadGRPC(
 
 	// If cache available and has the payload, SHORT-CIRCUIT: mark success and return immediately.
 	if s.getPayloadResponseForProxySlot == nil {
-		s.logger.Error().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload :: cache is nil")
+		s.logger.Error().Fields(logMetric.GetFields()).Msg("PreFetchPayload :: cache is nil")
 		errChan <- toErrorResp(http.StatusInternalServerError, "cache is nil")
 		cacheSpan.SetAttributes(attribute.String("result", "nil_cache"))
 	} else if cachedValue, exists := s.getPayloadResponseForProxySlot.Get(payloadCacheKey); exists && cachedValue != nil {
@@ -793,17 +720,41 @@ func (s *Service) prefetchPayloadGRPC(
 			_ = s.getPayloadResponseForProxySlot.Add(proxyCacheKey, payloadResponse, cache.DefaultExpiration)
 
 			*success = true
+			payloadSize := len(marshaledVal)
 			cacheSpan.SetAttributes(
 				attribute.String("result", "hit_fastpath"),
 				attribute.Int64("duration_ms", time.Since(cacheStart).Milliseconds()),
+				attribute.Int("payload_size_bytes", payloadSize),
 			)
 			cacheSpan.End()
+
+			durationMs := time.Since(start).Milliseconds()
+
+			s.logger.Info().Fields(logMetric.GetFields()).
+				Int("payload_size_bytes", payloadSize).
+				Msg("PreFetchPayload :: prefetch succeeded (cache-fastpath) – recording flow")
+
+			// record cache fastpath as prefetch success (non-blocking)
+			go s.IDataService.GetFlowService().RecordPrefetchDone(
+				fields.slot,
+				fields.parentHash,
+				fields.blockHash,
+				fields.proposerPubKey,
+				reqID,
+				getHeaderReqID,
+				true,
+				durationMs,
+				FlowSourcePrefetchCache,
+				s.nodeID, // serverURL (cache)
+				"",       // serverNodeID
+				payloadSize,
+				"", // error
+			)
 
 			// Add a small outcome event on the parent span for visibility
 			parentSpan.AddEvent("cache_fastpath_return", trace.WithAttributes(
 				attribute.String("cacheKey", proxyCacheKey),
 			))
-			s.logger.Info().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload :: prefetch succeeded (cache-fastpath)")
 			return
 		}
 	} else {
@@ -820,72 +771,190 @@ func (s *Service) prefetchPayloadGRPC(
 	if fields.client != nil {
 		clients = append(clients, fields.client)
 	}
-	prefetchedRequests += len(clients)
+	requestCount = len(clients)
+
+	var fanoutURLs []string
+	for _, c := range clients {
+		if c != nil {
+			fanoutURLs = append(fanoutURLs, c.String())
+		}
+	}
+
 	setupSpan.SetAttributes(
 		attribute.Int("clients_count", len(clients)),
-		attribute.Bool("succeededEarly", succeededEarly),
-		attribute.Int("expected_responses", prefetchedRequests),
+		attribute.Int("expected_responses", requestCount),
+		attribute.StringSlice("fanout_urls", fanoutURLs),
 		attribute.Int64("duration_ms", time.Since(setupStart).Milliseconds()),
 	)
 	setupSpan.End()
 
+	s.logger.Debug().
+		Str("reqID", reqID).
+		Uint64("slot", fields.slot).
+		Str("parentHash", fields.parentHash).
+		Str("blockHash", fields.blockHash).
+		Strs("fanout_urls", fanoutURLs).
+		Msg("PreFetchPayload :: fanout setup")
+
 	// nothing to do except cache check
-	if !succeededEarly && len(clients) == 0 {
+	if len(clients) == 0 {
 		noClientsStart := time.Now()
 		_, noClientsSpan := s.tracer.Start(spanCtx, GetSpanName("prefetch", "noClients"))
-		noClientsSpan.SetAttributes(attribute.String("status", "no_downstreams"), attribute.Int64("duration_ms", time.Since(noClientsStart).Milliseconds()))
+		noClientsSpan.SetAttributes(
+			attribute.String("status", "no_downstreams"),
+			attribute.Int64("duration_ms", time.Since(noClientsStart).Milliseconds()),
+		)
 		noClientsSpan.End()
 		*success = false
 		return
 	}
 
-	// Spawn client attempts only if needed
-	if !succeededEarly {
-		for _, client := range clients {
-			wg.Add(1)
-			go func(client *common.ParentClient) {
-				defer wg.Done()
-				prefetchLogger := s.logger.With().Fields(logMetric.GetFields()).Logger()
-				s.prefetchPayload(ctx, spanCtx, client.SafeClient, req, parentSpan, errChan, respChan, prefetchLogger, tracker)
-			}(client)
+	// Spawn client attempts
+	for _, client := range clients {
+		if client == nil {
+			continue
 		}
+		wg.Add(1)
+		go func(client *common.ParentClient) {
+			defer wg.Done()
+			prefetchLogger := s.logger.With().Fields(logMetric.GetFields()).
+				Str("downstream_url", func() string {
+					if client != nil {
+						return client.String()
+					}
+					return "empty client"
+				}()).
+				Logger()
+
+			// Current code uses SafeClient directly; if you later wire in
+			// ParentClient.GetActiveClient(), this is the spot to change.
+			s.prefetchPayload(ctx, spanCtx, client.SafeClient, req, parentSpan, errChan, respChan, prefetchLogger, tracker)
+		}(client)
 	}
 
 	// ---- Select loop span ----
 	loopStart := time.Now()
 	_, loopSpan := s.tracer.Start(spanCtx, GetSpanName("prefetch", "waitForWinner"))
+
+	var lastErrMsg string
+
 	defer func() {
 		loopSpan.SetAttributes(attribute.Int64("duration_ms", time.Since(loopStart).Milliseconds()))
 		loopSpan.End()
 	}()
 
-	for i := 0; i < prefetchedRequests; i++ {
+	for i := 0; i < requestCount; i++ {
 		select {
 		case <-ctx.Done():
-			s.logger.Debug().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload :: context canceled")
-			loopSpan.AddEvent("ctx_done")
+			s.logger.Debug().Fields(logMetric.GetFields()).Msg("PreFetchPayload :: context canceled")
+			loopSpan.AddEvent("ctx_done", trace.WithAttributes(
+				attribute.String("ctx_err", func() string {
+					if ctx.Err() != nil {
+						return ctx.Err().Error()
+					}
+					return ""
+				}()),
+			))
+			*success = false
+			go s.IDataService.GetFlowService().RecordPrefetchDone(
+				fields.slot,
+				fields.parentHash,
+				fields.blockHash,
+				fields.proposerPubKey,
+				reqID,
+				getHeaderReqID,
+				false,
+				time.Since(start).Milliseconds(),
+				FlowSourceUnknown,
+				"", // serverURL
+				"", // serverNodeID
+				0,
+				"ctx_cancelled",
+			)
+			return
+
 		case _err := <-errChan:
 			if _err != nil {
-				s.logger.Debug().Fields(logMetric.GetFields()).Interface("error", _err).Msg("PreFetchGetPayload :: received error")
+				lastErrMsg = _err.Error()
+				s.logger.Debug().Fields(logMetric.GetFields()).Interface("error", _err).Msg("PreFetchPayload :: received error")
 				loopSpan.AddEvent("error", trace.WithAttributes(attribute.String("err", _err.Error())))
 			}
+
 		case out := <-respChan:
-			if out == nil {
-				loopSpan.AddEvent("nil_response")
+			if out == nil || out.resp == nil {
 				continue
 			}
+
+			resp := out.resp
 			proxyCacheKey := common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey)
 			*success = true
 			payloadResponse := &common.PayloadResponseForProxy{
-				MarshalledPayloadResponse: out.VersionedExecutionPayload,
+				MarshalledPayloadResponse: resp.VersionedExecutionPayload,
 				BlockValue:                fields.blockValue,
 			}
+			payloadSize := len(resp.VersionedExecutionPayload)
+
 			// Treat "already exists" as success (payload ready).
 			if err := s.getPayloadResponseForProxySlot.Add(proxyCacheKey, payloadResponse, cache.DefaultExpiration); err != nil {
-				s.logger.Debug().Fields(logMetric.GetFields()).Err(err).Msg("PreFetchGetPayload :: cache already has payload (ok)")
+				s.logger.Debug().Fields(logMetric.GetFields()).Err(err).Msg("PreFetchPayload :: cache already has payload (ok)")
 			}
-			s.logger.Info().Fields(logMetric.GetFields()).Msg("PreFetchGetPayload :: prefetch succeeded")
-			loopSpan.AddEvent("winner", trace.WithAttributes(attribute.String("cacheKey", proxyCacheKey)))
+
+			s.logger.Info().Fields(logMetric.GetFields()).
+				Int("payload_size_bytes", payloadSize).
+				Str("winner_url", out.url).
+				Str("winner_node_id", out.nodeID).
+				Str("winner_source", string(out.source)).
+				Msg("PreFetchPayload :: prefetch succeeded – recording flow")
+
+			if out.url == "" || out.nodeID == "" {
+				s.logger.Warn().
+					Fields(logMetric.GetFields()).
+					Str("winner_url", out.url).
+					Str("winner_node_id", out.nodeID).
+					Msg("PreFetchPayload :: winner has empty URL or nodeID – investigate client config")
+			}
+
+			loopSpan.AddEvent("winner", trace.WithAttributes(
+				attribute.String("cacheKey", proxyCacheKey),
+				attribute.Int("payload_size_bytes", payloadSize),
+				attribute.String("winner_url", out.url),
+				attribute.String("winner_node_id", out.nodeID),
+				attribute.String("winner_source", string(out.source)),
+			))
+
+			durationMs := time.Since(start).Milliseconds()
+
+			// Log exactly what we send to flow layer so you can diff with JSON output.
+			s.logger.Debug().
+				Uint64("slot", fields.slot).
+				Str("parentHash", fields.parentHash).
+				Str("blockHash", fields.blockHash).
+				Str("proposerPubkey", fields.proposerPubKey).
+				Str("reqID", reqID).
+				Str("getHeaderReqID", getHeaderReqID).
+				Bool("success", true).
+				Int64("durationMs", durationMs).
+				Str("flow_source", string(out.source)).
+				Str("flow_server_url", out.url).
+				Str("flow_server_node_id", out.nodeID).
+				Int("flow_payload_size_bytes", payloadSize).
+				Msg("RecordPrefetchDone call (winner)")
+
+			go s.IDataService.GetFlowService().RecordPrefetchDone(
+				fields.slot,
+				fields.parentHash,
+				fields.blockHash,
+				fields.proposerPubKey,
+				reqID,
+				getHeaderReqID,
+				true,
+				durationMs,
+				out.source,
+				out.url,
+				out.nodeID,
+				payloadSize,
+				"",
+			)
 			return
 		}
 	}
@@ -916,130 +985,37 @@ func (s *Service) prefetchPayloadGRPC(
 		attribute.Int64("duration_ms", time.Since(outcomeStart).Milliseconds()),
 	)
 	outcomeSpan.End()
-}
 
-// ========================= Builder (Optimistic V3) path =========================
+	// record failure outcome
+	failDuration := time.Since(start).Milliseconds()
+	s.logger.Debug().
+		Uint64("slot", fields.slot).
+		Str("parentHash", fields.parentHash).
+		Str("blockHash", fields.blockHash).
+		Str("proposerPubkey", fields.proposerPubKey).
+		Str("reqID", reqID).
+		Str("getHeaderReqID", getHeaderReqID).
+		Bool("success", false).
+		Int64("durationMs", failDuration).
+		Str("flow_source", string(FlowSourceUnknown)).
+		Str("error", lastErrMsg).
+		Msg("RecordPrefetchDone call (no winner)")
 
-func (s *Service) prefetchPayloadFromBuilder(ctx context.Context, spanCtx context.Context, fields *preFetcherFields, logMetric *LogMetric) bool {
-	_, span := s.tracer.Start(spanCtx, GetSpanName("prefetch", "fromBuilder"))
-	var success atomic.Bool
-	defer func() {
-		span.SetAttributes(attribute.Bool("success", success.Load()))
-		span.End()
-	}()
-
-	payloadUrlsData := common.SafeSplit(fields.payloadFetchUrl, optimisticv3.PayloadUrlsTypeSeparator)
-	if len(payloadUrlsData) != optimisticv3.PayloadUrlsDataExpectedLength {
-		logMetric.Fields(map[string]any{"payloadUrlsData": payloadUrlsData})
-		s.logger.Debug().Err(errors.New("invalid payload URL format")).Fields(logMetric.GetFields()).Msg("Failed to fetch Optimistic V3 payload from builder")
-		return success.Load()
-	}
-
-	payloadUrlType := payloadUrlsData[optimisticv3.PayloadUrlTypeIndex]
-	payloadUrlsCSV := payloadUrlsData[optimisticv3.PayloadUrlsCSVIndex]
-	payloadUrls := common.SafeSplit(payloadUrlsCSV, ",")
-
-	span.SetAttributes(attribute.String("payloadUrlType", payloadUrlType), attribute.StringSlice("payloadUrls", payloadUrls))
-
-	switch optimisticv3.PayloadUrlType(payloadUrlType) {
-	case optimisticv3.PayloadUrlTypeHTTP:
-		success.Store(s.clientPreFetchGetPayloadHTTP(ctx, logMetric, fields, payloadUrls))
-		return success.Load()
-	case optimisticv3.PayloadUrlTypeGRPC:
-		// We only support HTTP requests for Optimistic V3 payloads from builders for now
-		s.logger.Debug().Fields(logMetric.GetFields()).Msg("Ignoring fetch Optimistic V3 payload request with 'grpc' URL type")
-		return success.Load()
-	default:
-		s.logger.Debug().Err(errors.New("invalid payload URL type")).Fields(logMetric.GetFields()).Msg("Failed to fetch Optimistic V3 payload from builder")
-		return success.Load()
-	}
-}
-
-func (s *Service) clientPreFetchGetPayloadHTTP(ctx context.Context, logMetric *LogMetric, fields *preFetcherFields, payloadUrls []string) bool {
-	_, fetchSpan := s.tracer.Start(ctx, GetSpanName("prefetch", "httpFanout"))
-	defer func() {
-		fetchSpan.SetAttributes(
-			attribute.Int64("slot", int64(fields.slot)),
-			attribute.String("blockHash", fields.blockHash),
-			attribute.String("parentHash", fields.parentHash),
-			attribute.String("proposerPubkey", fields.proposerPubKey),
-			attribute.String("builderPubkey", fields.builderPubKey),
-		)
-		fetchSpan.End()
-	}()
-
-	payload, err := s.prepareGetPayloadV3Request(fields.blockHash)
-	if err != nil {
-		s.logger.Debug().Err(err).Fields(logMetric.GetFields()).Msg("failed to prepare HTTP get_payload_v3 request")
-		return false
-	}
-
-	responseChan := make(chan *common.VersionedSubmitBlockRequest, len(payloadUrls))
-
-	// Send request to all builders
-	for _, payloadUrl := range payloadUrls {
-		url := payloadUrl + common.PathGetPayloadV3
-		go func(url string) {
-			result := new(common.VersionedSubmitBlockRequest)
-			code, durationMS, err := httpclient.FetchSSZ(http.MethodPost, url, payload, result, nil, true)
-			if err != nil {
-				s.logger.Debug().Fields(logMetric.GetFields()).Err(err).Str("url", url).Int("code", code).Int64("durationMS", durationMS).Msg("failed to prefetch payload with HTTP")
-				return
-			}
-			responseChan <- result
-		}(url)
-	}
-
-	// Process first positive response from builder (or timeout)
-	return s.processGetPayloadV3Responses(ctx, responseChan, logMetric, fields)
-}
-
-func (s *Service) prepareGetPayloadV3Request(blockHash string) (*optimisticv3.SignedGetPayloadV3, error) {
-	getPayloadV3 := &optimisticv3.GetPayloadV3{
-		BlockHash:      phase0.Hash32(gethcommon.HexToHash(blockHash)),
-		RequestTs:      uint64(time.Now().UnixMilli()),
-		RelayPublicKey: s.publicKey,
-	}
-	signature, err := ssz.SignMessage(getPayloadV3, s.builderSigningDomain, s.secretKey)
-	if err != nil {
-		return nil, err
-	}
-	return &optimisticv3.SignedGetPayloadV3{Message: getPayloadV3, Signature: signature}, nil
-}
-
-func (s *Service) processGetPayloadV3Responses(ctx context.Context, responseChan chan *common.VersionedSubmitBlockRequest, logMetric *LogMetric, fields *preFetcherFields) bool {
-	for {
-		select {
-		case <-ctx.Done():
-			s.logger.Debug().Fields(logMetric.GetFields()).Msg("PreFetchGetPayloadV3 :: context cancelled")
-			return false
-		case response := <-responseChan:
-			if response == nil {
-				s.logger.Debug().Fields(logMetric.GetFields()).Msg("PreFetchGetPayloadV3 :: nil payload from builder")
-				continue
-			}
-			getPayloadResponseSpec, err := common.BuildGetPayloadResponse(response)
-			if err != nil {
-				s.logger.Debug().Fields(logMetric.GetFields()).Err(err).Msg("PreFetchGetPayloadV3 :: BuildGetPayloadResponse failed")
-				continue
-			}
-			getPayloadResponse := common.VersionedSubmitBlindedBlockResponse{VersionedSubmitBlindedBlockResponse: *getPayloadResponseSpec}
-			proxyCacheKey := common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey)
-
-			payloadResponse := &common.PayloadResponseForProxy{PayloadResponse: getPayloadResponse, BlockValue: fields.blockValue}
-
-			if err := s.getPayloadResponseForProxySlot.Add(proxyCacheKey, payloadResponse, cache.DefaultExpiration); err != nil {
-				s.logger.Debug().Fields(logMetric.GetFields()).Err(err).Msg("PreFetchGetPayloadV3 :: cache already exists")
-				return true // payload ready already
-			}
-
-			s.logger.Info().Fields(logMetric.GetFields()).Msg("PreFetchGetPayloadV3 :: HTTP builder prefetch succeeded")
-			return true
-		case <-time.After(common.OptimisticV3FetchPayloadTimeout):
-			s.logger.Warn().Fields(logMetric.GetFields()).Msg("PreFetchGetPayloadV3 :: timeout waiting for builder HTTP response")
-			return false
-		}
-	}
+	go s.IDataService.GetFlowService().RecordPrefetchDone(
+		fields.slot,
+		fields.parentHash,
+		fields.blockHash,
+		fields.proposerPubKey,
+		reqID,
+		getHeaderReqID,
+		false,
+		failDuration,
+		FlowSourceUnknown,
+		"",
+		"",
+		0,
+		lastErrMsg,
+	)
 }
 
 // ========================= Helpers for JSON/SSZ decode path =========================
@@ -1074,11 +1050,11 @@ func (s *Service) prefetchPayload(
 	req *relaygrpc.PreFetchGetPayloadRequest,
 	span trace.Span,
 	errChan chan *ErrorResp,
-	respChan chan *relaygrpc.PreFetchGetPayloadResponse,
+	respChan chan *prefetchResult,
 	logger zerolog.Logger,
 	tracker *protoLogTracker,
 ) {
-	// short hedged timeout
+	// short hedged timeout per downstream
 	clientCtx, cancel := context.WithTimeout(ctx, 900*time.Millisecond)
 	defer cancel()
 
@@ -1086,31 +1062,95 @@ func (s *Service) prefetchPayload(
 	wg := &sync.WaitGroup{}
 	mu := &sync.Mutex{}
 
+	clientURL := ""
+	clientNodeID := ""
+	if client != nil {
+		clientURL = client.URL
+		clientNodeID = client.NodeID
+	}
+
 	// gRPC attempt
 	tracker.grpcAttempted.Store(true)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		reqStart := time.Now()
 		_, childSpan := s.tracer.Start(spanctx, GetSpanName("prefetch", "gRPC"))
-		childSpan.SetAttributes(attribute.String("url", client.URL), attribute.String("nodeID", client.NodeID))
+		childSpan.SetAttributes(
+			attribute.String("url", clientURL),
+			attribute.String("nodeID", clientNodeID),
+		)
+
 		out, err := client.PreFetchGetPayload(clientCtx, req)
+		reqDurMs := time.Since(reqStart).Milliseconds()
+
 		if err == nil && out != nil && out.Code == uint32(codes.OK) {
+			// SUCCESS
 			if !tracker.grpcSuccess.Swap(true) {
 				if tracker.grpcLoggedOnce.CompareAndSwap(false, true) {
-					logger.Info().Str("url", client.URL).Msg("prefetch gRPC: succeeded")
+					logger.Info().
+						Str("url", clientURL).
+						Str("nodeID", clientNodeID).
+						Int64("duration_ms", reqDurMs).
+						Msg("prefetch gRPC: succeeded")
 				}
 			}
+			childSpan.SetAttributes(
+				attribute.Int64("request_duration_ms", reqDurMs),
+				attribute.Int("payload_size_bytes", len(out.VersionedExecutionPayload)),
+			)
+
 			mu.Lock()
 			if !exitSignal {
 				exitSignal = true
+				// Non-blocking send: if respChan is full, we drop this winner.
+				// Outer loop only needs a single winner.
 				select {
-				case respChan <- out:
+				case respChan <- &prefetchResult{
+					resp:   out,
+					source: FlowSourcePrefetchGRPC,
+					url:    clientURL,
+					nodeID: clientNodeID,
+				}:
 				default:
+					logger.Warn().
+						Str("url", clientURL).
+						Str("nodeID", clientNodeID).
+						Msg("prefetch gRPC: respChan full; dropping winner response")
 				}
 				cancel()
 			}
 			mu.Unlock()
+		} else {
+			// FAILURE (err != nil OR non-OK code)
+			msg := ""
+			if err != nil {
+				msg = err.Error()
+			} else if out != nil {
+				msg = fmt.Sprintf("non-OK code from relay: %d, message=%s", out.Code, out.Message)
+			} else {
+				msg = "nil response from relay"
+			}
+
+			logger.Debug().
+				Str("url", clientURL).
+				Str("nodeID", clientNodeID).
+				Int64("duration_ms", reqDurMs).
+				Str("error", msg).
+				Msg("prefetch gRPC: failed")
+
+			childSpan.SetAttributes(
+				attribute.Int64("request_duration_ms", reqDurMs),
+				attribute.String("error", msg),
+			)
+
+			// Non-blocking error send
+			select {
+			case errChan <- toErrorResp(http.StatusBadGateway, msg):
+			default:
+			}
 		}
+
 		childSpan.End()
 	}()
 
@@ -1120,25 +1160,80 @@ func (s *Service) prefetchPayload(
 	go func() {
 		defer wg.Done()
 		reqCtx, childSpan := s.tracer.Start(spanctx, GetSpanName("prefetch", "HTTP"))
-		childSpan.SetAttributes(attribute.String("url", client.URL), attribute.String("nodeID", client.NodeID))
-		out, err := s.PreFetchGetPayloadPlaceHTTPRequest(clientCtx, reqCtx, req, client.URL, client.NodeID)
+		childSpan.SetAttributes(
+			attribute.String("url", clientURL),
+			attribute.String("nodeID", clientNodeID),
+		)
+		reqStart := time.Now()
+
+		out, err := s.PreFetchGetPayloadPlaceHTTPRequest(clientCtx, reqCtx, req, clientURL, clientNodeID)
+		reqDurMs := time.Since(reqStart).Milliseconds()
+
 		if err == nil && out != nil && out.Code == uint32(codes.OK) {
+			// SUCCESS
 			if !tracker.httpSuccess.Swap(true) {
 				if tracker.httpLoggedOnce.CompareAndSwap(false, true) {
-					logger.Info().Str("url", client.URL).Msg("prefetch HTTP: succeeded")
+					logger.Info().
+						Str("url", clientURL).
+						Str("nodeID", clientNodeID).
+						Int64("duration_ms", reqDurMs).
+						Msg("prefetch HTTP: succeeded")
 				}
 			}
+			childSpan.SetAttributes(
+				attribute.Int64("request_duration_ms", reqDurMs),
+				attribute.Int("payload_size_bytes", len(out.VersionedExecutionPayload)),
+			)
+
 			mu.Lock()
 			if !exitSignal {
 				exitSignal = true
 				select {
-				case respChan <- out:
+				case respChan <- &prefetchResult{
+					resp:   out,
+					source: FlowSourcePrefetchHTTP,
+					url:    clientURL,
+					nodeID: clientNodeID,
+				}:
 				default:
+					logger.Warn().
+						Str("url", clientURL).
+						Str("nodeID", clientNodeID).
+						Msg("prefetch HTTP: respChan full; dropping winner response")
 				}
 				cancel()
 			}
 			mu.Unlock()
+		} else {
+			// FAILURE (err != nil OR non-OK code)
+			msg := ""
+			if err != nil {
+				msg = err.Error()
+			} else if out != nil {
+				msg = fmt.Sprintf("non-OK code from relay: %d, message=%s", out.Code, out.Message)
+			} else {
+				msg = "nil response from relay (HTTP)"
+			}
+
+			logger.Debug().
+				Str("url", clientURL).
+				Str("nodeID", clientNodeID).
+				Int64("duration_ms", reqDurMs).
+				Str("error", msg).
+				Msg("prefetch HTTP: failed")
+
+			childSpan.SetAttributes(
+				attribute.Int64("request_duration_ms", reqDurMs),
+				attribute.String("error", msg),
+			)
+
+			// Non-blocking error send
+			select {
+			case errChan <- toErrorResp(http.StatusBadGateway, msg):
+			default:
+			}
 		}
+
 		childSpan.End()
 	}()
 
@@ -1146,12 +1241,20 @@ func (s *Service) prefetchPayload(
 	if exitSignal {
 		return
 	}
+
+	// No winner – send aggregate error
 	errChan <- toErrorResp(http.StatusInternalServerError, "relay failed prefetch attempts")
 }
 
 // ========================= HTTP placement helper =========================
 
-func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, reqCtx context.Context, origReq *relaygrpc.PreFetchGetPayloadRequest, url string, nodeID string) (*relaygrpc.PreFetchGetPayloadResponse, error) {
+func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(
+	ctx context.Context,
+	spanCtx context.Context,
+	origReq *relaygrpc.PreFetchGetPayloadRequest,
+	url string,
+	nodeID string,
+) (*relaygrpc.PreFetchGetPayloadResponse, error) {
 	reqData := common.PreFetchGetPayloadRequestHTTP{
 		Slot:       origReq.GetSlot(),
 		ParentHash: origReq.GetParentHash(),
@@ -1159,13 +1262,15 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, reqCtx
 		Pubkey:     origReq.GetPubkey(),
 		ClientIp:   origReq.GetClientIp(),
 		ReceivedAt: origReq.GetReceivedAt(),
+		ReqID:      origReq.GetReqId(),
 	}
-	_, marshalSpan := s.tracer.Start(reqCtx, GetSpanName("prefetch.httpPlace", "marshal"))
+	_, marshalSpan := s.tracer.Start(spanCtx, GetSpanName("prefetch.httpPlace", "marshal"))
 	reqJSON, err := json.Marshal(reqData)
 	marshalSpan.End()
 	if err != nil {
 		return nil, err
 	}
+
 	originalURL := url
 	port := ":18555"
 	if strings.Contains(url, ":") {
@@ -1179,27 +1284,52 @@ func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, reqCtx
 		}
 	}
 	finalURL := "http://" + url + port + common.PathPrefetchBlock
-	s.logger.Debug().Str("nodeID", nodeID).Str("finalURL", finalURL).Str("originalURL", originalURL).Msg("making prefetch request")
+	s.logger.Debug().
+		Str("nodeID", nodeID).
+		Str("finalURL", finalURL).
+		Str("originalURL", originalURL).
+		Msg("making prefetch HTTP request")
 
-	req, err := http.NewRequest(http.MethodPost, finalURL, bytes.NewReader(reqJSON))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, finalURL, bytes.NewReader(reqJSON))
 	if err != nil {
+		s.logger.Error().
+			Str("nodeID", nodeID).
+			Str("finalURL", finalURL).
+			Str("originalURL", originalURL).
+			Msg("prefetch.httpPlace failed to build request")
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Content-Type", "application/json")
 
 	httpCli := getPrefetchHTTPClient()
-	_, requestSpan := s.tracer.Start(reqCtx, GetSpanName("prefetch.httpPlace", "request"))
-	resp, err := httpCli.Do(req)
+	reqStart := time.Now()
+	_, requestSpan := s.tracer.Start(spanCtx, GetSpanName("prefetch.httpPlace", "request"))
+	resp, err := httpCli.Do(httpReq)
+	requestSpan.SetAttributes(
+		attribute.Int64("duration_ms", time.Since(reqStart).Milliseconds()),
+		attribute.String("finalURL", finalURL),
+		attribute.String("nodeID", nodeID),
+	)
 	requestSpan.End()
 	if err != nil {
+		s.logger.Error().
+			Str("nodeID", nodeID).
+			Str("finalURL", finalURL).
+			Err(err).
+			Msg("prefetch.httpPlace HTTP request failed")
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	_, unmarshalSpan := s.tracer.Start(reqCtx, GetSpanName("prefetch.httpPlace", "unmarshal"))
+	_, unmarshalSpan := s.tracer.Start(spanCtx, GetSpanName("prefetch.httpPlace", "unmarshal"))
 	var respData common.PreFetchGetPayloadResponseHTTP
 	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil && err != io.EOF {
 		unmarshalSpan.End()
+		s.logger.Error().
+			Str("nodeID", nodeID).
+			Str("finalURL", finalURL).
+			Err(err).
+			Msg("prefetch.httpPlace failed to decode response")
 		return nil, err
 	}
 	unmarshalSpan.End()
