@@ -327,6 +327,12 @@ func (p *ParentClient) String() string {
 	return fmt.Sprintf("ParentClient{FastClient: %s, SafeClient: %s}", fastClientURL, safeClientURL)
 }
 
+func (p *ParentClient) GetFastClient() *Client {
+	if p.FastClient == nil {
+		return p.SafeClient
+	}
+	return p.FastClient
+}
 func (p *ParentClient) GetActiveClient(lastFailureTime time.Time) (*Client, bool) {
 	if lastFailureTime.IsZero() || time.Since(lastFailureTime) > clientFailureWindow {
 		return p.FastClient, false

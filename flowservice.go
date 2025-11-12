@@ -51,7 +51,7 @@ type HeaderFlowEvent struct {
 }
 
 type PrefetchFlowEvent struct {
-	ReqID                   string     `json:"reqId"`
+	PrefetchID              string     `json:"prefetchId"`
 	GetHeaderReqID          string     `json:"getHeaderReqId"`
 	StartedAt               time.Time  `json:"startedAt"`
 	MsIntoSlotPrefetchStart int64      `json:"msIntoSlotStart"`
@@ -60,7 +60,7 @@ type PrefetchFlowEvent struct {
 	Success                 bool       `json:"success"`
 	Source                  FlowSource `json:"source"`
 	ServerURL               string     `json:"serverUrl"`
-	ServerNodeID            string     `json:"serverNodeID"`
+	ServerNodeID            string     `json:"serverNodeId"`
 	PayloadSizeBytes        int        `json:"payloadSizeBytes"`
 	Error                   string     `json:"error"`
 }
@@ -222,7 +222,7 @@ func (fs *FlowService) RecordPrefetchDone(slot uint64, parentHash, blockHash, pr
 
 	// find last matching ReqID, update in-place
 	for i := len(rec.Prefetches) - 1; i >= 0; i-- {
-		if rec.Prefetches[i].ReqID == reqID {
+		if rec.Prefetches[i].PrefetchID == reqID {
 			rec.Prefetches[i].Success = success
 			rec.Prefetches[i].DurationMs = durationMs
 			rec.Prefetches[i].FinishedAt = time.Now().UTC()
@@ -240,7 +240,7 @@ func (fs *FlowService) RecordPrefetchDone(slot uint64, parentHash, blockHash, pr
 
 	// no matching start – append synthetic completion
 	rec.Prefetches = append(rec.Prefetches, PrefetchFlowEvent{
-		ReqID:            reqID,
+		PrefetchID:       reqID,
 		FinishedAt:       time.Now().UTC(),
 		DurationMs:       durationMs,
 		GetHeaderReqID:   getHeaderReqID,
