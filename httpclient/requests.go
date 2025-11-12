@@ -167,9 +167,7 @@ func sendRequestSSZ(req *http.Request, url string, dst SSZUnmarshaler) (code int
 	if err != nil {
 		return 0, duration, fmt.Errorf("client refused for %s: %w", url, err)
 	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
+	defer resp.Body.Close()
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
