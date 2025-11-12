@@ -140,6 +140,10 @@ type preFetcherFields struct {
 	blockValue      string
 	client          *common.ParentClient
 	payloadFetchUrl string
+
+	slotStartTime                     time.Time
+	msIntoSlotGetHeaderIncludingDelay int64 // when getHeader was called + include delay
+	getHeaderReqID                    string
 }
 
 func NewService(opts ...ServiceOption) *Service {
@@ -187,7 +191,7 @@ func (s *Service) handleStream(ctx context.Context, client *common.ParentClient)
 	)
 
 	var (
-		lastConnectTime time.Time
+		lastFailureTime time.Time
 	)
 
 	for {
@@ -201,15 +205,15 @@ func (s *Service) handleStream(ctx context.Context, client *common.ParentClient)
 
 		default:
 
-			active, safe := client.GetActiveClient(lastConnectTime)
+			active, safe := client.GetActiveClient(lastFailureTime)
 			if safe {
-				s.logger.Warn().Str("method", "streamHeader").Time("lastConnectTime", lastConnectTime).Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("Fallback to safe IP used")
+				s.logger.Warn().Str("method", "streamHeader").Time("lastFailureTime", lastFailureTime).Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("Fallback to safe IP used")
 			} else {
-				s.logger.Info().Str("method", "streamHeader").Time("lastConnectTime", lastConnectTime).Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("fast IP used")
+				s.logger.Info().Str("method", "streamHeader").Time("lastFailureTime", lastFailureTime).Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("fast IP used")
 			}
-			lastConnectTime = time.Now()
 
 			if _, err := s.StreamHeader(ctx, active, client); err != nil {
+				lastFailureTime = time.Now()
 				s.logger.Warn().
 					Str("url", active.URL).
 					Str("traceID", traceID).
@@ -221,6 +225,7 @@ func (s *Service) handleStream(ctx context.Context, client *common.ParentClient)
 					attribute.String("error", err.Error()),
 				)
 			} else {
+				lastFailureTime = time.Now()
 				s.logger.Warn().
 					Str("url", active.URL).
 					Str("traceID", traceID).
@@ -689,15 +694,16 @@ func (s *Service) handleBuilderInfoStream(ctx context.Context, client *common.Pa
 			if safe {
 				s.logger.Warn().Str("method", "streamBuilderInfo").Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("Fallback to safe IP used")
 			}
-			lastConnectTime = time.Now()
 
 			if _, err := s.StreamBuilderInfo(ctx, active); err != nil {
+				lastConnectTime = time.Now()
 				s.logger.Warn().
 					Str("url", active.URL).
 					Str("traceID", traceID).
 					Err(err).
 					Msg("failed to stream builderInfo. Sleeping and then reconnecting")
 			} else {
+				lastConnectTime = time.Now()
 				s.logger.Warn().
 					Str("url", active.URL).
 					Str("traceID", traceID).
@@ -996,15 +1002,16 @@ func (s *Service) handleSlotInfoStream(ctx context.Context, client *common.Paren
 			if safe {
 				s.logger.Warn().Str("method", "streamSlotInfo").Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("Fallback to safe IP used")
 			}
-			lastConnectTime = time.Now()
 
 			if _, err := s.StreamSlotInfo(ctx, active); err != nil {
+				lastConnectTime = time.Now()
 				s.logger.Warn().
 					Str("url", active.URL).
 					Str("traceID", traceID).
 					Err(err).
 					Msg("failed to stream SlotInfo. Sleeping and then reconnecting")
 			} else {
+				lastConnectTime = time.Now()
 				s.logger.Warn().
 					Str("url", active.URL).
 					Str("traceID", traceID).
