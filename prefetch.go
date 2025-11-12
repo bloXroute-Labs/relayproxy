@@ -67,13 +67,14 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		msIntoSlotPrefetchStart = time.Since(fields.slotStartTime).Milliseconds()
 	}
 	prefetchID := uuid.NewString()
+
 	// record prefetch start into flow cache
-	//go s.IDataService.GetFlowService().RecordPrefetchStart(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey, fields.blockValue, s.nodeID, PrefetchFlowEvent{
-	//	PrefetchID:              prefetchID,
-	//	GetHeaderReqID:          fields.getHeaderReqID,
-	//	StartedAt:               startTime,
-	//	MsIntoSlotPrefetchStart: msIntoSlotPrefetchStart,
-	//})
+	go s.IDataService.GetFlowService().RecordPrefetchStart(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey, fields.blockValue, s.nodeID, PrefetchFlowEvent{
+		PrefetchID:              prefetchID,
+		GetHeaderReqID:          fields.getHeaderReqID,
+		StartedAt:               startTime,
+		MsIntoSlotPrefetchStart: msIntoSlotPrefetchStart,
+	})
 	clients := s.clients
 	clientURL := ""
 	if fields.client != nil {
@@ -432,6 +433,7 @@ func (s *Service) prefetchGRPC(
 		success         bool
 		payloadSize     int
 		payloadCacheKey string
+		url             string
 	)
 	spanCtx, span := s.tracer.Start(spanCtx, GetSpanName("prefetch", "gRPCWrapper"))
 	defer func() {
@@ -441,17 +443,19 @@ func (s *Service) prefetchGRPC(
 		//source := FlowSourcePrefetchGRPC
 		if success {
 			if result != nil && result.resp != nil {
+				url = result.url
 				payloadSize = len(result.resp.VersionedExecutionPayload)
 			}
 			//source = result.source
 			baseLogger.Info().
 				Int("payload_size_bytes", payloadSize).
-				Str("winner_url", result.url).
+				Str("winner_url", url).
 				Int64("endedAt", durationMs).
 				Msg("prefetchGRPC :: succeeded")
 		} else {
 			baseLogger.Error().Err(err).
 				Int("payload_size_bytes", payloadSize).
+				Str("url", url).
 				Int64("endedAt", durationMs).
 				Msg("prefetchGRPC :: failed")
 		}
@@ -467,6 +471,21 @@ func (s *Service) prefetchGRPC(
 			attribute.String("targetClientIP", targetClientIP),
 		)
 		span.End()
+		go s.IDataService.GetFlowService().RecordPrefetchDone(
+			fields.slot,
+			fields.parentHash,
+			fields.blockHash,
+			fields.proposerPubKey,
+			reqID,
+			fields.getHeaderReqID,
+			success,
+			durationMs,
+			FlowSourcePrefetchGRPC,
+			url,
+			"",
+			payloadSize,
+			err.Error(),
+		)
 	}()
 
 	if len(clients) == 0 {

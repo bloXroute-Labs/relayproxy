@@ -227,9 +227,36 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			in.ValidatorID = in.AccountID
 		}
 	}
+	blockValue := new(big.Int).SetBytes(slotBestHeader.Value)
+	go s.IDataService.GetFlowService().RecordHeaderFlow(_slot, in.ParentHash, slotBestHeader.BlockHash, weiToEther(blockValue), in.PubKey, s.nodeID, HeaderFlowEvent{
+		FlowEventSentAt:      time.Now().UTC(),
+		ServedByThisNode:     true,
+		SlotStartTime:        slotStartTime,
+		MsIntoSlot:           msIntoSlot,
+		MsIntoSlotWithDelay:  msIntoSlotIncludingDelay,
+		AccountID:            in.AccountID,
+		ValidatorID:          in.ValidatorID,
+		Source:               FlowSourceLocalBidCache, // adjust if needed
+		GetHeaderReqID:       id,
+		GetHeaderStartUnixMs: in.GetHeaderStartTimeUnixMS,
+		BlockValue:           weiToEther(blockValue),
+		BuilderPubkey:        slotBestHeader.BuilderPubkey,
+		BuilderExtraData:     slotBestHeader.BuilderExtraData,
+		BlockHashReceivedAt:  slotBestHeader.ReceivedAt,
+		RelayURL:             slotBestHeader.Client.String(),
+		BlockSequenceNumber:  slotBestHeader.BlockSequenceNumber,
+		Latency:              latency,
+		Sleep:                sleep,
+		MaxSleep:             maxSleep,
+		ClientIP:             in.ClientIP,
+		NodeID:               s.nodeID,
+		SlotUID:              in.SlotUID,
+		HeaderUserAgent:      statsUserAgent,
+		RepickedBlock:        usedRepick,
+	})
+
 	_, signAndFinishSpan := s.tracer.Start(ctx, "getHeader-finalize")
 	defer signAndFinishSpan.End()
-	blockValue := new(big.Int).SetBytes(slotBestHeader.Value)
 	*log = log.With().
 		Str("blockHash", slotBestHeader.BlockHash).
 		Str("blockValue", blockValue.String()).
@@ -374,23 +401,6 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		}
 	}()
 
-	// send in payload to pre fetcher event
-	s.preFetchPayloadChan <- preFetcherFields{
-		clientIP:                          in.ClientIP,
-		authHeader:                        in.AuthHeader,
-		slot:                              _slot,
-		parentHash:                        in.ParentHash,
-		blockHash:                         slotBestHeader.BlockHash,
-		proposerPubKey:                    in.PubKey,
-		builderPubKey:                     slotBestHeader.BuilderPubkey,
-		blockValue:                        weiToEther(blockValue),
-		client:                            slotBestHeader.Client,
-		payloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
-		slotStartTime:                     slotStartTime,
-		msIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
-		getHeaderReqID:                    id,
-	}
-
 	signedHeaderResponse, prevSigned, err := slotBestHeader.GetSignedHeaderResponse(s.secretKey, &s.publicKey, s.builderSigningDomain)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get signed header")
@@ -414,6 +424,32 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		MsIntoSlotWithDelay:      msIntoSlotIncludingDelay,
 		BlockHash:                slotBestHeader.BlockHash,
 	}
+	go s.IDataService.GetFlowService().RecordHeaderFlow(_slot, in.ParentHash, slotBestHeader.BlockHash, weiToEther(blockValue), in.PubKey, s.nodeID, HeaderFlowEvent{
+		FlowEventSentAt:      time.Now().UTC(),
+		ServedByThisNode:     true,
+		SlotStartTime:        slotStartTime,
+		MsIntoSlot:           msIntoSlot,
+		MsIntoSlotWithDelay:  msIntoSlotIncludingDelay,
+		AccountID:            in.AccountID,
+		ValidatorID:          in.ValidatorID,
+		Source:               FlowSourceLocalBidCache, // adjust if needed
+		GetHeaderReqID:       id,
+		GetHeaderStartUnixMs: in.GetHeaderStartTimeUnixMS,
+		BlockValue:           weiToEther(blockValue),
+		BuilderPubkey:        slotBestHeader.BuilderPubkey,
+		BuilderExtraData:     slotBestHeader.BuilderExtraData,
+		BlockHashReceivedAt:  slotBestHeader.ReceivedAt,
+		RelayURL:             slotBestHeader.Client.String(),
+		BlockSequenceNumber:  slotBestHeader.BlockSequenceNumber,
+		Latency:              latency,
+		Sleep:                sleep,
+		MaxSleep:             maxSleep,
+		ClientIP:             in.ClientIP,
+		NodeID:               s.nodeID,
+		SlotUID:              in.SlotUID,
+		HeaderUserAgent:      statsUserAgent,
+		RepickedBlock:        usedRepick,
+	})
 
 	return json.RawMessage(signedHeaderResponse), onHeaderDeliveredParams, nil
 }
