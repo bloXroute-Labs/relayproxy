@@ -25,6 +25,7 @@ type MockService struct {
 	RegisterValidatorFunc     func(ctx context.Context, outgoingctx context.Context, in *RegistrationParams) (any, error)
 	GetHeaderFunc             func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error)
 	GetPayloadFunc            func(ctx context.Context, in *PayloadRequestParams) (*common.VersionedPayloadInfo, error)
+	GetPayloadV2Func          func(ctx context.Context, in *PayloadRequestParams) *ErrorResp
 	GetAccountsFunc           func(ctx context.Context) map[string]interface{}
 	SetAccountsFunc           func(ctx context.Context)
 	SendAccountFunc           func(accountID, validatorID string)
@@ -32,6 +33,13 @@ type MockService struct {
 	SetDelayForValidatorFunc  func(id string, delay, maxDelay int64)
 	SetDelayForValidatorsFunc func(settings map[string]DelaySettings)
 	DelayGetHeaderFunc        func(ctx context.Context, params DelayGetHeaderParams) (DelayGetHeaderResponse, error)
+}
+
+func (m *MockService) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) *ErrorResp {
+	if m.GetPayloadV2Func != nil {
+		return m.GetPayloadV2Func(ctx, in)
+	}
+	return nil
 }
 
 func (m *MockService) GetAccounts(ctx context.Context) map[string]any {
