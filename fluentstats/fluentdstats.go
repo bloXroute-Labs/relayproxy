@@ -5,7 +5,6 @@ import (
 	"io"
 	"net"
 	"strconv"
-	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/log"
@@ -20,6 +19,7 @@ const (
 
 // Record represents a bloxroute style stat type record
 type Record struct {
+	//UniqueKey string      `json:"unique_key"`
 	Type string      `json:"type"`
 	Data interface{} `json:"data"`
 }
@@ -39,10 +39,12 @@ type Stats interface {
 }
 
 // NoStats is used to generate empty stats
-type NoStats struct{}
+type NoStats struct {
+}
 
 // LogToFluentD implements Stats.
-func (NoStats) LogToFluentD(record Record, ts time.Time, nodeID string, logName string) {}
+func (NoStats) LogToFluentD(record Record, ts time.Time, nodeID string, logName string) {
+}
 
 // FluentdStats struct that represents fluentd stats info
 type FluentdStats struct {
@@ -54,14 +56,12 @@ func NewStats(fluentDEnabled bool, fluentDHost string) Stats {
 	if !fluentDEnabled {
 		return NoStats{}
 	}
+
 	return newStats(fluentDHost)
 }
 
-// LogToFluentD logs info to FluentD
+// LogToFluentD log info to the fluentd
 func (s FluentdStats) LogToFluentD(record Record, ts time.Time, nodeID string, logName string) {
-	if s.FluentD == nil {
-		return
-	}
 	d := LogRecord{
 		Level:     "STATS",
 		Name:      logName,
@@ -93,84 +93,46 @@ func newStats(fluentdHost string) Stats {
 		MarshalAsJSON: true,
 		Async:         true,
 	})
+
 	log.Info("Connecting to fluentd", "host", host, "port", portInt)
 	if err != nil {
 		log.Error("Error connecting to fluentd", "err", err)
 		return NoStats{}
 	}
-	return FluentdStats{FluentD: fluentLogger}
+	return FluentdStats{
+		FluentD: fluentLogger,
+	}
 }
 
 type ConsoleWriter struct {
+	io.Writer
 	Out        io.Writer
 	TimeFormat string
 }
-
-func (cw *ConsoleWriter) Write(p []byte) (int, error) {
-	return cw.WriteLevel(zerolog.InfoLevel, p)
-}
-
-func (cw *ConsoleWriter) WriteLevel(level zerolog.Level, p []byte) (n int, err error) {
-	if cw == nil || cw.Out == nil {
-		return len(p), nil
-	}
-	if level > zerolog.TraceLevel {
-		return cw.Out.Write(p)
-	}
-	return len(p), nil
-}
-
 type FluentWriter struct {
+	io.Writer
 	FluentEnabled bool
 	Fluentd       *fluent.Fluent
 	NodeID        string
 	TimeFormat    string
-
-	closed atomic.Bool
-}
-
-func (fw *FluentWriter) Close() error {
-	if fw == nil {
-		return nil
-	}
-	if fw.closed.Swap(true) {
-		return nil
-	}
-	if fw.Fluentd != nil {
-		_ = fw.Fluentd.Close()
-	}
-	return nil
-}
-
-// Write is used when zerolog/diode or MultiLevelWriter only has io.Writer.
-func (fw *FluentWriter) Write(p []byte) (int, error) {
-	return fw.WriteLevel(zerolog.InfoLevel, p)
 }
 
 func (fw *FluentWriter) WriteLevel(level zerolog.Level, p []byte) (n int, err error) {
-	defer func() { _ = recover() }()
-
-	// Drop quietly if disabled/closed/not configured
-	if fw == nil || fw.closed.Load() || !fw.FluentEnabled || fw.Fluentd == nil {
+	if fw.FluentEnabled && level > zerolog.TraceLevel {
+		err = fw.Fluentd.EncodeAndPostData("bx.go.log", time.Now(), map[string]string{"msg": string(p), "level": level.String(), "instance": fw.NodeID, "timestamp": time.Now().Format(fw.TimeFormat)})
+		if err != nil {
+			fmt.Println("Error posting to fluentd", err)
+			return 0, err
+		}
 		return len(p), nil
 	}
-	if level <= zerolog.TraceLevel {
-		return len(p), nil
-	}
 
-	now := time.Now()
-	if e := fw.Fluentd.EncodeAndPostData(
-		"bx.go.log",
-		now,
-		map[string]string{
-			"msg":       string(p),
-			"level":     level.String(),
-			"instance":  fw.NodeID,
-			"timestamp": now.Format(fw.TimeFormat),
-		},
-	); e != nil {
-		fmt.Println("Error posting to fluentd", e)
-		return len(p), nil
+	return len(p), nil
+}
+
+func (cw *ConsoleWriter) WriteLevel(level zerolog.Level, p []byte) (n int, err error) {
+	if level > zerolog.TraceLevel {
+		return cw.Out.Write(p)
 	}
 	return len(p), nil
 }

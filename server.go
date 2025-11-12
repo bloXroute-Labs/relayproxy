@@ -1,7 +1,6 @@
 package relayproxy
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,13 +9,11 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	gjson "github.com/goccy/go-json"
-	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -44,20 +41,6 @@ const (
 	HeaderKeySlotUID        = "X-MEVBoost-SlotID"
 	VouchCluster            = "setup"
 	statsNamePerformance    = "performanceStats"
-	maxGetPayloadBody       = int64(
-		12 + // 3 offsets
-			48*4096 + // max commitments
-			48*4096 + // max proofs
-			131072*6 + // up to 6 blobs (tune if you expect more)
-			(2 << 20), // +2MiB headroom for payload/overheads
-	)
-	// Hard size cap for getPayload request bodies (blinded block only).
-	//maxGetPayloadBody = int64(2 << 20) // 2 MiB
-
-	// Fixed, conservative body read timeouts
-	bodyReadTimeoutGetPayload   = 400 * time.Millisecond
-	bodyReadTimeoutGetPayloadV2 = 400 * time.Millisecond
-	bodyReadTimeoutRegistration = 200 * time.Millisecond
 )
 
 type contextKey string
@@ -91,7 +74,6 @@ type Server struct {
 	AdminAccountID   string
 	performanceStats *stat.PerformanceStats
 
-	getPayloadBodyPool sync.Pool
 	// Callback
 	OnHeaderDelivered func(
 		VersionedSignedBuilderBid *common.VersionedSignedBuilderBid, Slot uint64,
@@ -136,9 +118,7 @@ func NewServer(opts ...ServerOption) *Server {
 		lastGetHeaderRequest: 0,
 		slotToIPToGHRequest:  NewIntegerMapOf[uint64, map[string]bool](),
 	}
-	server.getPayloadBodyPool = sync.Pool{
-		New: func() any { return make([]byte, 64<<10) }, // 64 KiB
-	}
+
 	return server
 }
 
@@ -146,9 +126,9 @@ func (s *Server) Start() error {
 	s.server = &http.Server{
 		Addr:              s.listenAddress,
 		Handler:           s.InitHandler(),
-		ReadTimeout:       1 * time.Second,
-		ReadHeaderTimeout: 500 * time.Millisecond,
-		WriteTimeout:      1 * time.Second,
+		ReadTimeout:       0,
+		ReadHeaderTimeout: 0,
+		WriteTimeout:      0,
 		IdleTimeout:       10 * time.Second,
 	}
 
@@ -459,12 +439,12 @@ func (s *Server) HandleSetDelays(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 
-	receivedAt := time.Now().UTC()
+	start := time.Now().UTC()
 	success := false
 	defer func() {
 		s.performanceStats.SetEndpointStats(
 			common.PathRegisterValidator,
-			uint64(time.Since(receivedAt).Microseconds()),
+			uint64(time.Since(start).Microseconds()),
 			success,
 			100)
 	}()
@@ -475,6 +455,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	defer parentSpan.End()
 	defer handleRegistrationSpan.End()
 
+	receivedAt := time.Now().UTC()
 	parsedURL := r.Context().Value(keyParsedURL).(*url.URL)
 	clientIP := r.Context().Value(keyClientIP).(string)
 	authHeader := r.Context().Value(keyAuthHeader).(string)
@@ -486,7 +467,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	mevBoostSendTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
 	commitBoostSendTimeUnixMS := r.Header.Get(HeaderDateMilliseconds)
 
-	boostSendTime, sentAtUtc, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
+	boostSendTime, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
 	sszRequest, _ := common.ParseBuilderContentType(r)
 	outgoingCtx := context.Background()
 	if sszRequest {
@@ -515,9 +496,6 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 		Str("boostSendTime", boostSendTime).
 		Strs("headers", headers).
 		Int64("latency", latency).
-		Time("receivedAt", receivedAt).
-		Str("receivedAtUtc", formatUTCms(receivedAt)).
-		Str("sentAtUtc", sentAtUtc).
 		Logger()
 
 	handleRegistrationSpan.SetAttributes(
@@ -534,9 +512,6 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 		attribute.String("boostSendTime", boostSendTime),
 		attribute.Int64("latency", latency),
 		attribute.StringSlice("headers", headers),
-		attribute.Int64("receivedAt", receivedAt.UnixMilli()),
-		attribute.String("receivedAtUtc", formatUTCms(receivedAt)),
-		attribute.String("sentAtUtc", sentAtUtc),
 	)
 	hasProposerMevProtect, err := GetProposerMevProtectQueryAny(parsedURL, &log)
 	if err != nil {
@@ -595,161 +570,82 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
-	const callerMethodName = "handleGetHeader"
+
+	start := time.Now().UTC()
+	success := false
+
+	parentSpan := trace.SpanFromContext(r.Context())
+	parentSpanCtx := trace.ContextWithSpan(context.Background(), parentSpan)
+	handleGetHeaderCtx, span := s.tracer.Start(parentSpanCtx, "handleGetHeader-start")
 
 	receivedAt := time.Now().UTC()
-	success := false
-	defer func() {
-		if s.performanceStats != nil {
-			s.performanceStats.SetEndpointStats(
-				common.PathGetHeader,
-				uint64(time.Since(receivedAt).Microseconds()),
-				success,
-				100,
-			)
-		}
-	}()
-
-	// Root span for this handler (don’t end any upstream parent span yourself).
-	ctx := r.Context()
-	ctx, span := s.tracer.Start(ctx, GetSpanName(callerMethodName, "START"))
-	defer span.End()
-
-	// -------- Preflight span --------
-	preflightStart := time.Now()
-	_, preflight := s.tracer.Start(ctx, GetSpanName(callerMethodName, "preflight"))
-
-	// A) extractHeaderValues
-	extractStart := time.Now()
-	_, spanExtract := s.tracer.Start(ctx, GetSpanName(callerMethodName, "extractHeaderValues"))
-
 	slot := chi.URLParam(r, "slot")
 	parentHash := chi.URLParam(r, "parent_hash")
 	pubKey := chi.URLParam(r, "pubkey")
-
-	clientIP, _ := ctx.Value(keyClientIP).(string)
-	parsedURL, _ := ctx.Value(keyParsedURL).(*url.URL)
-	authHeader, _ := ctx.Value(keyAuthHeader).(string)
-	validatorID, _ := ctx.Value(keyOrgID).(string)
-	accountID, _ := ctx.Value(keyAccountID).(string)
-
+	parsedURL := r.Context().Value(keyParsedURL).(*url.URL)
+	clientIP := r.Context().Value(keyClientIP).(string)
+	validatorID := r.Context().Value(keyOrgID).(string)
+	authHeader := r.Context().Value(keyAuthHeader).(string)
+	accountID := r.Context().Value(keyAccountID).(string)
 	mevBoostSendTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
 	commitBoostSendTimeUnixMS := r.Header.Get(HeaderDateMilliseconds)
 	headerSlotUID := r.Header.Get(HeaderKeySlotUID)
+	boostSendTime, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
 	cluster := r.Header.Get(VouchCluster)
 	userAgent := r.Header.Get("User-Agent")
-
-	spanExtract.SetAttributes(
-		attribute.String("clientIP", clientIP),
-		attribute.String("parsedURL", func() string {
-			if parsedURL != nil {
-				return parsedURL.String()
-			}
-			return ""
-		}()),
-		attribute.String("validatorID", validatorID),
-		attribute.String("accountID", accountID),
-		attribute.String("authHeader", authHeader),
-		attribute.String("path.slot", slot),
-		attribute.String("path.parentHash", parentHash),
-		attribute.String("path.pubKey", pubKey),
-		attribute.String("hdr.MEVBoostStartTimeUnixMS", mevBoostSendTimeUnixMS),
-		attribute.String("hdr.Date-Milliseconds", commitBoostSendTimeUnixMS),
-		attribute.String("hdr.SlotUID", headerSlotUID),
-		attribute.String("hdr.VouchCluster", cluster),
-		attribute.String("hdr.User-Agent", userAgent),
-		attribute.Int64("extract_headers_duration_ms", time.Since(extractStart).Milliseconds()),
-	)
-	spanExtract.End()
-
-	// B) getBoostSendTimeAndLatency
-	boostStart := time.Now()
-	_, spanBoost := s.tracer.Start(ctx, GetSpanName(callerMethodName, "getBoostSendTimeAndLatency"))
-	boostSendTime, sentAtUtc, latency := getBoostSendTimeAndLatency(
-		receivedAt,
-		mevBoostSendTimeUnixMS,
-		commitBoostSendTimeUnixMS,
-	)
-	spanBoost.SetAttributes(
-		attribute.String("boostSendTime", boostSendTime),
-		attribute.String("sentAtUtc", sentAtUtc),
-		attribute.Int64("latency_ms", latency),
-		attribute.Int64("getBoostSendTimeAndLatency_latency_duration_ms", time.Since(boostStart).Milliseconds()),
-	)
-	spanBoost.End()
-
-	// C) ParseBuilderContentType (only the response flag matters here)
-	parseCTStart := time.Now()
-	_, spanParseCT := s.tracer.Start(ctx, GetSpanName(callerMethodName, "ParseBuilderContentType"))
-	_, sszResponse := common.ParseBuilderContentType(r)
-	spanParseCT.SetAttributes(
-		attribute.Bool("sszResponse", sszResponse),
-		attribute.Int64("parse_content_type_duration_ms", time.Since(parseCTStart).Milliseconds()),
-	)
-	spanParseCT.End()
-
-	// D) headerValuesLoop: materialize headers slice (for logs & debug)
-	headerLoopStart := time.Now()
-	_, spanHdrLoop := s.tracer.Start(ctx, GetSpanName(callerMethodName, "headerValuesLoop"))
-	headers := make([]string, 0, len(r.Header))
+	headers := []string{}
 	for k, v := range r.Header {
-		if len(v) > 0 {
-			headers = append(headers, k+"="+v[0])
-		}
+		headers = append(headers, k+"="+v[0])
 	}
-	spanHdrLoop.SetAttributes(
-		attribute.Int("header_count", len(headers)),
-		attribute.Int64("collect_headers_duration_ms", time.Since(headerLoopStart).Milliseconds()),
-	)
-	spanHdrLoop.End()
+	_, sszResponse := common.ParseBuilderContentType(r)
 
-	// E) set root attributes
-	setAttrsStart := time.Now()
-	_, spanSetAttrs := s.tracer.Start(ctx, GetSpanName(callerMethodName, "setRootAttributes"))
-	keyStr := "slot-" + slot + "-parentHash-" + parentHash
-	span.SetAttributes(
-		attribute.String("reqHost", r.Host),
-		attribute.String("method", r.Method),
-		attribute.String("clientIP", clientIP),
-		attribute.String("remoteAddr", r.RemoteAddr),
-		attribute.String("requestURI", r.RequestURI),
-		attribute.String("parsedURL", func() string {
-			if parsedURL != nil {
-				return parsedURL.String()
-			}
-			return ""
-		}()),
-		attribute.String("validatorID", validatorID),
-		attribute.String("accountID", accountID),
-		attribute.String("authHeader", authHeader),
-		attribute.String("traceID", span.SpanContext().TraceID().String()),
-		attribute.String("getHeaderStartTimeUnixMS", boostSendTime),
-		attribute.Int64("latency_ms", latency),
-		attribute.String("cluster", cluster),
-		attribute.String("userAgent", userAgent),
-		attribute.Bool("sszResponse", sszResponse),
-		attribute.StringSlice("headers", headers),
-		attribute.String("slotUID", headerSlotUID),
-		attribute.String("methodName", getHeader),
-		attribute.String("key", keyStr),
-		attribute.String("slot", slot),
-		attribute.String("parentHash", parentHash),
-		attribute.String("pubKey", pubKey),
-		attribute.Int64("receivedAt_ms", receivedAt.UnixMilli()),
-		attribute.String("receivedAtUtc", formatUTCms(receivedAt)),
-		attribute.String("sentAtUtc", sentAtUtc),
-	)
-	spanSetAttrs.SetAttributes(
-		attribute.Int64("set_root_attrs_duration_ms", time.Since(setAttrsStart).Milliseconds()),
-	)
-	spanSetAttrs.End()
+	var onHeaderDeliveredParams *common.OnHeaderDeliveredParams
+	var out json.RawMessage
+	var err error
+	defer func() {
+		span.SetAttributes(
+			attribute.String("reqHost", r.Host),
+			attribute.String("method", r.Method),
+			attribute.String("clientIP", clientIP),
+			attribute.String("remoteAddr", r.RemoteAddr),
+			attribute.String("requestURI", r.RequestURI),
+			attribute.String("validatorID", validatorID),
+			attribute.String("accountID", accountID),
+			attribute.String("authHeader", authHeader),
+			attribute.String("parentHash", parentHash),
+			attribute.String("pubKey", pubKey),
+			attribute.String("traceID", span.SpanContext().TraceID().String()),
+			attribute.String("getHeaderStartTimeUnixMS", boostSendTime),
+			attribute.Int64("latency", latency),
+			attribute.String("cluster", cluster),
+			attribute.String("userAgent", userAgent),
+			attribute.Bool("sszResponse", sszResponse),
+			attribute.StringSlice("headers", headers),
+			attribute.String("slotUID", headerSlotUID),
+			attribute.String("method", getHeader),
+			attribute.String("key", "slot-"+slot+"-parentHash-"+parentHash),
+			attribute.Int64("receivedAt", receivedAt.Unix()),
+			attribute.String("slot", slot),
+		)
+		if onHeaderDeliveredParams != nil {
 
-	preflight.SetAttributes(attribute.Int64("preflight_duration_ms", time.Since(preflightStart).Milliseconds()))
-	preflight.End()
+			span.SetAttributes(
+				attribute.Int64("sleep", onHeaderDeliveredParams.Sleep),
+				attribute.Int64("maxSleep", onHeaderDeliveredParams.MaxSleep),
+				attribute.Int64("msIntoSlot", onHeaderDeliveredParams.MsIntoSlot),
+				attribute.Int64("msIntoSlotIncludingDelay", onHeaderDeliveredParams.MsIntoSlotWithDelay),
+				attribute.String("blockHash", onHeaderDeliveredParams.BlockHash),
+			)
+		}
+		parentSpan.End()
+		span.End()
+		s.performanceStats.SetEndpointStats(
+			common.PathGetHeader,
+			uint64(time.Since(start).Microseconds()),
+			success,
+			100)
+	}()
 
-	// F) build structured logger bound to context
-	buildLoggerStart := time.Now()
-	_, spanBuildLogger := s.tracer.Start(ctx, GetSpanName(callerMethodName, "buildLogger"))
 	log := s.logger.With().
 		Str("reqHost", r.Host).
 		Str("method", r.Method).
@@ -757,12 +653,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		Str("clientIP", clientIP).
 		Str("remoteAddr", r.RemoteAddr).
 		Str("requestURI", r.RequestURI).
-		Str("parsedURL", func() string {
-			if parsedURL != nil {
-				return parsedURL.String()
-			}
-			return ""
-		}()).
+		Str("parsedURL", parsedURL.String()).
 		Str("validatorID", validatorID).
 		Str("accountID", accountID).
 		Str("authHeader", authHeader).
@@ -775,515 +666,124 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		Bool("sszResponse", sszResponse).
 		Strs("headers", headers).
 		Str("slotUID", headerSlotUID).
-		Str("methodName", getHeader).
-		Str("key", keyStr).
+		Str("method", getHeader).
+		Str("key", "slot-"+slot+"-parentHash-"+parentHash).
 		Str("slot", slot).
-		Str("receivedAtUtc", formatUTCms(receivedAt)).
-		Str("sentAtUtc", sentAtUtc).
 		Logger()
-	spanBuildLogger.SetAttributes(
-		attribute.Int64("build_logger_duration_ms", time.Since(buildLoggerStart).Milliseconds()),
-	)
-	spanBuildLogger.End()
 
-	// -----------------------------
-	// G) Service call
-	// -----------------------------
-	callStart := time.Now()
-	_, spanSvc := s.tracer.Start(ctx, GetSpanName(callerMethodName, "svcGetHeader"))
-
-	var (
-		onHeaderDeliveredParams *common.OnHeaderDeliveredParams
-		out                     json.RawMessage
-		err                     error
-	)
-
-	out, onHeaderDeliveredParams, err = s.svc.GetHeader(
-		span, // parent span for service internals
-		ctx,
-		&log,
-		&HeaderRequestParams{
-			ReceivedAt:               receivedAt,
-			GetHeaderStartTimeUnixMS: boostSendTime,
-			Latency:                  latency,
-			ClientIP:                 clientIP,
-			Slot:                     slot,
-			ParentHash:               parentHash,
-			PubKey:                   pubKey,
-			AuthHeader:               authHeader,
-			ValidatorID:              validatorID,
-			AccountID:                accountID,
-			Cluster:                  cluster,
-			UserAgent:                userAgent,
-			SlotUID:                  headerSlotUID,
-		},
-	)
-	spanSvc.SetAttributes(attribute.Int64("svc_get_header_duration_ms", time.Since(callStart).Milliseconds()))
+	span.AddEvent("handleGetHeader-svcGetHeader")
+	out, onHeaderDeliveredParams, err = s.svc.GetHeader(span, handleGetHeaderCtx, &log, &HeaderRequestParams{
+		ReceivedAt:               receivedAt,
+		GetHeaderStartTimeUnixMS: boostSendTime,
+		Latency:                  latency,
+		ClientIP:                 clientIP,
+		Slot:                     slot,
+		ParentHash:               parentHash,
+		PubKey:                   pubKey,
+		AuthHeader:               authHeader,
+		ValidatorID:              validatorID,
+		AccountID:                accountID,
+		Cluster:                  cluster,
+		UserAgent:                userAgent,
+		SlotUID:                  headerSlotUID,
+	})
 	if err != nil {
-		spanSvc.SetStatus(codes.Error, err.Error())
-	}
-	spanSvc.End()
-
-	if err != nil {
-		log.Error().Err(err).Msg("getHeader: service failed")
-		span.SetAttributes(attribute.String("error", err.Error()))
-		respondError(ctx, span, getHeader, w, err, &log, s.tracer)
-		return
-	}
-
-	// H) Callback (fire-and-forget), with its own child span
-	go func(ctx context.Context, shp *common.OnHeaderDeliveredParams) {
-		if shp == nil || s.OnHeaderDelivered == nil {
-			log.Warn().Msg("getHeader: skipping callback")
-			return
-		}
-
-		cbStart := time.Now()
-		_, cbSpan := s.tracer.Start(ctx, GetSpanName(callerMethodName, "callback-OnHeaderDelivered"))
-		defer func() {
-			cbSpan.SetAttributes(attribute.Int64("callback_duration_ms", time.Since(cbStart).Milliseconds()))
-			cbSpan.End()
-		}()
-
-		versionedBid := new(common.VersionedSignedBuilderBid)
-		if uErr := versionedBid.UnmarshalJSON(shp.SignedHeaderResponse); uErr != nil {
-			log.Error().Err(uErr).Msg("getHeader: failed to unmarshal signed header response")
-			cbSpan.SetStatus(codes.Error, uErr.Error())
-			return
-		}
-
-		if err := s.OnHeaderDelivered(
-			versionedBid,
-			shp.Slot,
-			shp.GetHeaderRequestID,
-			shp.ProposerPubkey,
-			shp.GetHeaderStartTimeUnixMS,
-			shp.ExtraData,
-		); err != nil {
-			log.Error().Err(err).Msg("getHeader: OnHeaderDelivered failed")
-			cbSpan.SetStatus(codes.Error, err.Error())
-		}
-
-		// enrich the callback span with post-delivery attributes
-		cbSpan.SetAttributes(
-			attribute.Int64("sleep", shp.Sleep),
-			attribute.Int64("maxSleep", shp.MaxSleep),
-			attribute.Int64("msIntoSlot", shp.MsIntoSlot),
-			attribute.Int64("msIntoSlotIncludingDelay", shp.MsIntoSlotWithDelay),
-			attribute.String("blockHash", shp.BlockHash),
+		log.Error().Err(err).Msg("Error in GetHeader")
+		span.SetAttributes(
+			attribute.String("error", err.Error()),
 		)
-	}(ctx, onHeaderDeliveredParams)
+		respondError(handleGetHeaderCtx, span, getHeader, w, err, &log, s.tracer)
+		return
+	}
+	go func() {
+		if onHeaderDeliveredParams == nil || s.OnHeaderDelivered == nil {
+			log.Warn().Msg("skipping callback")
+			return
+		}
+		versionedBid := new(common.VersionedSignedBuilderBid)
+		if err = versionedBid.UnmarshalJSON(onHeaderDeliveredParams.SignedHeaderResponse); err != nil {
+			log.Error().Err(err).Msg("failed to unmarshal signed header response")
+			return
+		}
+		err := s.OnHeaderDelivered(
+			versionedBid,
+			onHeaderDeliveredParams.Slot,
+			onHeaderDeliveredParams.GetHeaderRequestID,
+			onHeaderDeliveredParams.ProposerPubkey,
+			onHeaderDeliveredParams.GetHeaderStartTimeUnixMS,
+			onHeaderDeliveredParams.ExtraData,
+		)
+		if err != nil {
+			s.logger.Error().Err(err).Msg("failed to call OnHeaderDelivered")
+		}
 
-	// -----------------------------
-	// I) Response encoding
-	// -----------------------------
+	}()
+
 	if !sszResponse {
-		respondStart := time.Now()
-		_, spanRespond := s.tracer.Start(ctx, GetSpanName(callerMethodName, "respondJSON"))
-		log.Debug().Msg("Responding with JSON")
-		if err := respondOK(ctx, span, getHeader, w, out, &log, s.tracer, true); err == nil {
+		log.Info().Msg("Responding with JSON")
+		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer, true); err == nil {
 			success = true
 		}
-		spanRespond.SetAttributes(attribute.Int64("respond_json_duration_ms", time.Since(respondStart).Milliseconds()))
-		spanRespond.End()
 		return
 	}
 
-	// SSZ response path
-	sszMarshalStart := time.Now()
-	_, spanSSZ := s.tracer.Start(ctx, GetSpanName(callerMethodName, "marshalSSZ"))
 	versionedBid := new(common.VersionedSignedBuilderBid)
-	if err := versionedBid.UnmarshalJSON(out); err != nil {
-		spanSSZ.SetStatus(codes.Error, err.Error())
-		spanSSZ.SetAttributes(attribute.Int64("ssz_prep_duration_ms", time.Since(sszMarshalStart).Milliseconds()))
-		spanSSZ.End()
-
-		log.Error().Err(err).Msg("getHeader: failed to unmarshal JSON before SSZ marshal")
-		respondError(ctx, span, getHeader, w, toErrorResp(http.StatusInternalServerError, err.Error()), &log, s.tracer)
+	if err = versionedBid.UnmarshalJSON(out); err != nil {
+		log.Error().Err(err).Msg("Failed to unmarshal JSON")
+		respondError(handleGetHeaderCtx, span, getHeader, w, toErrorResp(http.StatusInternalServerError, err.Error()), &log, s.tracer)
 		return
 	}
-	sszBytes, err := versionedBid.MarshalSSZ()
-	if err != nil {
-		spanSSZ.SetStatus(codes.Error, err.Error())
-		spanSSZ.SetAttributes(attribute.Int64("ssz_marshal_duration_ms", time.Since(sszMarshalStart).Milliseconds()))
-		spanSSZ.End()
 
-		log.Error().Err(err).Msg("getHeader: SSZ marshal failed; falling back to JSON")
-		fallbackStart := time.Now()
-		if err := respondOK(ctx, span, getHeader, w, out, &log, s.tracer, true); err == nil {
+	sszMarshal, err := versionedBid.MarshalSSZ()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to marshal SSZ")
+		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer, true); err == nil {
 			success = true
 		}
-		span.SetAttributes(attribute.Int64("respond_json_fallback_duration_ms", time.Since(fallbackStart).Milliseconds()))
 		return
 	}
-	spanSSZ.SetAttributes(attribute.Int64("ssz_full_marshal_duration_ms", time.Since(sszMarshalStart).Milliseconds()))
-	spanSSZ.End()
 
 	w.Header().Set(common.HeaderEthConsensusVersion, versionedBid.Version.String())
-
-	respondSSZStart := time.Now()
-	_, spanRespondSSZ := s.tracer.Start(ctx, GetSpanName(callerMethodName, "respondSSZ"))
 	log.Info().Msg("Responding with SSZ")
-	success = s.respondOKWithContextSSZMarshalled(ctx, span, getHeader, w, sszBytes, &log, s.tracer)
-	spanRespondSSZ.SetAttributes(attribute.Int64("respond_ssz_duration_ms", time.Since(respondSSZStart).Milliseconds()))
-	spanRespondSSZ.End()
+	success = s.respondOKWithContextSSZMarshalled(handleGetHeaderCtx, span, getHeader, w, sszMarshal, &log, s.tracer)
 }
 
 func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
-	const callerMethodName = "handleGetPayload"
 
-	receivedAt := time.Now().UTC()
-	success := false
-	defer func() {
-		if s.performanceStats != nil {
-			s.performanceStats.SetEndpointStats(
-				common.PathGetPayload,
-				uint64(time.Since(receivedAt).Microseconds()),
-				success,
-				100,
-			)
-		}
-	}()
-
-	// Root span for the handler.
-	ctx := r.Context()
-	ctx, span := s.tracer.Start(ctx, GetSpanName(callerMethodName, "START"))
-	defer span.End()
-
-	preflightStart := time.Now()
-	_, preflight := s.tracer.Start(ctx, GetSpanName(callerMethodName, "preflight"))
-
-	// A) extractHeaderValues
-	extractStart := time.Now()
-	_, spanExtract := s.tracer.Start(ctx, GetSpanName(callerMethodName, "extractHeaderValues"))
-
-	clientIP, _ := ctx.Value(keyClientIP).(string)
-	parsedURL, _ := ctx.Value(keyParsedURL).(*url.URL)
-	authHeader, _ := ctx.Value(keyAuthHeader).(string)
-	validatorID, _ := ctx.Value(keyOrgID).(string)
-	accountID, _ := ctx.Value(keyAccountID).(string)
-
-	mevBoostSendTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
-	commitBoostSendTimeUnixMS := r.Header.Get(HeaderDateMilliseconds)
-	headerSlotUID := r.Header.Get(HeaderKeySlotUID)
-	cluster := r.Header.Get(VouchCluster)
-	userAgent := r.Header.Get("User-Agent")
-
-	spanExtract.SetAttributes(
-		attribute.String("clientIP", clientIP),
-		attribute.String("parsedURL", func() string {
-			if parsedURL != nil {
-				return parsedURL.String()
-			}
-			return ""
-		}()),
-		attribute.String("validatorID", validatorID),
-		attribute.String("accountID", accountID),
-		attribute.String("authHeader", authHeader),
-		attribute.String("hdr.MEVBoostStartTimeUnixMS", mevBoostSendTimeUnixMS),
-		attribute.String("hdr.Date-Milliseconds", commitBoostSendTimeUnixMS),
-		attribute.String("hdr.SlotUID", headerSlotUID),
-		attribute.String("hdr.VouchCluster", cluster),
-		attribute.String("hdr.User-Agent", userAgent),
-		attribute.Int64("duration_us", time.Since(extractStart).Microseconds()),
-	)
-	spanExtract.End()
-
-	// B) getBoostSendTimeAndLatency
-	boostStart := time.Now()
-	_, spanBoost := s.tracer.Start(ctx, GetSpanName(callerMethodName, "getBoostSendTimeAndLatency"))
-	boostSendTime, sentAtUtc, latency := getBoostSendTimeAndLatency(
-		receivedAt,
-		mevBoostSendTimeUnixMS,
-		commitBoostSendTimeUnixMS,
-	)
-	spanBoost.SetAttributes(
-		attribute.String("boostSendTime", boostSendTime),
-		attribute.String("sentAtUtc", sentAtUtc),
-		attribute.Int64("latency_ms", latency),
-		attribute.Int64("duration_us", time.Since(boostStart).Microseconds()),
-	)
-	spanBoost.End()
-
-	// C) ParseBuilderContentType
-	parseCTStart := time.Now()
-	_, spanParseCT := s.tracer.Start(ctx, GetSpanName(callerMethodName, "ParseBuilderContentType"))
-	sszRequest, sszResponse := common.ParseBuilderContentType(r)
-	spanParseCT.SetAttributes(
-		attribute.Bool("sszRequest", sszRequest),
-		attribute.Bool("sszResponse", sszResponse),
-		attribute.Int64("duration_us", time.Since(parseCTStart).Microseconds()),
-	)
-	spanParseCT.End()
-
-	// D) headerValuesLoop: materialize headers slice
-	headerLoopStart := time.Now()
-	_, spanHdrLoop := s.tracer.Start(ctx, GetSpanName(callerMethodName, "headerValuesLoop"))
-	headers := make([]string, 0, len(r.Header))
-	for k, v := range r.Header {
-		if len(v) > 0 {
-			headers = append(headers, k+"="+v[0])
-		}
-	}
-	spanHdrLoop.SetAttributes(
-		attribute.Int("header_count", len(headers)),
-		attribute.Int64("duration_us", time.Since(headerLoopStart).Microseconds()),
-	)
-	spanHdrLoop.End()
-	_, spanSetAttrs := s.tracer.Start(ctx, GetSpanName(callerMethodName, "setRootAttributes"))
-	// Close preflight
-	span.SetAttributes(
-		attribute.String("reqHost", r.Host),
-		attribute.String("method", r.Method),
-		attribute.String("clientIP", clientIP),
-		attribute.String("remoteAddr", r.RemoteAddr),
-		attribute.String("requestURI", r.RequestURI),
-		attribute.String("parsedURL", func() string {
-			if parsedURL != nil {
-				return parsedURL.String()
-			}
-			return ""
-		}()),
-		attribute.String("validatorID", validatorID),
-		attribute.String("accountID", accountID),
-		attribute.String("authHeader", authHeader),
-		attribute.String("traceID", span.SpanContext().TraceID().String()),
-		attribute.String("getPayloadStartTimeUnixMS", boostSendTime),
-		attribute.Int64("latency_ms", latency),
-		attribute.String("cluster", cluster),
-		attribute.String("userAgent", userAgent),
-		attribute.Bool("sszRequest", sszRequest),
-		attribute.Bool("sszResponse", sszResponse),
-		attribute.StringSlice("headers", headers),
-		attribute.String("slotUID", headerSlotUID),
-		attribute.Int64("receivedAt_ms", receivedAt.UnixMilli()),
-		attribute.String("receivedAtUtc", formatUTCms(receivedAt)),
-		attribute.String("sentAtUtc", sentAtUtc),
-	)
-	spanSetAttrs.End()
-
-	preflight.SetAttributes(attribute.Int64("duration_us", time.Since(preflightStart).Microseconds()))
-	preflight.End()
-
-	_, spanBuildLogger := s.tracer.Start(ctx, GetSpanName(callerMethodName, "buildLogger"))
-	// Logger with context
-	log := s.logger.With().
-		Str("reqHost", r.Host).
-		Str("method", r.Method).
-		Str("userAgent", userAgent).
-		Str("clientIP", clientIP).
-		Str("remoteAddr", r.RemoteAddr).
-		Str("requestURI", r.RequestURI).
-		Str("parsedURL", func() string {
-			if parsedURL != nil {
-				return parsedURL.String()
-			}
-			return ""
-		}()).
-		Str("validatorID", validatorID).
-		Str("accountID", accountID).
-		Str("authHeader", authHeader).
-		Str("traceID", span.SpanContext().TraceID().String()).
-		Str("getPayloadStartTimeUnixMS", boostSendTime).
-		Int64("latency", latency).
-		Str("cluster", cluster).
-		Bool("sszRequest", sszRequest).
-		Bool("sszResponse", sszResponse).
-		Strs("headers", headers).
-		Str("slotUID", headerSlotUID).
-		Time("receivedAt", receivedAt).
-		Str("receivedAtUtc", formatUTCms(receivedAt)).
-		Str("sentAtUtc", sentAtUtc).
-		Int64("maxBytes", maxGetPayloadBody).
-		Int64("contentLength", r.ContentLength).
-		Logger()
-	spanBuildLogger.End()
-
-	readStart := time.Now()
-	_, spanRead := s.tracer.Start(ctx, GetSpanName(callerMethodName, "readBodyBytes"))
-	bodyBytes, err := s.readAllPooledCtx(ctx, w, r, maxGetPayloadBody, bodyReadTimeoutGetPayload)
-	spanRead.SetAttributes(attribute.Int64("duration_us", time.Since(readStart).Microseconds()))
-	if err != nil {
-		spanRead.SetStatus(codes.Error, err.Error())
-		spanRead.End()
-
-		log.Error().Err(err).Int64("bodyCap_ms", bodyReadTimeoutGetPayload.Milliseconds()).Msg("getPayload: read body failed")
-
-		var mbe *http.MaxBytesError
-		switch {
-		case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
-			respondError(ctx, span, getPayload, w, toErrorResp(http.StatusRequestTimeout, "request body read timeout"), &log, s.tracer)
-		case errors.As(err, &mbe):
-			respondError(ctx, span, getPayload, w, toErrorResp(http.StatusRequestEntityTooLarge, "body too large"), &log, s.tracer)
-		default:
-			respondError(ctx, span, getPayload, w, toErrorResp(http.StatusBadRequest, "failed to read getPayload body"), &log, s.tracer)
-		}
-		return
-	}
-	spanRead.End()
-
-	// Prepare request (SSZ -> JSON canonicalization)
-	if sszRequest {
-		prepStart := time.Now()
-		_, spanPrep := s.tracer.Start(ctx, GetSpanName(callerMethodName, "prepareRequest"))
-
-		signedBlindedBeaconBlock := new(common.VersionedSignedBlindedBeaconBlock)
-
-		_, spanDecode := s.tracer.Start(ctx, GetSpanName(callerMethodName, "decodeSSZ"))
-		if err := signedBlindedBeaconBlock.UnmarshalSSZ(bodyBytes); err != nil {
-			spanDecode.SetStatus(codes.Error, err.Error())
-			spanDecode.End()
-			spanPrep.SetStatus(codes.Error, "decodeSSZ failed")
-			spanPrep.SetAttributes(attribute.Int64("duration_us", time.Since(prepStart).Microseconds()))
-			spanPrep.End()
-
-			log.Error().Err(err).Msg("failed to decode request payload")
-			respondError(ctx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "failed to decode request payload"), &log, s.tracer)
-			return
-		}
-		spanDecode.End()
-
-		_, spanEncode := s.tracer.Start(ctx, GetSpanName(callerMethodName, "encodeJSON"))
-		b, err := signedBlindedBeaconBlock.MarshalJSON()
-		if err != nil {
-			spanEncode.SetStatus(codes.Error, err.Error())
-			spanEncode.End()
-			spanPrep.SetStatus(codes.Error, "encodeJSON failed")
-			spanPrep.SetAttributes(attribute.Int64("duration_us", time.Since(prepStart).Microseconds()))
-			spanPrep.End()
-
-			log.Error().Err(err).Msg("failed to marshal to json")
-			respondError(ctx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "failed to marshal to json"), &log, s.tracer)
-			return
-		}
-		spanEncode.End()
-
-		bodyBytes = b
-		spanPrep.SetAttributes(attribute.Int64("duration_us", time.Since(prepStart).Microseconds()))
-		spanPrep.End()
-	}
-
-	// -----------------------------
-	// Service call (replace AddEvent with a real child span)
-	// -----------------------------
-	callStart := time.Now()
-	_, spanSvc := s.tracer.Start(ctx, GetSpanName(callerMethodName, "svcGetPayload"))
-	versionedPayloadInfo, err := s.svc.GetPayload(ctx, &log, &PayloadRequestParams{
-		ReceivedAt:                receivedAt,
-		Payload:                   bodyBytes,
-		ClientIP:                  clientIP,
-		AuthHeader:                authHeader,
-		ValidatorID:               validatorID,
-		AccountID:                 accountID,
-		GetPayloadStartTimeUnixMS: boostSendTime,
-		Cluster:                   cluster,
-		UserAgent:                 userAgent,
-		SlotUID:                   headerSlotUID,
-	})
-	spanSvc.SetAttributes(attribute.Int64("duration_us", time.Since(callStart).Microseconds()))
-	if err != nil {
-		spanSvc.SetStatus(codes.Error, err.Error())
-	}
-	spanSvc.End()
-
-	// -----------------------------
-	// mergeLogMetric
-	// -----------------------------
-	_, spanMerge := s.tracer.Start(ctx, GetSpanName(callerMethodName, "mergeLogMetric"))
-	if err != nil {
-		spanMerge.End()
-
-		log.Error().Err(err).Msg("Error in GetPayload")
-		span.SetAttributes(attribute.String("error", err.Error()))
-		span.SetStatus(codes.Error, err.Error())
-		respondError(ctx, span, getPayload, w, err, &log, s.tracer)
-		return
-	}
-	spanMerge.End()
-
-	// -----------------------------
-	// Respond
-	// -----------------------------
-	if !sszResponse {
-		if err := respondOK(ctx, span, getPayload, w, versionedPayloadInfo.GetResponse(), &log, s.tracer, true); err == nil {
-			success = true
-		}
-		return
-	}
-
-	// SSZ response path
-	_, spanMarshal := s.tracer.Start(ctx, GetSpanName(callerMethodName, "marshalUnmarshal"))
-	payloadResponse := new(common.VersionedSubmitBlindedBlockResponse)
-	if err := payloadResponse.UnmarshalJSON(versionedPayloadInfo.GetResponse()); err != nil {
-		spanMarshal.SetStatus(codes.Error, err.Error())
-		spanMarshal.End()
-
-		log.Error().Err(err).Msg("failed to unmarshal getHeader response")
-		respondError(ctx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, err.Error()), &log, s.tracer)
-		return
-	}
-	outByte, err := payloadResponse.MarshalSSZ()
-	if err != nil {
-		spanMarshal.SetStatus(codes.Error, err.Error())
-		spanMarshal.End()
-
-		log.Error().Err(err).Msg("failed to marshal getHeader to ssz")
-		// Fallback to JSON
-		if err := respondOK(ctx, span, getPayload, w, versionedPayloadInfo.GetResponse(), &log, s.tracer, true); err == nil {
-			success = true
-		}
-		return
-	}
-	spanMarshal.End()
-
-	w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
-	success = s.respondOKWithContextSSZMarshalled(ctx, span, getPayload, w, outByte, &log, s.tracer)
-}
-
-func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
-
-	const callerMethodName = "handleGetPayloadV2"
-
-	receivedAt := time.Now().UTC()
+	start := time.Now().UTC()
 	success := false
 	defer func() {
 		s.performanceStats.SetEndpointStats(
-			common.PathGetPayloadV2,
-			uint64(time.Since(receivedAt).Microseconds()),
+			common.PathGetPayload,
+			uint64(time.Since(start).Microseconds()),
 			success,
 			100)
 	}()
 
-	// Keep inbound request context for deadlines/cancellation/metadata.
-	ctx := r.Context()
-
-	// Start a root span for this handler.
-	ctx, span := s.tracer.Start(ctx, GetSpanName(callerMethodName, "START"))
+	parentSpan := trace.SpanFromContext(r.Context())
+	parentCtx := trace.ContextWithSpan(context.Background(), parentSpan)
+	getPayloadCtx, span := s.tracer.Start(parentCtx, "handleGetPayload-start")
+	defer parentSpan.End()
 	defer span.End()
 
-	// Request-scoped metadata
-	clientIP, _ := ctx.Value(keyClientIP).(string)
-	parsedURL, _ := ctx.Value(keyParsedURL).(*url.URL)
-	authHeader, _ := ctx.Value(keyAuthHeader).(string)
-	validatorID, _ := ctx.Value(keyOrgID).(string)
-	accountID, _ := ctx.Value(keyAccountID).(string)
+	receivedAt := time.Now().UTC()
+	clientIP := r.Context().Value(keyClientIP).(string)
+	parsedURL := r.Context().Value(keyParsedURL).(*url.URL)
+	authHeader := r.Context().Value(keyAuthHeader).(string)
+	validatorID := r.Context().Value(keyOrgID).(string)
+	accountID := r.Context().Value(keyAccountID).(string)
 
 	mevBoostSendTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
 	commitBoostSendTimeUnixMS := r.Header.Get(HeaderDateMilliseconds)
 	headerSlotUID := r.Header.Get(HeaderKeySlotUID)
-	boostSendTime, sentAtUtc, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
+	boostSendTime, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
 	cluster := r.Header.Get(VouchCluster)
 	userAgent := r.Header.Get("User-Agent")
 
-	// Collect headers (cheap)
-	headers := make([]string, 0, len(r.Header))
+	headers := []string{}
 	for k, v := range r.Header {
-		if len(v) > 0 {
-			headers = append(headers, k+"="+v[0])
-		}
+		headers = append(headers, k+"="+v[0])
 	}
-
-	// Determine request/response content type expectations
 	sszRequest, sszResponse := common.ParseBuilderContentType(r)
 
 	log := s.logger.With().
@@ -1305,11 +805,7 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 		Bool("sszResponse", sszResponse).
 		Strs("headers", headers).
 		Str("slotUID", headerSlotUID).
-		Time("receivedAt", receivedAt).
-		Str("receivedAtUtc", formatUTCms(receivedAt)).
-		Str("sentAtUtc", sentAtUtc).
 		Logger()
-
 	span.SetAttributes(
 		attribute.String("reqHost", r.Host),
 		attribute.String("method", r.Method),
@@ -1329,52 +825,205 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 		attribute.Bool("sszResponse", sszResponse),
 		attribute.StringSlice("headers", headers),
 		attribute.String("slotUID", headerSlotUID),
-		attribute.Int64("receivedAt", receivedAt.UnixMilli()),
-		attribute.String("receivedAtUtc", formatUTCms(receivedAt)),
-		attribute.String("sentAtUtc", sentAtUtc),
 	)
 
-	// --- read body
-	_, readBodyBytesSpan := s.tracer.Start(ctx, GetSpanName(callerMethodName, "readBodyBytes"))
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		readBodyBytesSpan.SetStatus(codes.Error, err.Error())
-		log.Error().Err(err).Msg("could not read getPayload")
-		respondError(ctx, span, getPayloadV2, w, toErrorResp(http.StatusInternalServerError, "could not read getPayload"), &log, s.tracer)
-		readBodyBytesSpan.End()
+		span.SetStatus(codes.Error, err.Error())
+		log.Error().Err(err).Msg("could not read registration")
+		respondError(getPayloadCtx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "could not read registration"), &log, s.tracer)
 		return
 	}
-	readBodyBytesSpan.End()
-
-	// --- decode SSZ if needed, then canonicalize to JSON for service
 	signedBlindedBeaconBlock := new(common.VersionedSignedBlindedBeaconBlock)
 	if sszRequest {
-		_, decodeSSZSpan := s.tracer.Start(ctx, GetSpanName(callerMethodName, "decodeSSZ"))
-		if err := signedBlindedBeaconBlock.UnmarshalSSZ(bodyBytes); err != nil {
-			decodeSSZSpan.SetStatus(codes.Error, err.Error())
+		_, decodeSSZSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-decodeSSZ")
+		err := signedBlindedBeaconBlock.UnmarshalSSZ(bodyBytes)
+		if err != nil {
 			log.Error().Err(err).Msg("failed to decode request payload")
 			decodeSSZSpan.End()
-			respondError(ctx, span, getPayloadV2, w, toErrorResp(http.StatusInternalServerError, "failed to decode request payload"), &log, s.tracer)
+			respondError(getPayloadCtx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "failed to decode request payload"), &log, s.tracer)
 			return
 		}
 		decodeSSZSpan.End()
-
-		_, encodeJSONSpan := s.tracer.Start(ctx, GetSpanName(callerMethodName, "encodeJSON"))
-		b, err := signedBlindedBeaconBlock.MarshalJSON()
+		_, encodeJSONSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-encodeJSON")
+		bodyBytes, err = signedBlindedBeaconBlock.MarshalJSON()
 		if err != nil {
-			encodeJSONSpan.SetStatus(codes.Error, err.Error())
-			log.Error().Err(err).Msg("failed to marshal to json")
 			encodeJSONSpan.End()
-			respondError(ctx, span, getPayloadV2, w, toErrorResp(http.StatusInternalServerError, "failed to marshal to json"), &log, s.tracer)
+			log.Error().Err(err).Msg("failed to marshal to json")
+			respondError(getPayloadCtx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "failed to marshal to json"), &log, s.tracer)
 			return
 		}
 		encodeJSONSpan.End()
-		bodyBytes = b
 	}
+	span.AddEvent("handleGetPayload-svcGetPayload")
+	var (
+		versionedPayloadInfo *common.VersionedPayloadInfo
+	)
+	method := getPayload
+	versionedPayloadInfo, err = s.svc.GetPayload(getPayloadCtx, &log, &PayloadRequestParams{
+		ReceivedAt:                receivedAt,
+		Payload:                   bodyBytes,
+		ClientIP:                  clientIP,
+		AuthHeader:                authHeader,
+		ValidatorID:               validatorID,
+		AccountID:                 accountID,
+		GetPayloadStartTimeUnixMS: boostSendTime,
+		Cluster:                   cluster,
+		UserAgent:                 userAgent,
+		SlotUID:                   headerSlotUID,
+	})
+	_, mergeLogMetric := s.tracer.Start(getPayloadCtx, "handleGetPayload-mergeLogMetric")
+	if err != nil {
+		log.Error().Err(err).Msg("Error in GetPayload")
+		span.SetAttributes(
+			attribute.String("error", err.Error()),
+		)
+		span.SetStatus(codes.Error, err.Error())
+		respondError(getPayloadCtx, span, method, w, err, &log, s.tracer)
+		return
+	}
+	mergeLogMetric.End()
 
+	// Return response
+	if !sszResponse {
+		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer, true); err == nil {
+			success = true
+		}
+		return
+	}
+	_, marshalUnmarshalSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-marshalUnmarshal")
+	payloadResponse := new(common.VersionedSubmitBlindedBlockResponse)
+	if err := payloadResponse.UnmarshalJSON(versionedPayloadInfo.GetResponse()); err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		log.Error().Err(err).Msg("failed to unmarshal getHeader response")
+		respondError(getPayloadCtx, span, method, w, toErrorResp(http.StatusInternalServerError, err.Error()), &log, s.tracer)
+		return
+	}
+	outByte, err := payloadResponse.MarshalSSZ()
+	if err != nil {
+		log.Error().Err(err).Msg("failed to marshal getHeader to ssz")
+		span.SetStatus(codes.Error, err.Error())
+		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer, true); err == nil {
+			success = true
+		}
+		return
+	}
+	marshalUnmarshalSpan.End()
+	w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
+	success = s.respondOKWithContextSSZMarshalled(getPayloadCtx, span, method, w, outByte, &log, s.tracer)
+
+}
+func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
+
+	start := time.Now().UTC()
+	success := false
+	defer func() {
+		s.performanceStats.SetEndpointStats(
+			common.PathGetPayloadV2,
+			uint64(time.Since(start).Microseconds()),
+			success,
+			100)
+	}()
+
+	parentSpan := trace.SpanFromContext(r.Context())
+	parentCtx := trace.ContextWithSpan(context.Background(), parentSpan)
+	getPayloadCtx, span := s.tracer.Start(parentCtx, "handleGetPayloadV2-start")
+	defer parentSpan.End()
+	defer span.End()
+
+	receivedAt := time.Now().UTC()
+	clientIP := r.Context().Value(keyClientIP).(string)
+	parsedURL := r.Context().Value(keyParsedURL).(*url.URL)
+	authHeader := r.Context().Value(keyAuthHeader).(string)
+	validatorID := r.Context().Value(keyOrgID).(string)
+	accountID := r.Context().Value(keyAccountID).(string)
+
+	mevBoostSendTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
+	commitBoostSendTimeUnixMS := r.Header.Get(HeaderDateMilliseconds)
+	headerSlotUID := r.Header.Get(HeaderKeySlotUID)
+	boostSendTime, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
+	cluster := r.Header.Get(VouchCluster)
+	userAgent := r.Header.Get("User-Agent")
+
+	headers := []string{}
+	for k, v := range r.Header {
+		headers = append(headers, k+"="+v[0])
+	}
+	sszRequest, sszResponse := common.ParseBuilderContentType(r)
+
+	log := s.logger.With().
+		Str("reqHost", r.Host).
+		Str("method", r.Method).
+		Str("userAgent", userAgent).
+		Str("clientIP", clientIP).
+		Str("remoteAddr", r.RemoteAddr).
+		Str("requestURI", r.RequestURI).
+		Str("parsedURL", parsedURL.String()).
+		Str("validatorID", validatorID).
+		Str("accountID", accountID).
+		Str("authHeader", authHeader).
+		Str("traceID", span.SpanContext().TraceID().String()).
+		Str("getPayloadStartTimeUnixMS", boostSendTime).
+		Int64("latency", latency).
+		Str("cluster", cluster).
+		Bool("sszRequest", sszRequest).
+		Bool("sszResponse", sszResponse).
+		Strs("headers", headers).
+		Str("slotUID", headerSlotUID).
+		Logger()
+	span.SetAttributes(
+		attribute.String("reqHost", r.Host),
+		attribute.String("method", r.Method),
+		attribute.String("clientIP", clientIP),
+		attribute.String("remoteAddr", r.RemoteAddr),
+		attribute.String("requestURI", r.RequestURI),
+		attribute.String("parsedURL", parsedURL.String()),
+		attribute.String("validatorID", validatorID),
+		attribute.String("accountID", accountID),
+		attribute.String("authHeader", authHeader),
+		attribute.String("traceID", span.SpanContext().TraceID().String()),
+		attribute.String("getPayloadStartTimeUnixMS", boostSendTime),
+		attribute.Int64("latency", latency),
+		attribute.String("cluster", cluster),
+		attribute.String("userAgent", userAgent),
+		attribute.Bool("sszRequest", sszRequest),
+		attribute.Bool("sszResponse", sszResponse),
+		attribute.StringSlice("headers", headers),
+		attribute.String("slotUID", headerSlotUID),
+	)
+
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		log.Error().Err(err).Msg("could not read registration")
+		respondError(getPayloadCtx, span, getPayloadV2, w, toErrorResp(http.StatusInternalServerError, "could not read payload"), &log, s.tracer)
+		return
+	}
+	signedBlindedBeaconBlock := new(common.VersionedSignedBlindedBeaconBlock)
+	if sszRequest {
+		_, decodeSSZSpan := s.tracer.Start(getPayloadCtx, "handleGetPayloadV2-decodeSSZ")
+		err := signedBlindedBeaconBlock.UnmarshalSSZ(bodyBytes)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to decode request payload")
+			decodeSSZSpan.End()
+			respondError(getPayloadCtx, span, getPayloadV2, w, toErrorResp(http.StatusInternalServerError, "failed to decode request payload"), &log, s.tracer)
+			return
+		}
+		decodeSSZSpan.End()
+		_, encodeJSONSpan := s.tracer.Start(getPayloadCtx, "handleGetPayloadV2-encodeJSON")
+		bodyBytes, err = signedBlindedBeaconBlock.MarshalJSON()
+		if err != nil {
+			encodeJSONSpan.End()
+			log.Error().Err(err).Msg("failed to marshal to json")
+			respondError(getPayloadCtx, span, getPayloadV2, w, toErrorResp(http.StatusInternalServerError, "failed to marshal to json"), &log, s.tracer)
+			return
+		}
+		encodeJSONSpan.End()
+	}
 	span.AddEvent("handleGetPayload-svcGetPayloadV2")
 
-	err = s.svc.GetPayloadV2(ctx, &log, &PayloadRequestParams{
+	method := getPayloadV2
+	err = s.svc.GetPayloadV2(getPayloadCtx, &log, &PayloadRequestParams{
 		ReceivedAt:                receivedAt,
 		Payload:                   bodyBytes,
 		ClientIP:                  clientIP,
@@ -1389,7 +1038,7 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 
 	// need to confirm eth consensusVersion
 	//w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
-	success = respondStatusAccepted(ctx, span, getPayloadV2, w, &log, s.tracer)
+	success = respondStatusAccepted(getPayloadCtx, span, method, w, &log, s.tracer)
 }
 
 func respondStatusAccepted(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, log *zerolog.Logger, tracer trace.Tracer) bool {
@@ -1405,7 +1054,7 @@ func respondStatusAccepted(ctx context.Context, parentSpan trace.Span, method st
 }
 
 func respondOK(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, response any, log *zerolog.Logger, tracer trace.Tracer, logMessage bool) error {
-	_, span := tracer.Start(ctx, GetSpanName(method, "respondOK"))
+	_, span := tracer.Start(ctx, "respondOK-"+method)
 	defer span.End()
 	parentSpan.SetAttributes(
 		attribute.Int("responseCode", 200),
@@ -1427,7 +1076,7 @@ func respondOK(ctx context.Context, parentSpan trace.Span, method string, w http
 
 func respondError(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, err error, log *zerolog.Logger, tracer trace.Tracer) {
 
-	_, span := tracer.Start(ctx, GetSpanName(method, "respondError"))
+	_, span := tracer.Start(ctx, "respondError-"+method)
 	defer span.End()
 
 	resp, ok := err.(*ErrorResp)
@@ -1490,7 +1139,7 @@ func parseQuery(query string, value string, log *zerolog.Logger) (bool, error) {
 }
 
 func (s *Server) respondOKWithContextSSZMarshalled(ctx context.Context, parentSpan trace.Span, method string, w http.ResponseWriter, resBytes []byte, log *zerolog.Logger, tracer trace.Tracer) bool {
-	_, span := tracer.Start(ctx, GetSpanName(method, "respondOKSSZ"))
+	_, span := tracer.Start(ctx, fmt.Sprintf("respondOKSSZ-%s", method))
 	defer span.End()
 	parentSpan.SetAttributes(
 		attribute.Int("responseCode", 200),
@@ -1513,73 +1162,4 @@ func (s *Server) respondOKWithContextSSZMarshalled(ctx context.Context, parentSp
 	}
 	log.Info().Str("method", method).Msg(method + " succeeded")
 	return true
-}
-
-// readAllPooledCtx reads r.Body fully with:
-// - hard size cap via MaxBytesReader
-// - per-call timeout via ctx (works for H1/H2)
-// - pooled scratch buffer ([]byte) for fewer allocs
-func (s *Server) readAllPooledCtx(ctx context.Context, w http.ResponseWriter, r *http.Request, max int64, timeout time.Duration) ([]byte, error) {
-	// Hard cap
-	r.Body = http.MaxBytesReader(w, r.Body, max)
-
-	// Deadline for the read
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
-
-	type res struct {
-		b   []byte
-		err error
-	}
-	done := make(chan res, 1)
-
-	go func() {
-		defer r.Body.Close()
-
-		var buf bytes.Buffer
-		if r.ContentLength > 0 && r.ContentLength <= max {
-			buf.Grow(int(r.ContentLength))
-		}
-
-		// === robust scratch buffer from pool
-		scratch := s.getPayloadBodyPool.Get().([]byte)
-		if len(scratch) == 0 {
-			// safety: pool might hand back empty slice (or was never initialized)
-			scratch = make([]byte, 64<<10) // 64 KiB
-		}
-		_, err := io.CopyBuffer(&buf, r.Body, scratch)
-
-		// restore shape & return to pool
-		if cap(scratch) > 0 {
-			scratch = scratch[:cap(scratch)]
-		}
-		s.getPayloadBodyPool.Put(scratch)
-
-		done <- res{b: buf.Bytes(), err: err}
-	}()
-
-	select {
-	case r := <-done:
-		return r.b, r.err
-
-	case <-ctx.Done():
-		// Abort the copy; Close() should unblock Read() on real http bodies.
-		_ = r.Body.Close()
-
-		// Give the goroutine a short grace period to finish after Close().
-		select {
-		case rr := <-done:
-			// If the worker didn't see an error, surface the context timeout.
-			if rr.err == nil {
-				return rr.b, ctx.Err()
-			}
-			return nil, rr.err
-		case <-time.After(1 * time.Second):
-			// Defensive: if the underlying reader ignores Close(), return timeout.
-			return nil, ctx.Err()
-		}
-	}
 }

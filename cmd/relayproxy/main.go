@@ -159,7 +159,7 @@ func main() {
 	newClients, newConns := getClientsAndConnsFromURLs(l, *relaysGRPCURL, conns, keepaliveOpts, clients, map[string]string{})
 	defer func() {
 		for _, conn := range newConns {
-			_ = conn.Close()
+			conn.Close()
 		}
 	}()
 
@@ -167,7 +167,7 @@ func main() {
 	newStreamingClients, newStreamingConns := getClientsAndConnsFromURLs(l, *streamingRelaysGRPCURL, streamingConns, keepaliveOpts, streamingClients, map[string]string{})
 	defer func() {
 		for _, conn := range newStreamingConns {
-			_ = conn.Close()
+			conn.Close()
 		}
 	}()
 
