@@ -123,7 +123,21 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		return
 	}
 
-	//TODO: SKIP if in local cache
+	//Check if in local cache
+	payloadCacheKey := common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey)
+	if cachedValue, exists := s.getPayloadResponseForProxySlot.Get(payloadCacheKey); exists && cachedValue != nil {
+		payloadResponseForProxy, ok := cachedValue.(*common.PayloadResponseForProxy)
+		if !ok {
+			prefetchLogger.Error().Msg("failed to cast cached value to GetPayloadResponseForProxy")
+		} else {
+			_, err := payloadResponseForProxy.GetMarshalledResponse()
+			if err != nil {
+				prefetchLogger.Error().Err(err).Msg("failed to get marshalled cached value from GetPayloadResponseForProxy")
+			} else {
+				success = true
+			}
+		}
+	}
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -159,7 +173,7 @@ func (s *Service) prefetchGRPC(
 		payloadSize     int
 		payloadCacheKey string
 	)
-
+	spanCtx, span := s.tracer.Start(spanCtx, GetSpanName("prefetch", "gRPCWrapper"))
 	defer func() {
 		durationMs := time.Since(prefetchStartTime).Milliseconds()
 
@@ -181,6 +195,18 @@ func (s *Service) prefetchGRPC(
 				Int64("endedAt", durationMs).
 				Msg("prefetchGRPC :: failed")
 		}
+		targetClientIP := ""
+		if fields.client != nil {
+			targetClientIP = fields.client.String()
+		}
+		span.SetAttributes(
+			attribute.Int64("slot", int64(fields.slot)),
+			attribute.String("parentHash", fields.parentHash),
+			attribute.String("blockHash", fields.blockHash),
+			attribute.Bool("success", success),
+			attribute.String("targetClientIP", targetClientIP),
+		)
+		span.End()
 	}()
 
 	if len(clients) == 0 {
