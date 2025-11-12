@@ -20,6 +20,9 @@ import (
 const (
 	GetHeaderRequestCutoffMs             = 3000
 	delayEligibilityCacheCleanupInterval = 60 * time.Second
+
+	flowRetention       = 3 * 24 * time.Hour // keep in-memory for 3 days
+	flowCleanupInterval = 5 * time.Minute    // how often expired entries are purged
 )
 
 type IDataService interface {
@@ -32,6 +35,7 @@ type IDataService interface {
 	SetDelayForValidators(settings map[string]DelaySettings)
 	DelayGetHeader(ctx context.Context, in DelayGetHeaderParams) (DelayGetHeaderResponse, error)
 	GetSlotDuty(slot uint64) (*common.MiniValidatorLatency, error)
+	GetFlowService() IFlowService
 }
 
 type DataService struct {
@@ -54,6 +58,8 @@ type DataService struct {
 	accountsLists          *AccountsLists
 	delayerPlugin          func(accountID string, msIntoSlot int64, cluster, userAgent string, latency int64, clientIP string, logger zerolog.Logger, getHeaderTimeout map[string]int64) (int64, int64, int64, error)
 	miniProposerSlotMap    *SyncMap[uint64, *common.MiniValidatorLatency]
+
+	flowSvc *FlowService
 }
 
 func NewDataService(opts ...DataServiceOption) *DataService {
@@ -65,6 +71,7 @@ func NewDataService(opts ...DataServiceOption) *DataService {
 			AccountIDToInfo:   make(map[string]*AccountInfo),
 			AccountNameToInfo: make(map[AccountName]*AccountInfo),
 		},
+		flowSvc: NewFlowService(flowRetention, flowCleanupInterval),
 	}
 
 	for _, opt := range opts {
@@ -136,6 +143,12 @@ func (s *DataService) shouldRequestDelayed(ip, slotWithParentHash string) bool {
 	}
 	s.logger.Warn().Str("key", slotWithParentHash).Msg("received empty client IP, unable to verify delay eligibility")
 	return false
+}
+func (s *DataService) getFlowSvc() IFlowService {
+	if s.flowSvc == nil {
+		s.flowSvc = NewFlowService(flowRetention, flowCleanupInterval)
+	}
+	return s.flowSvc
 }
 
 func (s *DataService) DelayGetHeader(ctx context.Context, in DelayGetHeaderParams) (DelayGetHeaderResponse, error) {
@@ -256,4 +269,8 @@ func (s *DataService) GetSlotDuty(slot uint64) (*common.MiniValidatorLatency, er
 	}
 	v, _ := s.miniProposerSlotMap.Load(slot)
 	return v, nil
+}
+
+func (s *DataService) GetFlowService() IFlowService {
+	return s.flowSvc
 }

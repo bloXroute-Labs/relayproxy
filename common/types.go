@@ -317,14 +317,28 @@ type ParentClient struct {
 }
 
 func (p *ParentClient) String() string {
-	return fmt.Sprintf("ParentClient{FastClient: %s, SafeClient: %s}", p.FastClient.URL, p.SafeClient.URL)
+	var fastClientURL, safeClientURL string
+	if p.FastClient != nil {
+		fastClientURL = p.FastClient.URL
+	}
+	if p.SafeClient != nil {
+		safeClientURL = p.SafeClient.URL
+	}
+	return fmt.Sprintf("ParentClient{FastClient: %s, SafeClient: %s}", fastClientURL, safeClientURL)
 }
 
-func (p *ParentClient) GetActiveClient(lastConnectTime time.Time) (*Client, bool) {
-	if time.Since(lastConnectTime) <= clientFailureWindow {
-		return p.SafeClient, true
+func (p *ParentClient) GetFastClient() *Client {
+	if p.FastClient == nil {
+		return p.SafeClient
 	}
-	return p.FastClient, false
+	return p.FastClient
+}
+func (p *ParentClient) GetActiveClient(lastFailureTime time.Time) (*Client, bool) {
+	if lastFailureTime.IsZero() || time.Since(lastFailureTime) > clientFailureWindow {
+		return p.FastClient, false
+	}
+
+	return p.SafeClient, true
 }
 
 func NewParentClient(safeUrl string, safeConn *grpc.ClientConn, fastUrl string, fastConn *grpc.ClientConn) *ParentClient {
@@ -512,6 +526,7 @@ type PreFetchGetPayloadRequestHTTP struct {
 	BlockHash  string
 	Pubkey     string
 	ClientIp   string
+	ReqID      string
 	ReceivedAt *timestamppb.Timestamp
 }
 
