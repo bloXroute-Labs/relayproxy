@@ -147,7 +147,7 @@ func (s *Server) InitHandler() *chi.Mux {
 		r.With(s.MiddlewareAdmin).Options(common.PathDelaySettings, s.HandleOptions)
 		r.With(s.MiddlewareAdmin).Post(common.PathDelaySettings, s.HandleSetDelays)
 		r.With(s.MiddlewareAdmin).Get(common.PathGetAccounts, s.HandleGetAccounts)
-		r.With(s.MiddlewareAdmin).Get(common.PathGetFlow, s.HandleGetFlow)
+		r.With().Get(common.PathGetFlow, s.HandleGetFlow)
 	})
 
 	handler.Get(common.PathNode, s.HandleNode)
