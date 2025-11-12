@@ -124,7 +124,17 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	}
 
 	//TODO: SKIP if in local cache
-	go s.prefetchGRPC(ctx, spanCtx, clients, prefetchLogger, fields, prefetchID, startTime)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		res, err := s.prefetchGRPC(ctx, spanCtx, clients, prefetchLogger, fields, prefetchID, startTime)
+		if err == nil && res != nil {
+			success = true
+		}
+	}()
+	wg.Wait()
+
 	//prefetchHTTP()
 
 }
