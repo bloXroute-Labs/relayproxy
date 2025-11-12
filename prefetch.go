@@ -126,6 +126,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	//Check if in local cache
 	payloadCacheKey := common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey)
 	if cachedValue, exists := s.getPayloadResponseForProxySlot.Get(payloadCacheKey); exists && cachedValue != nil {
+		_, localCacheSpan := s.tracer.Start(spanCtx, GetSpanName("prefetch", "localCacheCheck"))
 		payloadResponseForProxy, ok := cachedValue.(*common.PayloadResponseForProxy)
 		if !ok {
 			prefetchLogger.Error().Msg("failed to cast cached value to GetPayloadResponseForProxy")
@@ -135,8 +136,11 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 				prefetchLogger.Error().Err(err).Msg("failed to get marshalled cached value from GetPayloadResponseForProxy")
 			} else {
 				success = true
+				localCacheSpan.End()
+				return
 			}
 		}
+		localCacheSpan.End()
 	}
 	var wg sync.WaitGroup
 	wg.Add(1)
