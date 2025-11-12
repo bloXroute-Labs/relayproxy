@@ -28,7 +28,7 @@ type RegistrationParams struct {
 type HeaderRequestParams struct {
 	// The time when the header request was received.
 	ReceivedAt time.Time
-	// The Unix timestamp (as string) when getHeader processing started.
+	// The Unix timestamp (as string) when getHeader initiated from proposer .
 	GetHeaderStartTimeUnixMS string
 	// Request Latency
 	Latency int64

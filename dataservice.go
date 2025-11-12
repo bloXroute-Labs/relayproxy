@@ -20,6 +20,9 @@ import (
 const (
 	GetHeaderRequestCutoffMs             = 3000
 	delayEligibilityCacheCleanupInterval = 60 * time.Second
+
+	flowRetention       = 3 * 24 * time.Hour // keep in-memory for 3 days
+	flowCleanupInterval = 5 * time.Minute    // how often expired entries are purged
 )
 
 type IDataService interface {
@@ -32,6 +35,7 @@ type IDataService interface {
 	SetDelayForValidators(settings map[string]DelaySettings)
 	DelayGetHeader(ctx context.Context, in DelayGetHeaderParams) (DelayGetHeaderResponse, error)
 	GetSlotDuty(slot uint64) (*common.MiniValidatorLatency, error)
+	GetFlowService() IFlowService
 }
 
 type DataService struct {
@@ -54,6 +58,8 @@ type DataService struct {
 	accountsLists          *AccountsLists
 	delayerPlugin          func(accountID string, msIntoSlot int64, cluster, userAgent string, latency int64, clientIP string, logger zerolog.Logger, getHeaderTimeout map[string]int64) (int64, int64, int64, error)
 	miniProposerSlotMap    *SyncMap[uint64, *common.MiniValidatorLatency]
+
+	flowSvc *FlowService
 }
 
 func NewDataService(opts ...DataServiceOption) *DataService {
@@ -65,6 +71,7 @@ func NewDataService(opts ...DataServiceOption) *DataService {
 			AccountIDToInfo:   make(map[string]*AccountInfo),
 			AccountNameToInfo: make(map[AccountName]*AccountInfo),
 		},
+		flowSvc: NewFlowService(flowRetention, flowCleanupInterval),
 	}
 
 	for _, opt := range opts {
@@ -137,58 +144,53 @@ func (s *DataService) shouldRequestDelayed(ip, slotWithParentHash string) bool {
 	s.logger.Warn().Str("key", slotWithParentHash).Msg("received empty client IP, unable to verify delay eligibility")
 	return false
 }
+func (s *DataService) getFlowSvc() IFlowService {
+	if s.flowSvc == nil {
+		s.flowSvc = NewFlowService(flowRetention, flowCleanupInterval)
+	}
+	return s.flowSvc
+}
 
 func (s *DataService) DelayGetHeader(ctx context.Context, in DelayGetHeaderParams) (DelayGetHeaderResponse, error) {
+	var resp DelayGetHeaderResponse
 
 	slotInt := AToI(in.Slot)
 	slotStartTime := GetSlotStartTime(s.beaconGenesisTime, slotInt, s.secondsPerSlot)
 	msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds()
 
-	// first request from an IP is responded immediately
-	// subsequent request from same IP will be delayed
-	if s.accountsLists.AccountIDToInfo[in.AccountID] != nil &&
-		s.accountsLists.AccountIDToInfo[in.AccountID].InstantReturnFirstRequest {
+	resp.SlotStartTime = slotStartTime
+	resp.Latency = in.Latency
+
+	if info := s.accountsLists.AccountIDToInfo[in.AccountID]; info != nil && info.InstantReturnFirstRequest {
 		if ok := s.shouldRequestDelayed(in.ClientIP, in.SlotWithParentHash); !ok {
-			return DelayGetHeaderResponse{
-				Sleep:              0,
-				MaxSleep:           0,
-				Latency:            in.Latency,
-				SlotStartTime:      slotStartTime,
-				ReplacementDelayMs: 0,
-			}, nil
+			return resp, nil
 		}
 	}
-	var (
-		sleep, maxSleep, replacementDelayMs int64
-		err                                 error
-	)
+
 	if GetHeaderRequestCutoffMs > 0 && msIntoSlot > GetHeaderRequestCutoffMs {
-		return DelayGetHeaderResponse{}, common.ErrLateHeader
-	}
-	sleep, maxSleep, replacementDelayMs, err = s.dynamicFuncWrapper(in.AccountID, msIntoSlot, in.Cluster, in.UserAgent, in.Latency, in.ClientIP)
-	if err != nil {
-		return DelayGetHeaderResponse{}, err
+		return resp, common.ErrLateHeader
 	}
 
-	delayFunc := func() {
+	sleep, maxSleep, replacementDelayMs, err := s.dynamicFuncWrapper(
+		in.AccountID, msIntoSlot, in.Cluster, in.UserAgent, in.Latency, in.ClientIP,
+	)
+	if err != nil {
+		return resp, err
+	}
+
+	if msIntoSlot < maxSleep {
 		maxSleepTime := slotStartTime.Add(time.Duration(maxSleep) * time.Millisecond)
-		if time.Now().UTC().Add(time.Duration(sleep) * time.Millisecond).After(maxSleepTime) {
+		if nowPlusSleep := time.Now().UTC().Add(time.Duration(sleep) * time.Millisecond); nowPlusSleep.After(maxSleepTime) {
 			time.Sleep(maxSleepTime.Sub(time.Now().UTC()))
 		} else {
 			time.Sleep(time.Duration(sleep) * time.Millisecond)
 		}
 	}
-	if msIntoSlot < maxSleep {
-		delayFunc()
-	}
 
-	return DelayGetHeaderResponse{
-		Sleep:              sleep + replacementDelayMs,
-		MaxSleep:           maxSleep,
-		Latency:            in.Latency,
-		SlotStartTime:      slotStartTime,
-		ReplacementDelayMs: replacementDelayMs,
-	}, nil
+	resp.Sleep = sleep + replacementDelayMs
+	resp.MaxSleep = maxSleep
+	resp.ReplacementDelayMs = replacementDelayMs
+	return resp, nil
 }
 
 func (s *DataService) GetDelaySettings(ctx context.Context) map[string]DelaySettings {
@@ -267,4 +269,8 @@ func (s *DataService) GetSlotDuty(slot uint64) (*common.MiniValidatorLatency, er
 	}
 	v, _ := s.miniProposerSlotMap.Load(slot)
 	return v, nil
+}
+
+func (s *DataService) GetFlowService() IFlowService {
+	return s.flowSvc
 }
