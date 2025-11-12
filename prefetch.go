@@ -53,6 +53,10 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	//	StartedAt:               startTime,
 	//	MsIntoSlotPrefetchStart: msIntoSlotPrefetchStart,
 	//})
+	clients := s.clients
+	if fields.client != nil {
+		clients = append(clients, fields.client)
+	}
 
 	spanCtx, span := s.tracer.Start(ctx, GetSpanName("prefetch", "START"))
 	defer func() {
@@ -117,7 +121,8 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		return
 	}
 
-	go s.prefetchGRPC(ctx, spanCtx, s.clients, prefetchLogger, fields, prefetchID, startTime)
+	//TODO: SKIP if in local cache
+	go s.prefetchGRPC(ctx, spanCtx, clients, prefetchLogger, fields, prefetchID, startTime)
 	//prefetchHTTP()
 
 }
@@ -177,8 +182,8 @@ func (s *Service) prefetchGRPC(
 
 	var wg sync.WaitGroup
 	resultCh := make(chan *prefetchResult, 1)
-	errCh := make(chan error, len(s.clients))
-	errList := make([]string, 0, len(s.clients))
+	errCh := make(chan error, len(clients))
+	errList := make([]string, 0, len(clients))
 	requestCount := len(clients)
 	req := &relaygrpc.PreFetchGetPayloadRequest{
 		ReqId:       reqID,
