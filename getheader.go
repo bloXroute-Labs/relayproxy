@@ -411,6 +411,10 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		MsIntoSlotWithDelay:      msIntoSlotIncludingDelay,
 		BlockHash:                slotBestHeader.BlockHash,
 	}
+	relayURL := ""
+	if slotBestHeader.Client != nil {
+		relayURL = slotBestHeader.Client.String()
+	}
 	go s.IDataService.GetFlowService().RecordHeaderFlow(_slot, in.ParentHash, slotBestHeader.BlockHash, weiToEther(blockValue), in.PubKey, s.nodeID, HeaderFlowEvent{
 		FlowEventSentAt:      time.Now().UTC(),
 		ServedByThisNode:     true,
@@ -426,7 +430,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		BuilderPubkey:        slotBestHeader.BuilderPubkey,
 		BuilderExtraData:     slotBestHeader.BuilderExtraData,
 		BlockHashReceivedAt:  slotBestHeader.ReceivedAt,
-		RelayURL:             slotBestHeader.Client.String(),
+		RelayURL:             relayURL,
 		BlockSequenceNumber:  slotBestHeader.BlockSequenceNumber,
 		Latency:              latency,
 		Sleep:                sleep,
