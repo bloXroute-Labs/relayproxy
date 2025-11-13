@@ -304,12 +304,12 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 	requestCount := len(clients)
 
 	for _, parent := range clients {
-		url = parent.String()
+		parentURL := parent.String()
 		wg.Add(1)
-		go func(client *common.Client, url string) {
+		go func(client *common.Client, parentURL string) {
 			defer wg.Done()
 
-			clientLogger := baseLogger.With().Str("downstream_url", url).Logger()
+			clientLogger := baseLogger.With().Str("downstream_url", parentURL).Logger()
 
 			res, pErr := s.prefetchHTTPSingle(gctx, spanCtx, client, clientLogger, fields, reqID, prefetchStartTime)
 			if pErr != nil || res == nil {
@@ -324,7 +324,7 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 			case resultCh <- res:
 			default:
 			}
-		}(parent.SafeClient, url)
+		}(parent.SafeClient, parentURL)
 	}
 
 	go func() {
@@ -585,12 +585,12 @@ func (s *Service) prefetchGRPC(
 	}
 
 	for _, parent := range clients {
-		url = parent.String()
+		parentURL := parent.String()
 		wg.Add(1)
-		go func(client *common.Client, url string, req *relaygrpc.PreFetchGetPayloadRequest) {
+		go func(client *common.Client, parentURL string, req *relaygrpc.PreFetchGetPayloadRequest) {
 			defer wg.Done()
 
-			clientLogger := baseLogger.With().Str("downstream_url", url).Logger()
+			clientLogger := baseLogger.With().Str("downstream_url", parentURL).Logger()
 
 			res, pErr := s.prefetchGRPCSingle(gctx, spanCtx, client, req, clientLogger)
 			if pErr != nil || res == nil {
@@ -605,7 +605,7 @@ func (s *Service) prefetchGRPC(
 			case resultCh <- res:
 			default:
 			}
-		}(parent.SafeClient, url, req)
+		}(parent.SafeClient, parentURL, req)
 	}
 
 	go func() {
