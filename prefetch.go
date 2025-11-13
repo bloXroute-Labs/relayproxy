@@ -424,6 +424,10 @@ func (s *Service) prefetchHTTPSingle(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+	if res.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("Received invalid status code %d", res.StatusCode)
+	}
+
 	defer res.Body.Close()
 	var respData common.PreFetchGetPayloadResponseHTTP
 	if err = json.NewDecoder(res.Body).Decode(&respData); err != nil && err != io.EOF {
@@ -438,10 +442,34 @@ func (s *Service) prefetchHTTPSingle(ctx context.Context,
 		attribute.Int64("request_duration_ms", reqDurMs),
 		attribute.Int("payload_size_bytes", len(respData.VersionedExecutionPayload)),
 	)
-	return &prefetchResultHTTP{
-		resp: respData,
-		url:  url,
-	}, nil
+	errMsg := ""
+	if respData.Code == uint32(codes.OK) {
+		if len(respData.VersionedExecutionPayload) != 0 {
+			baseLogger.Info().
+				Str("url", clientURL).
+				Int64("duration_ms", reqDurMs).
+				Msg("prefetch http: succeeded")
+
+			childSpan.SetAttributes(
+				attribute.Int64("request_duration_ms", reqDurMs),
+				attribute.Int("payload_size_bytes", len(respData.VersionedExecutionPayload)),
+			)
+
+			return &prefetchResultHTTP{
+				resp: respData,
+				url:  url,
+			}, nil
+		} else {
+			return nil, errors.New("zero len VersionedExecutionPayload")
+		}
+	} else if respData.Code != uint32(codes.OK) {
+		errMsg = respData.Message
+	} else if err != nil {
+		errMsg = err.Error()
+	} else {
+		errMsg = "nil response from relay"
+	}
+	return nil, errors.New(errMsg)
 }
 
 func getURL(url string) (string, error) {
