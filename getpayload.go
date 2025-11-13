@@ -188,7 +188,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		slotStartTime := GetSlotStartTime(s.beaconGenesisTime, int64(payloadInfo.Slot), s.secondsPerSlot)
 		msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds()
 		duration := time.Since(startTime)
-		go s.sendPayloadStats(in.Payload, log, true, payloadInfo, startTime, slotStartTime, msIntoSlot, id, latency, *in, "no error")
+		go s.sendPayloadStats(in.Payload, log, true, payloadInfo, startTime, slotStartTime, msIntoSlot, id, latency, *in, "")
 		blockValueStr = payloadInfo.GetBlockValue()
 		*log = log.With().
 			Int64("latency", latency).

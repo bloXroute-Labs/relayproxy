@@ -184,7 +184,7 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 		msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds()
 		duration := time.Since(startTime)
 
-		go s.sendPayloadStats(in.Payload, log, true, payloadInfo, startTime, slotStartTime, msIntoSlot, id, latency, *in, "no error")
+		go s.sendPayloadStats(in.Payload, log, true, payloadInfo, startTime, slotStartTime, msIntoSlot, id, latency, *in, "")
 
 		blockValueStr = payloadInfo.GetBlockValue()
 		*log = log.With().
