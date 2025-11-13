@@ -228,33 +228,6 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		}
 	}
 	blockValue := new(big.Int).SetBytes(slotBestHeader.Value)
-	go s.IDataService.GetFlowService().RecordHeaderFlow(_slot, in.ParentHash, slotBestHeader.BlockHash, weiToEther(blockValue), in.PubKey, s.nodeID, HeaderFlowEvent{
-		FlowEventSentAt:      time.Now().UTC(),
-		ServedByThisNode:     true,
-		SlotStartTime:        slotStartTime,
-		MsIntoSlot:           msIntoSlot,
-		MsIntoSlotWithDelay:  msIntoSlotIncludingDelay,
-		AccountID:            in.AccountID,
-		ValidatorID:          in.ValidatorID,
-		Source:               FlowSourceLocalBidCache, // adjust if needed
-		GetHeaderReqID:       id,
-		GetHeaderStartUnixMs: in.GetHeaderStartTimeUnixMS,
-		BlockValue:           weiToEther(blockValue),
-		BuilderPubkey:        slotBestHeader.BuilderPubkey,
-		BuilderExtraData:     slotBestHeader.BuilderExtraData,
-		BlockHashReceivedAt:  slotBestHeader.ReceivedAt,
-		RelayURL:             slotBestHeader.Client.String(),
-		BlockSequenceNumber:  slotBestHeader.BlockSequenceNumber,
-		Latency:              latency,
-		Sleep:                sleep,
-		MaxSleep:             maxSleep,
-		ClientIP:             in.ClientIP,
-		NodeID:               s.nodeID,
-		SlotUID:              in.SlotUID,
-		HeaderUserAgent:      statsUserAgent,
-		RepickedBlock:        usedRepick,
-	})
-
 	_, signAndFinishSpan := s.tracer.Start(ctx, "getHeader-finalize")
 	defer signAndFinishSpan.End()
 	*log = log.With().
