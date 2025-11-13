@@ -401,6 +401,20 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		}
 	}()
 
+	// send in payload to pre fetcher event
+	s.preFetchPayloadChan <- preFetcherFields{
+		clientIP:        in.ClientIP,
+		authHeader:      in.AuthHeader,
+		slot:            _slot,
+		parentHash:      in.ParentHash,
+		blockHash:       slotBestHeader.BlockHash,
+		proposerPubKey:  in.PubKey,
+		builderPubKey:   slotBestHeader.BuilderPubkey,
+		blockValue:      weiToEther(blockValue),
+		client:          slotBestHeader.Client,
+		payloadFetchUrl: slotBestHeader.PayloadFetchUrl,
+	}
+
 	signedHeaderResponse, prevSigned, err := slotBestHeader.GetSignedHeaderResponse(s.secretKey, &s.publicKey, s.builderSigningDomain)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get signed header")
