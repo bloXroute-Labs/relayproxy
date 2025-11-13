@@ -1,9 +1,13 @@
 package relayproxy
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -26,6 +30,20 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+var (
+	prefetchHttpOnce   sync.Once
+	prefetchHttpClient *http.Client
+)
+
+func getPrefetchHttpClient() *http.Client {
+	prefetchHttpOnce.Do(func() {
+		prefetchHttpClient = &http.Client{
+			Timeout: 950 * time.Millisecond,
+		}
+	})
+	return prefetchHttpClient
+}
+
 func (s *Service) StartPreFetcher(ctx context.Context) {
 	for fields := range s.preFetchPayloadChan {
 		go func(fields preFetcherFields) {
@@ -39,7 +57,10 @@ func (s *Service) StartPreFetcher(ctx context.Context) {
 func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherFields) {
 	startTime := time.Now().UTC()
 	var (
-		success bool
+		successGRPC    bool
+		successHTTP    bool
+		successCache   bool
+		successBuilder bool
 	)
 	var msIntoSlotPrefetchStart int64
 	if !fields.slotStartTime.IsZero() {
@@ -70,7 +91,10 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 
 		span.SetAttributes(
 			attribute.Int64("total_ms", totalMs),
-			attribute.Bool("success", success),
+			attribute.Bool("successCache", successCache),
+			attribute.Bool("successGRPC", successGRPC),
+			attribute.Bool("successHTTP", successHTTP),
+			attribute.Bool("successBuilder", successBuilder),
 			attribute.Int64("slot", int64(fields.slot)),
 			attribute.String("blockHash", fields.blockHash),
 			attribute.String("parentHash", fields.parentHash),
@@ -87,7 +111,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		s.performancestats.SetEndpointStats(
 			"PreFetchGetPayload-rproxy",
 			uint64(time.Since(startTime).Microseconds()),
-			success,
+			successCache || successHTTP || successGRPC || successBuilder,
 			100,
 		)
 	}()
@@ -112,9 +136,9 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	if fields.payloadFetchUrl != "" {
 		subStart := time.Now()
 		_, sub := s.tracer.Start(spanCtx, GetSpanName("prefetch", "builderHTTPorGRPC"))
-		success = s.prefetchPayloadFromBuilder(ctx, spanCtx, &fields, prefetchLogger)
+		successBuilder = s.prefetchPayloadFromBuilder(ctx, spanCtx, &fields, prefetchLogger)
 		sub.SetAttributes(
-			attribute.Bool("success", success),
+			attribute.Bool("success", successBuilder),
 			attribute.Int64("duration_ms", time.Since(subStart).Milliseconds()),
 		)
 		sub.End()
@@ -135,7 +159,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 			if err != nil {
 				prefetchLogger.Error().Err(err).Msg("failed to get marshalled cached value from GetPayloadResponseForProxy")
 			} else {
-				success = true
+				successCache = true
 				localCacheSpan.End()
 				return
 			}
@@ -143,23 +167,255 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		localCacheSpan.End()
 	}
 	var wg sync.WaitGroup
-	wg.Add(1)
+	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		res, err := s.prefetchGRPC(ctx, spanCtx, clients, prefetchLogger, fields, prefetchID, startTime)
 		if err == nil && res != nil {
-			success = true
+			successGRPC = true
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		res, err := s.prefetchHTTP(ctx, spanCtx, clients, prefetchLogger, fields, prefetchID, startTime)
+		if err == nil && res != nil {
+			successHTTP = true
 		}
 	}()
 	wg.Wait()
-
-	//prefetchHTTP()
 
 }
 
 type prefetchResult struct {
 	resp *relaygrpc.PreFetchGetPayloadResponse
 	url  string
+}
+
+type prefetchResultHTTP struct {
+	resp common.PreFetchGetPayloadResponseHTTP
+	url  string
+}
+
+func (s *Service) prefetchHTTP(ctx context.Context,
+	spanCtx context.Context,
+	clients []*common.ParentClient,
+	baseLogger zerolog.Logger,
+	fields preFetcherFields,
+	reqID string,
+	prefetchStartTime time.Time) (result *prefetchResultHTTP, err error) {
+
+	var (
+		success         bool
+		payloadSize     int
+		payloadCacheKey string
+	)
+	spanCtx, span := s.tracer.Start(spanCtx, GetSpanName("prefetch", "HTTPWrapper"))
+	defer func() {
+		durationMs := time.Since(prefetchStartTime).Milliseconds()
+
+		success = err == nil && result != nil
+		//source := FlowSourcePrefetchGRPC
+		if success {
+			if result != nil {
+				payloadSize = len(result.resp.VersionedExecutionPayload)
+			}
+			//source = result.source
+			baseLogger.Info().
+				Int("payload_size_bytes", payloadSize).
+				Str("winner_url", result.url).
+				Int64("endedAt", durationMs).
+				Msg("prefetchHTTP :: succeeded")
+		} else {
+			baseLogger.Error().Err(err).
+				Int("payload_size_bytes", payloadSize).
+				Int64("endedAt", durationMs).
+				Msg("prefetchHTTP :: failed")
+		}
+		targetClientIP := ""
+		if fields.client != nil {
+			targetClientIP = fields.client.String()
+		}
+		span.SetAttributes(
+			attribute.Int64("slot", int64(fields.slot)),
+			attribute.String("parentHash", fields.parentHash),
+			attribute.String("blockHash", fields.blockHash),
+			attribute.Bool("success", success),
+			attribute.String("targetClientIP", targetClientIP),
+		)
+		span.End()
+	}()
+
+	if len(clients) == 0 {
+		err = fmt.Errorf("no downstream clients")
+		return nil, err
+	}
+
+	gctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	resultCh := make(chan *prefetchResultHTTP, 1)
+	errCh := make(chan error, len(clients))
+	errList := make([]string, 0, len(clients))
+	requestCount := len(clients)
+
+	for _, parent := range clients {
+		url := parent.String()
+		wg.Add(1)
+		go func(client *common.Client, url string) {
+			defer wg.Done()
+
+			clientLogger := baseLogger.With().Str("downstream_url", url).Logger()
+
+			res, pErr := s.prefetchHTTPSingle(gctx, spanCtx, client, clientLogger, fields, reqID, prefetchStartTime)
+			if pErr != nil || res == nil {
+				select {
+				case errCh <- pErr:
+				default:
+				}
+				return
+			}
+
+			select {
+			case resultCh <- res:
+			default:
+			}
+		}(parent.SafeClient, url)
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultCh)
+		close(errCh)
+	}()
+
+	for i := 0; i < requestCount; i++ {
+		select {
+		case <-gctx.Done():
+			return nil, gctx.Err()
+		case res := <-resultCh:
+			if res != nil {
+				result = res
+				err = nil
+				payloadCacheKey = common.GetKeyForCachingPayload(
+					fields.slot,
+					fields.parentHash,
+					fields.blockHash,
+					fields.proposerPubKey,
+				)
+				payloadResponse := &common.PayloadResponseForProxy{
+					MarshalledPayloadResponse: result.resp.VersionedExecutionPayload,
+					BlockValue:                fields.blockValue,
+				}
+				payloadSize = len(result.resp.VersionedExecutionPayload)
+				_ = s.getPayloadResponseForProxySlot.Add(
+					payloadCacheKey,
+					payloadResponse,
+					cache.DefaultExpiration,
+				)
+				return result, nil
+			}
+		case _err := <-errCh:
+			if _err != nil {
+				errList = append(errList, _err.Error())
+			}
+		}
+	}
+	err = errors.New(strings.Join(errList, ";"))
+	return
+}
+
+func (s *Service) prefetchHTTPSingle(ctx context.Context,
+	spanCtx context.Context,
+	client *common.Client,
+	baseLogger zerolog.Logger,
+	fields preFetcherFields,
+	reqID string,
+	prefetchStartTime time.Time) (*prefetchResultHTTP, error) {
+
+	clientCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
+	var clientURL string
+
+	if client != nil {
+		clientURL = client.URL
+	}
+
+	req := common.PreFetchGetPayloadRequestHTTP{
+		Slot:           fields.slot,
+		ParentHash:     fields.parentHash,
+		BlockHash:      fields.blockHash,
+		Pubkey:         fields.proposerPubKey,
+		ClientIp:       fields.clientIP,
+		ReceivedAt:     timestamppb.New(prefetchStartTime),
+		GetHeaderReqID: fields.getHeaderReqID,
+		PrefetchReqID:  reqID,
+		NodeID:         s.nodeID,
+	}
+
+	reqBytes, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal prefetch http req %v", err.Error())
+	}
+	url, err := getURL(clientURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse prefetch http clientURL:%v,error: %v", clientURL, err.Error())
+	}
+	httpReq, err := http.NewRequestWithContext(clientCtx, http.MethodGet, url, bytes.NewReader(reqBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal prefetch http req %v", err.Error())
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	reqStart := time.Now()
+	_, childSpan := s.tracer.Start(spanCtx, GetSpanName("prefetch", "HTTP"))
+	defer childSpan.End()
+
+	childSpan.SetAttributes(
+		attribute.String("originalURL", clientURL),
+		attribute.String("url", url),
+	)
+	res, err := getPrefetchHttpClient().Do(httpReq)
+	reqDurMs := time.Since(reqStart).Milliseconds()
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	var respData common.PreFetchGetPayloadResponseHTTP
+	if err = json.NewDecoder(res.Body).Decode(&respData); err != nil && err != io.EOF {
+		return nil, err
+	}
+	baseLogger.Info().
+		Str("url", clientURL).
+		Int64("duration_ms", reqDurMs).
+		Msg("prefetch HTTP: succeeded")
+
+	childSpan.SetAttributes(
+		attribute.Int64("request_duration_ms", reqDurMs),
+		attribute.Int("payload_size_bytes", len(respData.VersionedExecutionPayload)),
+	)
+	return &prefetchResultHTTP{
+		resp: respData,
+		url:  url,
+	}, nil
+}
+
+func getURL(url string) (string, error) {
+	port := ":18555"
+
+	if strings.Contains(url, ":") {
+		host, portNumber, err := net.SplitHostPort(url)
+		if err != nil {
+			return "", err
+		}
+		url = host
+		if portNumber == "5015" {
+			port = ":18550"
+		}
+	}
+
+	finalURL := "http://" + url + port + common.PathPrefetchBlock
+	return finalURL, nil
 }
 
 func (s *Service) prefetchGRPC(
@@ -271,28 +527,31 @@ func (s *Service) prefetchGRPC(
 	for i := 0; i < requestCount; i++ {
 		select {
 		case <-gctx.Done():
-			return
+			return nil, gctx.Err()
 		case res := <-resultCh:
-			result = res
-			err = nil
-			payloadCacheKey = common.GetKeyForCachingPayload(
-				fields.slot,
-				fields.parentHash,
-				fields.blockHash,
-				fields.proposerPubKey,
-			)
-			payloadResponse := &common.PayloadResponseForProxy{
-				MarshalledPayloadResponse: result.resp.VersionedExecutionPayload,
-				BlockValue:                fields.blockValue,
+			if res != nil {
+				result = res
+				err = nil
+				payloadCacheKey = common.GetKeyForCachingPayload(
+					fields.slot,
+					fields.parentHash,
+					fields.blockHash,
+					fields.proposerPubKey,
+				)
+				payloadResponse := &common.PayloadResponseForProxy{
+					MarshalledPayloadResponse: result.resp.VersionedExecutionPayload,
+					BlockValue:                fields.blockValue,
+				}
+				payloadSize = len(result.resp.VersionedExecutionPayload)
+				_ = s.getPayloadResponseForProxySlot.Add(
+					payloadCacheKey,
+					payloadResponse,
+					cache.DefaultExpiration,
+				)
+				return result, nil
+			} else {
+				return nil, errors.New("empty response,either channel closed before reading it")
 			}
-			payloadSize = len(result.resp.VersionedExecutionPayload)
-			_ = s.getPayloadResponseForProxySlot.Add(
-				payloadCacheKey,
-				payloadResponse,
-				cache.DefaultExpiration,
-			)
-			success = true
-			return result, nil
 		case _err := <-errCh:
 			if _err != nil {
 				errList = append(errList, _err.Error())
