@@ -243,6 +243,11 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 		durationMs := time.Since(prefetchStartTime).Milliseconds()
 
 		success = err == nil && result != nil
+		errMsg := ""
+		if err != nil {
+			errMsg = err.Error()
+		}
+
 		//source := FlowSourcePrefetchGRPC
 		if success {
 			if result != nil {
@@ -270,6 +275,7 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 			attribute.String("blockHash", fields.blockHash),
 			attribute.Bool("success", success),
 			attribute.String("targetClientIP", targetClientIP),
+			attribute.String("error", errMsg),
 		)
 		span.End()
 		go s.IDataService.GetFlowService().RecordPrefetchDone(
@@ -285,7 +291,7 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 			url,
 			"",
 			payloadSize,
-			err.Error(),
+			errMsg,
 		)
 	}()
 
@@ -511,6 +517,11 @@ func (s *Service) prefetchGRPC(
 		durationMs := time.Since(prefetchStartTime).Milliseconds()
 
 		success = err == nil && result != nil
+		errMsg := ""
+		if err != nil {
+			errMsg = err.Error()
+		}
+
 		//source := FlowSourcePrefetchGRPC
 		if success {
 			if result != nil && result.resp != nil {
@@ -540,6 +551,7 @@ func (s *Service) prefetchGRPC(
 			attribute.String("blockHash", fields.blockHash),
 			attribute.Bool("success", success),
 			attribute.String("targetClientIP", targetClientIP),
+			attribute.String("error", errMsg),
 		)
 		span.End()
 		go s.IDataService.GetFlowService().RecordPrefetchDone(
@@ -555,7 +567,7 @@ func (s *Service) prefetchGRPC(
 			url,
 			"",
 			payloadSize,
-			err.Error(),
+			errMsg,
 		)
 	}()
 
