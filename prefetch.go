@@ -67,13 +67,14 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		msIntoSlotPrefetchStart = time.Since(fields.slotStartTime).Milliseconds()
 	}
 	prefetchID := uuid.NewString()
+
 	// record prefetch start into flow cache
-	//go s.IDataService.GetFlowService().RecordPrefetchStart(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey, fields.blockValue, s.nodeID, PrefetchFlowEvent{
-	//	PrefetchID:              prefetchID,
-	//	GetHeaderReqID:          fields.getHeaderReqID,
-	//	StartedAt:               startTime,
-	//	MsIntoSlotPrefetchStart: msIntoSlotPrefetchStart,
-	//})
+	go s.IDataService.GetFlowService().RecordPrefetchStart(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey, fields.blockValue, s.nodeID, PrefetchFlowEvent{
+		PrefetchID:              prefetchID,
+		GetHeaderReqID:          fields.getHeaderReqID,
+		StartedAt:               startTime,
+		MsIntoSlotPrefetchStart: msIntoSlotPrefetchStart,
+	})
 	clients := s.clients
 	clientURL := ""
 	if fields.client != nil {
@@ -148,24 +149,51 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	}
 
 	//Check if in local cache
+	cacheLookupStart := time.Now()
+	var (
+		payloadSize int
+		errMsg      string
+	)
 	payloadCacheKey := common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey)
 	if cachedValue, exists := s.getPayloadResponseForProxySlot.Get(payloadCacheKey); exists && cachedValue != nil {
 		_, localCacheSpan := s.tracer.Start(spanCtx, GetSpanName("prefetch", "localCacheCheck"))
 		payloadResponseForProxy, ok := cachedValue.(*common.PayloadResponseForProxy)
 		if !ok {
-			prefetchLogger.Error().Msg("failed to cast cached value to GetPayloadResponseForProxy")
+			errMsg = "failed to cast cached value to GetPayloadResponseForProxy"
+			prefetchLogger.Error().Msg(errMsg)
 		} else {
-			_, err := payloadResponseForProxy.GetMarshalledResponse()
+			payload, err := payloadResponseForProxy.GetMarshalledResponse()
 			if err != nil {
-				prefetchLogger.Error().Err(err).Msg("failed to get marshalled cached value from GetPayloadResponseForProxy")
+				errMsg = "failed to get marshalled cached value from GetPayloadResponseForProxy"
+				prefetchLogger.Error().Err(err).Msg(errMsg)
 			} else {
+				payloadSize = len(payload)
 				successCache = true
 				localCacheSpan.End()
 				return
 			}
 		}
 		localCacheSpan.End()
+	} else {
+		errMsg = "payload cache unavailable, key: " + payloadCacheKey
 	}
+	cacheLookupEnd := time.Since(cacheLookupStart).Milliseconds()
+	go s.IDataService.GetFlowService().RecordPrefetchDone(
+		fields.slot,
+		fields.parentHash,
+		fields.blockHash,
+		fields.proposerPubKey,
+		prefetchID,
+		fields.getHeaderReqID,
+		successCache,
+		cacheLookupEnd,
+		FlowSourcePrefetchCache,
+		clientURL,
+		s.nodeID,
+		payloadSize,
+		errMsg,
+	)
+
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
@@ -208,12 +236,18 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 		success         bool
 		payloadSize     int
 		payloadCacheKey string
+		url             string
 	)
 	spanCtx, span := s.tracer.Start(spanCtx, GetSpanName("prefetch", "HTTPWrapper"))
 	defer func() {
 		durationMs := time.Since(prefetchStartTime).Milliseconds()
 
 		success = err == nil && result != nil
+		errMsg := ""
+		if err != nil {
+			errMsg = err.Error()
+		}
+
 		//source := FlowSourcePrefetchGRPC
 		if success {
 			if result != nil {
@@ -241,8 +275,24 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 			attribute.String("blockHash", fields.blockHash),
 			attribute.Bool("success", success),
 			attribute.String("targetClientIP", targetClientIP),
+			attribute.String("error", errMsg),
 		)
 		span.End()
+		go s.IDataService.GetFlowService().RecordPrefetchDone(
+			fields.slot,
+			fields.parentHash,
+			fields.blockHash,
+			fields.proposerPubKey,
+			reqID,
+			fields.getHeaderReqID,
+			success,
+			durationMs,
+			FlowSourcePrefetchHTTP,
+			url,
+			"",
+			payloadSize,
+			errMsg,
+		)
 	}()
 
 	if len(clients) == 0 {
@@ -260,12 +310,12 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 	requestCount := len(clients)
 
 	for _, parent := range clients {
-		url := parent.String()
+		parentURL := parent.String()
 		wg.Add(1)
-		go func(client *common.Client, url string) {
+		go func(client *common.Client, parentURL string) {
 			defer wg.Done()
 
-			clientLogger := baseLogger.With().Str("downstream_url", url).Logger()
+			clientLogger := baseLogger.With().Str("downstream_url", parentURL).Logger()
 
 			res, pErr := s.prefetchHTTPSingle(gctx, spanCtx, client, clientLogger, fields, reqID, prefetchStartTime)
 			if pErr != nil || res == nil {
@@ -280,7 +330,7 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 			case resultCh <- res:
 			default:
 			}
-		}(parent.SafeClient, url)
+		}(parent.SafeClient, parentURL)
 	}
 
 	go func() {
@@ -380,6 +430,10 @@ func (s *Service) prefetchHTTPSingle(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+	if res.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("Received invalid status code %d", res.StatusCode)
+	}
+
 	defer res.Body.Close()
 	var respData common.PreFetchGetPayloadResponseHTTP
 	if err = json.NewDecoder(res.Body).Decode(&respData); err != nil && err != io.EOF {
@@ -394,10 +448,34 @@ func (s *Service) prefetchHTTPSingle(ctx context.Context,
 		attribute.Int64("request_duration_ms", reqDurMs),
 		attribute.Int("payload_size_bytes", len(respData.VersionedExecutionPayload)),
 	)
-	return &prefetchResultHTTP{
-		resp: respData,
-		url:  url,
-	}, nil
+	errMsg := ""
+	if respData.Code == uint32(codes.OK) {
+		if len(respData.VersionedExecutionPayload) != 0 {
+			baseLogger.Info().
+				Str("url", clientURL).
+				Int64("duration_ms", reqDurMs).
+				Msg("prefetch http: succeeded")
+
+			childSpan.SetAttributes(
+				attribute.Int64("request_duration_ms", reqDurMs),
+				attribute.Int("payload_size_bytes", len(respData.VersionedExecutionPayload)),
+			)
+
+			return &prefetchResultHTTP{
+				resp: respData,
+				url:  url,
+			}, nil
+		} else {
+			return nil, errors.New("zero len VersionedExecutionPayload")
+		}
+	} else if respData.Code != uint32(codes.OK) {
+		errMsg = respData.Message
+	} else if err != nil {
+		errMsg = err.Error()
+	} else {
+		errMsg = "nil response from relay"
+	}
+	return nil, errors.New(errMsg)
 }
 
 func getURL(url string) (string, error) {
@@ -432,26 +510,34 @@ func (s *Service) prefetchGRPC(
 		success         bool
 		payloadSize     int
 		payloadCacheKey string
+		url             string
 	)
 	spanCtx, span := s.tracer.Start(spanCtx, GetSpanName("prefetch", "gRPCWrapper"))
 	defer func() {
 		durationMs := time.Since(prefetchStartTime).Milliseconds()
 
 		success = err == nil && result != nil
+		errMsg := ""
+		if err != nil {
+			errMsg = err.Error()
+		}
+
 		//source := FlowSourcePrefetchGRPC
 		if success {
 			if result != nil && result.resp != nil {
+				url = result.url
 				payloadSize = len(result.resp.VersionedExecutionPayload)
 			}
 			//source = result.source
 			baseLogger.Info().
 				Int("payload_size_bytes", payloadSize).
-				Str("winner_url", result.url).
+				Str("winner_url", url).
 				Int64("endedAt", durationMs).
 				Msg("prefetchGRPC :: succeeded")
 		} else {
 			baseLogger.Error().Err(err).
 				Int("payload_size_bytes", payloadSize).
+				Str("url", url).
 				Int64("endedAt", durationMs).
 				Msg("prefetchGRPC :: failed")
 		}
@@ -465,8 +551,24 @@ func (s *Service) prefetchGRPC(
 			attribute.String("blockHash", fields.blockHash),
 			attribute.Bool("success", success),
 			attribute.String("targetClientIP", targetClientIP),
+			attribute.String("error", errMsg),
 		)
 		span.End()
+		go s.IDataService.GetFlowService().RecordPrefetchDone(
+			fields.slot,
+			fields.parentHash,
+			fields.blockHash,
+			fields.proposerPubKey,
+			reqID,
+			fields.getHeaderReqID,
+			success,
+			durationMs,
+			FlowSourcePrefetchGRPC,
+			url,
+			"",
+			payloadSize,
+			errMsg,
+		)
 	}()
 
 	if len(clients) == 0 {
@@ -495,12 +597,12 @@ func (s *Service) prefetchGRPC(
 	}
 
 	for _, parent := range clients {
-		url := parent.String()
+		parentURL := parent.String()
 		wg.Add(1)
-		go func(client *common.Client, url string, req *relaygrpc.PreFetchGetPayloadRequest) {
+		go func(client *common.Client, parentURL string, req *relaygrpc.PreFetchGetPayloadRequest) {
 			defer wg.Done()
 
-			clientLogger := baseLogger.With().Str("downstream_url", url).Logger()
+			clientLogger := baseLogger.With().Str("downstream_url", parentURL).Logger()
 
 			res, pErr := s.prefetchGRPCSingle(gctx, spanCtx, client, req, clientLogger)
 			if pErr != nil || res == nil {
@@ -515,7 +617,7 @@ func (s *Service) prefetchGRPC(
 			case resultCh <- res:
 			default:
 			}
-		}(parent.SafeClient, url, req)
+		}(parent.SafeClient, parentURL, req)
 	}
 
 	go func() {

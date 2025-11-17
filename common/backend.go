@@ -6,6 +6,8 @@ const (
 	PathDelaySettings = "/relay_proxy/v1/delay_settings"
 	PathGetAccounts   = "/relay_proxy/v1/accounts"
 
+	PathGetFlow = "/relay_proxy/v1/flow"
+
 	// Relay
 	PathStatus            = "/eth/v1/builder/status"
 	PathRegisterValidator = "/eth/v1/builder/validators"
