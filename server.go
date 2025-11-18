@@ -1023,7 +1023,7 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 	span.AddEvent("handleGetPayload-svcGetPayloadV2")
 
 	method := getPayloadV2
-	err = s.svc.GetPayloadV2(getPayloadCtx, &log, &PayloadRequestParams{
+	if err := s.svc.GetPayloadV2(getPayloadCtx, &log, &PayloadRequestParams{
 		ReceivedAt:                receivedAt,
 		Payload:                   bodyBytes,
 		ClientIP:                  clientIP,
@@ -1034,8 +1034,13 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 		Cluster:                   cluster,
 		UserAgent:                 userAgent,
 		SlotUID:                   headerSlotUID,
-	})
-
+	}); err != nil {
+		log.Error().Err(err).Msg("error in GetPayloadV2")
+		span.SetAttributes(attribute.String("error", err.Error()))
+		span.SetStatus(codes.Error, err.Error())
+		respondError(getPayloadCtx, span, method, w, err, &log, s.tracer)
+		return
+	}
 	// need to confirm eth consensusVersion
 	//w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
 	success = respondStatusAccepted(getPayloadCtx, span, method, w, &log, s.tracer)
