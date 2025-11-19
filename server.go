@@ -1035,7 +1035,6 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 		UserAgent:                 userAgent,
 		SlotUID:                   headerSlotUID,
 	}); err != nil {
-		log.Error().Err(err).Msg("error in GetPayloadV2")
 		span.SetAttributes(attribute.String("error", err.Error()))
 		span.SetStatus(codes.Error, err.Error())
 		respondError(getPayloadCtx, span, method, w, err, &log, s.tracer)
