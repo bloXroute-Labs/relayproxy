@@ -44,16 +44,6 @@ func getPrefetchHttpClient() *http.Client {
 	return prefetchHttpClient
 }
 
-func (s *Service) StartPreFetcher(ctx context.Context) {
-	for fields := range s.preFetchPayloadChan {
-		go func(fields preFetcherFields) {
-			prefetchCtx, cancel := context.WithTimeout(ctx, preFetcherRequestTimeout)
-			defer cancel()
-			s.PreFetchGetPayload(prefetchCtx, fields)
-		}(fields)
-	}
-}
-
 func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherFields) {
 	startTime := time.Now().UTC()
 	var (

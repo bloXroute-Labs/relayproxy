@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -425,9 +424,6 @@ func main() {
 
 	// start receiving account info
 	go dataSvc.SetAccounts(ctx)
-
-	// start listening for payload prefetch event
-	go svc.StartPreFetcher(ctx)
 
 	// start streaming headers
 	go func(_ctx context.Context) {

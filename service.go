@@ -83,7 +83,6 @@ type Service struct {
 	builderBidsForProxySlot        *cache.Cache
 	builderExistingBlockHash       *cache.Cache
 	getPayloadResponseForProxySlot *cache.Cache
-	preFetchPayloadChan            chan preFetcherFields
 	performancestats               *stat.PerformanceStats
 
 	beaconGenesisTime  int64
