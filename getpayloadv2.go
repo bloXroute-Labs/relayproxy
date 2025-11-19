@@ -87,7 +87,7 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 	blindedBeaconBlock, errRes := s.prefetchPayloadToSignedBlindedBeaconBlock(ctx, in.Payload)
 	if errRes != nil {
 		log.Error().Err(errRes).Msg("prefetchPayloadToSignedBlindedBeaconBlock failed")
-		go s.sendPayloadStats(in.Payload, log, false, nil, startTime, time.Now(), 0, id, latency, *in, errRes.Error())
+		go s.sendPayloadStats(in.Payload, log, false, nil, in.ReceivedAt, startTime, time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID, latency, in.Cluster, in.UserAgent, in.SlotUID)
 		return errRes
 	}
 	slot, err := blindedBeaconBlock.Slot()
@@ -184,7 +184,9 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 		msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds()
 		duration := time.Since(startTime)
 
-		go s.sendPayloadStats(in.Payload, log, true, payloadInfo, startTime, slotStartTime, msIntoSlot, id, latency, *in, "")
+		go s.sendPayloadStats(in.Payload, log, true, payloadInfo, in.ReceivedAt, startTime,
+			slotStartTime, msIntoSlot, id, in.ClientIP, in.ValidatorID, in.AccountID,
+			latency, in.Cluster, in.UserAgent, in.SlotUID)
 
 		blockValueStr = payloadInfo.GetBlockValue()
 		*log = log.With().
@@ -203,6 +205,9 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 
 	// if timeout → failure
 	log.Error().Msg("timeout waiting for payload response")
-	go s.sendPayloadStats(in.Payload, log, false, nil, startTime, time.Now(), 0, id, latency, *in, "timeout waiting for payload response,no execution payload for this request")
+	go s.sendPayloadStats(in.Payload, log, false, nil, in.ReceivedAt, startTime,
+		time.Now(), 0, id, in.ClientIP, in.ValidatorID, in.AccountID,
+		latency, in.Cluster, in.UserAgent, in.SlotUID)
+
 	return &ErrorResp{http.StatusBadRequest, "no execution payload for this request"}
 }
