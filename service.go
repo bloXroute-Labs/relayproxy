@@ -46,7 +46,6 @@ const (
 
 	maxGetPayloadRetry                = 3
 	getPayloadInterval                = 150 * time.Millisecond
-	preFetchPayloadChanBufSize        = 100
 	getPayloadRequestCutoffMs         = 4000
 	duplicateSlotCacheCleanupInterval = 180 * time.Second // 30 slots
 	reconnectTime                     = 6000
@@ -146,9 +145,7 @@ type preFetcherFields struct {
 }
 
 func NewService(opts ...ServiceOption) *Service {
-
 	svc := &Service{
-		preFetchPayloadChan:           make(chan preFetcherFields, preFetchPayloadChanBufSize),
 		slotStats:                     cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
 		slotStatsEvent:                cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
 		duplicateSlotCache:            cache.New(duplicateSlotCacheCleanupInterval, duplicateSlotCacheCleanupInterval), // cache to avoid emitting duplicate stats
