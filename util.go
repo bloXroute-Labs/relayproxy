@@ -168,3 +168,6 @@ func getBoostSendTimeAndLatency(receivedAt time.Time, mevBoostSendTimeUnixMS, co
 	boostSendTime = headerValue
 	return
 }
+func GetSpanName(callerMethodName, op string) string {
+	return "RProxy-" + callerMethodName + "-" + op
+}

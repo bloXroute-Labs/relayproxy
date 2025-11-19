@@ -140,6 +140,10 @@ type preFetcherFields struct {
 	blockValue      string
 	client          *common.ParentClient
 	payloadFetchUrl string
+
+	slotStartTime                     time.Time
+	msIntoSlotGetHeaderIncludingDelay int64 // when getHeader was called + include delay
+	getHeaderReqID                    string
 }
 
 func NewService(opts ...ServiceOption) *Service {

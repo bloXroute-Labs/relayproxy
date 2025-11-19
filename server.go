@@ -147,6 +147,7 @@ func (s *Server) InitHandler() *chi.Mux {
 		r.With(s.MiddlewareAdmin).Options(common.PathDelaySettings, s.HandleOptions)
 		r.With(s.MiddlewareAdmin).Post(common.PathDelaySettings, s.HandleSetDelays)
 		r.With(s.MiddlewareAdmin).Get(common.PathGetAccounts, s.HandleGetAccounts)
+		r.With().Get(common.PathGetFlow, s.HandleGetFlow)
 	})
 
 	handler.Get(common.PathNode, s.HandleNode)
@@ -435,6 +436,40 @@ func (s *Server) HandleSetDelays(w http.ResponseWriter, r *http.Request) {
 	}
 	s.svc.SetDelayForValidator(id, delay, maxDelay)
 	s.writeSuccessResponse(w, []byte(`{"msg":"validator delay settings updated"}`))
+}
+
+func (s *Server) HandleGetFlow(w http.ResponseWriter, r *http.Request) {
+	slotStr := r.URL.Query().Get("slot")
+	blockHash := r.URL.Query().Get("block_hash")
+
+	var (
+		data interface{}
+	)
+	switch {
+	case slotStr == "" && blockHash == "":
+		data = s.svc.GetFlowService().GetAllFlowsSnapshot()
+	case slotStr == "" && blockHash != "":
+		err := fmt.Errorf("slot is required when block_hash is provided")
+		s.writeErrorResponse(w, err.Error(), err, http.StatusBadRequest)
+		return
+	default:
+		slotInt, err := strconv.ParseUint(slotStr, 10, 64)
+		if err != nil {
+			s.writeErrorResponse(w, fmt.Sprintf("invalid slot %q: %v", slotStr, err), err, http.StatusBadRequest)
+			return
+		}
+		if blockHash == "" {
+			data = s.svc.GetFlowService().GetFlowsBySlot(slotInt)
+		} else {
+			data = s.svc.GetFlowService().GetFlowsBySlotAndBlock(slotInt, blockHash)
+		}
+	}
+	out, err := json.Marshal(data)
+	if err != nil {
+		s.writeErrorResponse(w, "failed to marshal flows", err, http.StatusInternalServerError)
+		return
+	}
+	s.writeSuccessResponse(w, out)
 }
 
 func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {

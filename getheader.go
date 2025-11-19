@@ -227,9 +227,9 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			in.ValidatorID = in.AccountID
 		}
 	}
+	blockValue := new(big.Int).SetBytes(slotBestHeader.Value)
 	_, signAndFinishSpan := s.tracer.Start(ctx, "getHeader-finalize")
 	defer signAndFinishSpan.End()
-	blockValue := new(big.Int).SetBytes(slotBestHeader.Value)
 	*log = log.With().
 		Str("blockHash", slotBestHeader.BlockHash).
 		Str("blockValue", blockValue.String()).
@@ -376,16 +376,19 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 
 	// send in payload to pre fetcher event
 	s.preFetchPayloadChan <- preFetcherFields{
-		clientIP:        in.ClientIP,
-		authHeader:      in.AuthHeader,
-		slot:            _slot,
-		parentHash:      in.ParentHash,
-		blockHash:       slotBestHeader.BlockHash,
-		proposerPubKey:  in.PubKey,
-		builderPubKey:   slotBestHeader.BuilderPubkey,
-		blockValue:      weiToEther(blockValue),
-		client:          slotBestHeader.Client,
-		payloadFetchUrl: slotBestHeader.PayloadFetchUrl,
+		clientIP:                          in.ClientIP,
+		authHeader:                        in.AuthHeader,
+		slot:                              _slot,
+		parentHash:                        in.ParentHash,
+		blockHash:                         slotBestHeader.BlockHash,
+		proposerPubKey:                    in.PubKey,
+		builderPubKey:                     slotBestHeader.BuilderPubkey,
+		blockValue:                        weiToEther(blockValue),
+		client:                            slotBestHeader.Client,
+		payloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
+		slotStartTime:                     slotStartTime,
+		msIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
+		getHeaderReqID:                    id,
 	}
 
 	signedHeaderResponse, prevSigned, err := slotBestHeader.GetSignedHeaderResponse(s.secretKey, &s.publicKey, s.builderSigningDomain)
@@ -411,11 +414,41 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		MsIntoSlotWithDelay:      msIntoSlotIncludingDelay,
 		BlockHash:                slotBestHeader.BlockHash,
 	}
+	relayURL := ""
+	if slotBestHeader.Client != nil {
+		relayURL = slotBestHeader.Client.String()
+	}
+	go s.IDataService.GetFlowService().RecordHeaderFlow(_slot, in.ParentHash, slotBestHeader.BlockHash, weiToEther(blockValue), in.PubKey, s.nodeID, HeaderFlowEvent{
+		FlowEventSentAt:      time.Now().UTC(),
+		ServedByThisNode:     true,
+		SlotStartTime:        slotStartTime,
+		MsIntoSlot:           msIntoSlot,
+		MsIntoSlotWithDelay:  msIntoSlotIncludingDelay,
+		AccountID:            in.AccountID,
+		ValidatorID:          in.ValidatorID,
+		Source:               FlowSourceLocalBidCache, // adjust if needed
+		GetHeaderReqID:       id,
+		GetHeaderStartUnixMs: in.GetHeaderStartTimeUnixMS,
+		BlockValue:           weiToEther(blockValue),
+		BuilderPubkey:        slotBestHeader.BuilderPubkey,
+		BuilderExtraData:     slotBestHeader.BuilderExtraData,
+		BlockHashReceivedAt:  slotBestHeader.ReceivedAt,
+		RelayURL:             relayURL,
+		BlockSequenceNumber:  slotBestHeader.BlockSequenceNumber,
+		Latency:              latency,
+		Sleep:                sleep,
+		MaxSleep:             maxSleep,
+		ClientIP:             in.ClientIP,
+		NodeID:               s.nodeID,
+		SlotUID:              in.SlotUID,
+		HeaderUserAgent:      statsUserAgent,
+		RepickedBlock:        usedRepick,
+	})
 
 	return json.RawMessage(signedHeaderResponse), onHeaderDeliveredParams, nil
 }
 
-func (s *Service) StartPreFetcher(ctx context.Context) {
+func (s *Service) StartPreFetcherOld(ctx context.Context) {
 	for fields := range s.preFetchPayloadChan {
 		go func(fields preFetcherFields) {
 			_ctx, cancel := context.WithTimeout(ctx, preFetcherRequestTimeout)
@@ -425,7 +458,7 @@ func (s *Service) StartPreFetcher(ctx context.Context) {
 	}
 }
 
-func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherFields) {
+func (s *Service) PreFetchGetPayloadOld(ctx context.Context, fields preFetcherFields) {
 	var (
 		clientURL string
 		success   bool
@@ -481,7 +514,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 
 	// If necessary, fetch the Optimistic V3 payload directly from the specified builder URL(s)
 	if fields.payloadFetchUrl != "" {
-		success = s.prefetchPayloadFromBuilder(ctx, spanctx, &fields, logMetric.Copy())
+		success = s.prefetchPayloadFromBuilderOld(ctx, spanctx, &fields, logMetric.Copy())
 		return
 	}
 
@@ -596,7 +629,7 @@ func (s *Service) prefetchPayloadGRPC(ctx context.Context, spanctx context.Conte
 	}
 }
 
-func (s *Service) prefetchPayloadFromBuilder(ctx context.Context, spanCtx context.Context, fields *preFetcherFields, logMetric *LogMetric) bool {
+func (s *Service) prefetchPayloadFromBuilderOld(ctx context.Context, spanCtx context.Context, fields *preFetcherFields, logMetric *LogMetric) bool {
 	_, span := s.tracer.Start(spanCtx, "prefetchPayloadFromBuilder")
 	var success atomic.Bool
 
@@ -692,10 +725,10 @@ func (s *Service) clientPreFetchGetPayloadHTTP(
 	}
 
 	// Process first positive response from builder (or timeout)
-	return s.processGetPayloadV3Responses(ctx, responseChan, logMetric, fields)
+	return s.processGetPayloadV3ResponsesOld(ctx, responseChan, logMetric, fields)
 }
 
-func (s *Service) prepareGetPayloadV3Request(blockHash string) (*optimisticv3.SignedGetPayloadV3, error) {
+func (s *Service) prepareGetPayloadV3RequestOld(blockHash string) (*optimisticv3.SignedGetPayloadV3, error) {
 	getPayloadV3 := &optimisticv3.GetPayloadV3{
 		BlockHash:      phase0.Hash32(gethcommon.HexToHash(blockHash)),
 		RequestTs:      uint64(time.Now().UnixMilli()),
@@ -713,7 +746,7 @@ func (s *Service) prepareGetPayloadV3Request(blockHash string) (*optimisticv3.Si
 	}, nil
 }
 
-func (s *Service) processGetPayloadV3Responses(
+func (s *Service) processGetPayloadV3ResponsesOld(
 	ctx context.Context,
 	responseChan chan *common.VersionedSubmitBlockRequest,
 	logMetric *LogMetric,

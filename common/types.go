@@ -507,12 +507,15 @@ type PreFetchGetPayloadResponseHTTP struct {
 }
 
 type PreFetchGetPayloadRequestHTTP struct {
-	Slot       uint64
-	ParentHash string
-	BlockHash  string
-	Pubkey     string
-	ClientIp   string
-	ReceivedAt *timestamppb.Timestamp
+	Slot           uint64
+	ParentHash     string
+	BlockHash      string
+	Pubkey         string
+	ClientIp       string
+	ReceivedAt     *timestamppb.Timestamp
+	GetHeaderReqID string
+	PrefetchReqID  string
+	NodeID         string
 }
 
 func ToSubmitBlockRequest(v *optimisticv3.VersionedAdjustableSubmitBlockRequest) (*VersionedSubmitBlockRequest, *bidadjustment.AdjustmentData, error) {
