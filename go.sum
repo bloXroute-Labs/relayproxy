@@ -8,6 +8,8 @@ github.com/bits-and-blooms/bitset v1.20.0 h1:2F+rfL86jE2d/bmw7OhqUg2Sj/1rURkBn3M
 github.com/bits-and-blooms/bitset v1.20.0/go.mod h1:7hO7Gc7Pp1vODcmWvKMRA9BNmbv6a/7QIWpPxHddWR8=
 github.com/bloXroute-Labs/mev-common v0.0.23-0.20251119183136-b0ce262a9846 h1:5++zmRUmGHsTjLp/BPJlOY96Hkn+EG85I/Tz1/SbUIM=
 github.com/bloXroute-Labs/mev-common v0.0.23-0.20251119183136-b0ce262a9846/go.mod h1:prd1S04fPYk0GcxC/TzE+9X26oUKbfQsxphMcif+aI0=
+github.com/bloXroute-Labs/mev-common v0.0.23-0.20251120164620-3340996abe33 h1:QodPcX5y/czW/zSkWoxTyk5UM35pTsx3e69zApmaELs=
+github.com/bloXroute-Labs/mev-common v0.0.23-0.20251120164620-3340996abe33/go.mod h1:prd1S04fPYk0GcxC/TzE+9X26oUKbfQsxphMcif+aI0=
 github.com/bloXroute-Labs/relay-grpc v0.0.65 h1:U2cPiIqpB0JmAXfuM0F58hAntTLArJceQgSG79EaxCo=
 github.com/bloXroute-Labs/relay-grpc v0.0.65/go.mod h1:z/QhiWStVWPJBaArHhzOCiMxzBbyvQB3L7P+KgmoNFI=
 github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 h1:DDGfHa7BWjL4YnC6+E63dPcxHo2sUxDIu8g3QgEJdRY=

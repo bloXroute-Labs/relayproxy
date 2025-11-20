@@ -33,7 +33,7 @@ require (
 
 require (
 	github.com/bits-and-blooms/bitset v1.20.0 // indirect
-	github.com/bloXroute-Labs/mev-common v0.0.23-0.20251119183136-b0ce262a9846 // indirect
+	github.com/bloXroute-Labs/mev-common v0.0.23-0.20251120164620-3340996abe33 // indirect
 	github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/consensys/gnark-crypto v0.18.0 // indirect
