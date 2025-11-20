@@ -272,10 +272,10 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			HeaderSlotUID:             in.SlotUID,
 		}
 
-		if v, ok := s.slotStats.Get(k); !ok {
+		if v, ok := s.slotStatsHeaderRecord.Get(k); !ok {
 			slotStatsSlice := make([]SlotStatsRecord, 0, 5)
 			slotStatsSlice = append(slotStatsSlice, slotStats)
-			s.slotStats.Set(k, slotStatsSlice, cache.DefaultExpiration)
+			s.slotStatsHeaderRecord.Set(k, slotStatsSlice, cache.DefaultExpiration)
 
 			s.slotStatsEventCh <- slotStatsEvent{
 				Slot:      int64(_slot),
@@ -286,7 +286,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		} else {
 			slotStatsSlice := v.([]SlotStatsRecord)
 			slotStatsSlice = append(slotStatsSlice, slotStats)
-			s.slotStats.Set(k, slotStatsSlice, cache.DefaultExpiration)
+			s.slotStatsHeaderRecord.Set(k, slotStatsSlice, cache.DefaultExpiration)
 		}
 
 		headerStats := GetHeaderStatsRecord{

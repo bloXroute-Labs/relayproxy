@@ -86,13 +86,13 @@ type Service struct {
 	preFetchPayloadChan            chan preFetcherFields
 	performancestats               *stat.PerformanceStats
 
-	beaconGenesisTime  int64
-	secondsPerSlot     int64
-	slotStats          *cache.Cache
-	slotStatsEvent     *cache.Cache
-	duplicateSlotCache *cache.Cache
-	slotStatsEventCh   chan slotStatsEvent
-	ethNetworkDetails  *common.EthNetworkDetails
+	beaconGenesisTime            int64
+	secondsPerSlot               int64
+	slotStatsHeaderRecord        *cache.Cache
+	slotStatsHeaderPayloadRecord *cache.Cache
+	duplicateSlotCache           *cache.Cache
+	slotStatsEventCh             chan slotStatsEvent
+	ethNetworkDetails            *common.EthNetworkDetails
 
 	clients                       []*common.ParentClient
 	streamingClients              []*common.ParentClient
@@ -150,8 +150,8 @@ func NewService(opts ...ServiceOption) *Service {
 
 	svc := &Service{
 		preFetchPayloadChan:           make(chan preFetcherFields, preFetchPayloadChanBufSize),
-		slotStats:                     cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
-		slotStatsEvent:                cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
+		slotStatsHeaderRecord:         cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
+		slotStatsHeaderPayloadRecord:  cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
 		duplicateSlotCache:            cache.New(duplicateSlotCacheCleanupInterval, duplicateSlotCacheCleanupInterval), // cache to avoid emitting duplicate stats
 		slotStatsEventCh:              make(chan slotStatsEvent, 100),
 		registrationRelayMutex:        sync.Mutex{},
@@ -624,22 +624,34 @@ func (s *Service) EmitSlotStats(ctx context.Context) {
 				defer timer.Stop()
 				select {
 				case <-timer.C:
-					v, ok := s.slotStatsEvent.Get(event.SlotKey)
-					if ok { //Populated when getPayloadOnly is called
-						record, success := v.(SlotStatsRecord)
-						if success {
-							s.logRecord(record, event.SlotKey, event.UserAgent)
-						} else {
-							slotStats, found := s.slotStats.Get(event.SlotKey)
-							if found {
-								if records, slotStatsSuccess := slotStats.([]SlotStatsRecord); slotStatsSuccess {
-									slotStatsRecord := records[len(records)-1]
-									s.logRecord(slotStatsRecord, event.SlotKey, event.UserAgent)
+					v, ok := s.slotStatsHeaderPayloadRecord.Get(event.SlotKey)
+					//Populated when getPayloadOnly is called
+					//	record, success := v.(SlotStatsRecord)
+					//	if success {
+					//		s.logRecord(record, event.SlotKey, event.UserAgent)
+					//	} else {
+					//		slotStats, found := s.slotStatsHeaderRecord.Get(event.SlotKey)
+					//		if found {
+					//			if records, slotStatsSuccess := slotStats.([]SlotStatsRecord); slotStatsSuccess {
+					//				slotStatsRecord := records[len(records)-1]
+					//				s.logRecord(slotStatsRecord, event.SlotKey, event.UserAgent)
+					//			}
+					//		}
+					//	}
+					if ok {
+						if slice, success := v.([]SlotStatsRecord); success {
+							for _, record := range slice {
+								if record.PayloadSucceeded {
+									s.logRecord(record, event.SlotKey, event.UserAgent)
+									return
 								}
 							}
+							firstRecord := slice[0]
+							s.logRecord(firstRecord, event.SlotKey, event.UserAgent)
+							return
 						}
 					} else {
-						slotStats, found := s.slotStats.Get(event.SlotKey)
+						slotStats, found := s.slotStatsHeaderRecord.Get(event.SlotKey)
 						if found {
 							if records, slotStatsSuccess := slotStats.([]SlotStatsRecord); slotStatsSuccess {
 								slotStatsRecord := records[len(records)-1]
@@ -959,7 +971,7 @@ func (s *Service) handleStreamBuilderInfoResponse(
 }
 
 func (s *Service) logRecord(record SlotStatsRecord, slotKey string, userAgent string) {
-	s.slotStats.Get(slotKey)
+	s.slotStatsHeaderRecord.Get(slotKey)
 	s.logger.Info().
 		Str("slotKey", slotKey).
 		Str("accountID", record.AccountID).
