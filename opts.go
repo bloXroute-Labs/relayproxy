@@ -190,7 +190,7 @@ func WithSvcSecondsPerSlot(secondsPerSlot int64) ServiceOption {
 
 func WithSlotStats(cache *cache.Cache) ServiceOption {
 	return func(s *Service) {
-		s.slotStats = cache
+		s.slotStatsHeaderRecord = cache
 	}
 }
 
