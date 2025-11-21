@@ -25,32 +25,19 @@ func UnmarshalToSignedBlindedBeaconBlock(requestBody string) (*common.VersionedS
 		return nil, err
 	}
 
-	if common.IsElectra {
-		electraBlindedBeaconBlock, err := UnmarshalToBlindedBeaconBlockElectra(signedBlindedBeaconBlock.Get(jsonMessage))
+	if common.IsFulu {
+		fuluBlindedBeaconBlock, err := UnmarshalToBlindedBeaconBlockElectra(signedBlindedBeaconBlock.Get(jsonMessage))
 		if err == nil {
 			return &common.VersionedSignedBlindedBeaconBlock{
 				VersionedSignedBlindedBeaconBlock: eth2Api.VersionedSignedBlindedBeaconBlock{
-					Version: spec.DataVersionElectra,
-					Electra: &electra.SignedBlindedBeaconBlock{
-						Message:   electraBlindedBeaconBlock,
+					Version: spec.DataVersionFulu,
+					Fulu: &electra.SignedBlindedBeaconBlock{
+						Message:   fuluBlindedBeaconBlock,
 						Signature: signature,
 					},
 				},
 			}, nil
 		}
-	}
-
-	denebBlindedBeaconBlock, err := UnmarshalToBlindedBeaconBlockDeneb(signedBlindedBeaconBlock.Get(jsonMessage))
-	if err == nil {
-		return &common.VersionedSignedBlindedBeaconBlock{
-			VersionedSignedBlindedBeaconBlock: eth2Api.VersionedSignedBlindedBeaconBlock{
-				Version: spec.DataVersionDeneb,
-				Deneb: &deneb.SignedBlindedBeaconBlock{
-					Message:   denebBlindedBeaconBlock,
-					Signature: signature,
-				},
-			},
-		}, nil
 	}
 
 	electraBlindedBeaconBlock, err := UnmarshalToBlindedBeaconBlockElectra(signedBlindedBeaconBlock.Get(jsonMessage))
@@ -66,5 +53,17 @@ func UnmarshalToSignedBlindedBeaconBlock(requestBody string) (*common.VersionedS
 		}, nil
 	}
 
+	denebBlindedBeaconBlock, err := UnmarshalToBlindedBeaconBlockDeneb(signedBlindedBeaconBlock.Get(jsonMessage))
+	if err == nil {
+		return &common.VersionedSignedBlindedBeaconBlock{
+			VersionedSignedBlindedBeaconBlock: eth2Api.VersionedSignedBlindedBeaconBlock{
+				Version: spec.DataVersionDeneb,
+				Deneb: &deneb.SignedBlindedBeaconBlock{
+					Message:   denebBlindedBeaconBlock,
+					Signature: signature,
+				},
+			},
+		}, nil
+	}
 	return nil, errors.Wrap(err, "failed to unmarshal fastjson VersionedSignedBlindedBeaconBlock")
 }

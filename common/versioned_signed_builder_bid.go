@@ -19,6 +19,8 @@ type VersionedSignedBuilderBid struct {
 
 func (r *VersionedSignedBuilderBid) MarshalSSZ() ([]byte, error) {
 	switch r.Version {
+	case spec.DataVersionFulu:
+		return r.Fulu.MarshalSSZ()
 	case spec.DataVersionElectra:
 		return r.Electra.MarshalSSZ()
 	case spec.DataVersionDeneb:
@@ -30,19 +32,13 @@ func (r *VersionedSignedBuilderBid) MarshalSSZ() ([]byte, error) {
 
 func (r *VersionedSignedBuilderBid) UnmarshalSSZ(input []byte) error {
 	var err error
-	if IsElectra {
-		electraRequest := new(builderApiElectra.SignedBuilderBid)
-		if err = electraRequest.UnmarshalSSZ(input); err == nil {
-			r.Version = spec.DataVersionElectra
-			r.Electra = electraRequest
+	if IsFulu {
+		fuluRequest := new(builderApiElectra.SignedBuilderBid)
+		if err = fuluRequest.UnmarshalSSZ(input); err == nil {
+			r.Version = spec.DataVersionFulu
+			r.Fulu = fuluRequest
 			return nil
 		}
-	}
-	denebRequest := new(builderApiDeneb.SignedBuilderBid)
-	if err = denebRequest.UnmarshalSSZ(input); err == nil {
-		r.Version = spec.DataVersionDeneb
-		r.Deneb = denebRequest
-		return nil
 	}
 
 	electraRequest := new(builderApiElectra.SignedBuilderBid)
@@ -51,11 +47,29 @@ func (r *VersionedSignedBuilderBid) UnmarshalSSZ(input []byte) error {
 		r.Electra = electraRequest
 		return nil
 	}
+
+	denebRequest := new(builderApiDeneb.SignedBuilderBid)
+	if err = denebRequest.UnmarshalSSZ(input); err == nil {
+		r.Version = spec.DataVersionDeneb
+		r.Deneb = denebRequest
+		return nil
+	}
 	return errors.Wrap(err, "failed to unmarshal SubmitBlockRequest SSZ")
 }
 
 func (r *VersionedSignedBuilderBid) WithdrawalsRoot() (phase0.Root, error) {
 	switch r.Version {
+	case spec.DataVersionFulu:
+		if r.Fulu == nil {
+			return phase0.Root{}, errors.New("no data")
+		}
+		if r.Fulu.Message == nil {
+			return phase0.Root{}, errors.New("no data message")
+		}
+		if r.Fulu.Message.Header == nil {
+			return phase0.Root{}, errors.New("no data message header")
+		}
+		return r.Fulu.Message.Header.WithdrawalsRoot, nil
 	case spec.DataVersionElectra:
 		if r.Electra == nil {
 			return phase0.Root{}, errors.New("no data")
@@ -85,6 +99,17 @@ func (r *VersionedSignedBuilderBid) WithdrawalsRoot() (phase0.Root, error) {
 
 func (r *VersionedSignedBuilderBid) ExtraData() ([]byte, error) {
 	switch r.Version {
+	case spec.DataVersionFulu:
+		if r.Fulu == nil {
+			return nil, errors.New("no data")
+		}
+		if r.Fulu.Message == nil {
+			return nil, errors.New("no data message")
+		}
+		if r.Fulu.Message.Header == nil {
+			return nil, errors.New("no data message header")
+		}
+		return r.Fulu.Message.Header.ExtraData, nil
 	case spec.DataVersionElectra:
 		if r.Electra == nil {
 			return nil, errors.New("no data")
@@ -114,6 +139,8 @@ func (r *VersionedSignedBuilderBid) ExtraData() ([]byte, error) {
 
 func (r *VersionedSignedBuilderBid) Bid() (any, error) {
 	switch r.Version {
+	case spec.DataVersionFulu:
+		return r.Fulu, nil
 	case spec.DataVersionElectra:
 		return r.Electra, nil
 	case spec.DataVersionDeneb:
@@ -124,6 +151,14 @@ func (r *VersionedSignedBuilderBid) Bid() (any, error) {
 }
 func (r *VersionedSignedBuilderBid) Commitments() ([]deneb.KZGCommitment, error) {
 	switch r.Version {
+	case spec.DataVersionFulu:
+		if r.Fulu == nil {
+			return nil, errors.New("no data")
+		}
+		if r.Fulu.Message == nil {
+			return nil, errors.New("no data message")
+		}
+		return r.Fulu.Message.BlobKZGCommitments, nil
 	case spec.DataVersionElectra:
 		if r.Electra == nil {
 			return nil, errors.New("no data")
@@ -147,6 +182,14 @@ func (r *VersionedSignedBuilderBid) Commitments() ([]deneb.KZGCommitment, error)
 
 func (r *VersionedSignedBuilderBid) BlobGasUsed() (uint64, error) {
 	switch r.Version {
+	case spec.DataVersionFulu:
+		if r.Fulu == nil {
+			return 0, errors.New("no data")
+		}
+		if r.Fulu.Message == nil {
+			return 0, errors.New("no data message")
+		}
+		return r.Fulu.Message.Header.BlobGasUsed, nil
 	case spec.DataVersionElectra:
 		if r.Electra == nil {
 			return 0, errors.New("no data")
@@ -170,6 +213,14 @@ func (r *VersionedSignedBuilderBid) BlobGasUsed() (uint64, error) {
 
 func (r *VersionedSignedBuilderBid) ExcessBlobGas() (uint64, error) {
 	switch r.Version {
+	case spec.DataVersionFulu:
+		if r.Fulu == nil {
+			return 0, errors.New("no data")
+		}
+		if r.Fulu.Message == nil {
+			return 0, errors.New("no data message")
+		}
+		return r.Fulu.Message.Header.ExcessBlobGas, nil
 	case spec.DataVersionElectra:
 		if r.Electra == nil {
 			return 0, errors.New("no data")

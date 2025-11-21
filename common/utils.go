@@ -129,6 +129,32 @@ func CheckElectraEpochFork(curTime time.Time, beaconGenesisTime, secondsPerSlot,
 
 	return IsElectra
 }
+func CheckFuluEpochFork(curTime time.Time, beaconGenesisTime, secondsPerSlot, slotsPerEpoch, forkFuluEpoch int64, log zerolog.Logger) bool {
+	if IsFulu {
+		log.Info().Msg("isFulu")
+		return true
+	}
+	fuluTime := TimeOfFork(forkFuluEpoch, beaconGenesisTime, secondsPerSlot)
+
+	curTimeUnix := curTime.Unix()
+	subTime := curTimeUnix - beaconGenesisTime
+	curSlot := subTime / secondsPerSlot
+	curSlot++
+	epoch := curSlot / slotsPerEpoch
+
+	if epoch >= int64(forkFuluEpoch) {
+		IsFulu = true
+	}
+	log.Info().
+		Time("fuluTime", fuluTime.UTC()).
+		Int64("fuluSlot", forkFuluEpoch*32).
+		Int64("proposalSlot", int64(curSlot)).
+		Bool("isFulu", IsFulu).
+		Dur("fuluCountdownMin", time.Until(fuluTime)/1000/60).
+		Msg("fulu fork time")
+
+	return IsFulu
+}
 
 func SafeSplit(s string, sep string) []string {
 	if s == "" {
