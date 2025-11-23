@@ -137,6 +137,27 @@ func BuilderBlockRequestToSignedBuilderBidOld(payload *VersionedSubmitBlockReque
 	}
 
 	switch payload.Version { //nolint:exhaustive
+	case spec.DataVersionFulu:
+		builderBid := builderApiElectra.BuilderBid{
+			Header:             header.Fulu,
+			BlobKZGCommitments: payload.Fulu.BlobsBundle.Commitments,
+			ExecutionRequests:  payload.Fulu.ExecutionRequests,
+			Value:              value,
+			Pubkey:             *pubkey,
+		}
+
+		sig, err := ssz.SignMessage(&builderBid, domain, sk)
+		if err != nil {
+			return nil, err
+		}
+
+		return &builderSpec.VersionedSignedBuilderBid{
+			Version: spec.DataVersionFulu,
+			Fulu: &builderApiElectra.SignedBuilderBid{
+				Message:   &builderBid,
+				Signature: sig,
+			},
+		}, nil
 	case spec.DataVersionElectra:
 		builderBid := builderApiElectra.BuilderBid{
 			Header:             header.Electra,
@@ -420,8 +441,8 @@ func BuildHeaderSubmissionV3(payload *VersionedSubmitBlockRequest) (*optimisticv
 			URL: []byte{},
 			Submission: &optimisticv3.VersionedSignedHeaderSubmission{
 				Version: spec.DataVersionFulu,
-				Electra: &optimisticv3.SignedHeaderSubmissionElectra{
-					Message: optimisticv3.HeaderSubmissionElectra{
+				Fulu: &optimisticv3.SignedHeaderSubmissionFulu{
+					Message: optimisticv3.HeaderSubmissionFulu{
 						BidTrace:               payload.Fulu.Message,
 						ExecutionPayloadHeader: header.Fulu,
 						Commitments:            payload.Fulu.BlobsBundle.Commitments,
@@ -518,11 +539,11 @@ func SignExecutionPayloadHeader(headerSubmissionV3 *optimisticv3.HeaderSubmissio
 	switch header.Version { //nolint:exhaustive
 	case spec.DataVersionFulu:
 		builderBid := builderApiElectra.BuilderBid{
-			Header:             header.Electra.Message.ExecutionPayloadHeader,
-			BlobKZGCommitments: header.Electra.Message.Commitments,
-			Value:              header.Electra.Message.BidTrace.Value,
+			Header:             header.Fulu.Message.ExecutionPayloadHeader,
+			BlobKZGCommitments: header.Fulu.Message.Commitments,
+			Value:              header.Fulu.Message.BidTrace.Value,
 			Pubkey:             *pubkey,
-			ExecutionRequests:  header.Electra.Message.ExecutionRequests,
+			ExecutionRequests:  header.Fulu.Message.ExecutionRequests,
 		}
 		sig, err := ssz.SignMessage(&builderBid, domain, sk)
 		if err != nil {
@@ -686,12 +707,15 @@ func (r *VersionedSignedProposal) MarshalSSZ() ([]byte, error) {
 
 func (r *VersionedSignedProposal) UnmarshalSSZ(input []byte) error {
 	var err error
-	fuluRequest := new(eth2ApiV1Fulu.SignedBlockContents)
-	if err = fuluRequest.UnmarshalSSZ(input); err == nil {
-		r.Version = spec.DataVersionFulu
-		r.Fulu = fuluRequest
-		return nil
+	if IsFulu {
+		fuluRequest := new(eth2ApiV1Fulu.SignedBlockContents)
+		if err = fuluRequest.UnmarshalSSZ(input); err == nil {
+			r.Version = spec.DataVersionFulu
+			r.Fulu = fuluRequest
+			return nil
+		}
 	}
+
 	electraRequest := new(eth2ApiV1Electra.SignedBlockContents)
 	if err = electraRequest.UnmarshalSSZ(input); err == nil {
 		r.Version = spec.DataVersionElectra
@@ -714,11 +738,13 @@ func (r *VersionedSignedProposal) MarshalJSON() ([]byte, error) {
 
 func (r *VersionedSignedProposal) UnmarshalJSON(input []byte) error {
 	var err error
-	fuluRequest := new(eth2ApiV1Fulu.SignedBlockContents)
-	if err = fuluRequest.UnmarshalJSON(input); err == nil {
-		r.Version = spec.DataVersionFulu
-		r.Fulu = fuluRequest
-		return nil
+	if IsFulu {
+		fuluRequest := new(eth2ApiV1Fulu.SignedBlockContents)
+		if err = fuluRequest.UnmarshalJSON(input); err == nil {
+			r.Version = spec.DataVersionFulu
+			r.Fulu = fuluRequest
+			return nil
+		}
 	}
 	electraContents := new(eth2ApiV1Electra.SignedBlockContents)
 	if err = electraContents.UnmarshalJSON(input); err == nil {
