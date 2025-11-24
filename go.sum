@@ -12,6 +12,8 @@ github.com/bloXroute-Labs/mev-common v0.0.23-0.20251120164620-3340996abe33 h1:Qo
 github.com/bloXroute-Labs/mev-common v0.0.23-0.20251120164620-3340996abe33/go.mod h1:prd1S04fPYk0GcxC/TzE+9X26oUKbfQsxphMcif+aI0=
 github.com/bloXroute-Labs/mev-common v0.0.23-0.20251121205615-a1d5a6e02cf0 h1:XTJcSKOBN/YCwoY+bAaBs0Y06TtidT3PEnz8x8MZKB4=
 github.com/bloXroute-Labs/mev-common v0.0.23-0.20251121205615-a1d5a6e02cf0/go.mod h1:prd1S04fPYk0GcxC/TzE+9X26oUKbfQsxphMcif+aI0=
+github.com/bloXroute-Labs/mev-common v0.0.23-0.20251124195650-30fa89ae8b54 h1:2BEjl9ZFmviFvRKJ1Iw9yUWyKRdFvRuWRG3/RJ3x+tg=
+github.com/bloXroute-Labs/mev-common v0.0.23-0.20251124195650-30fa89ae8b54/go.mod h1:prd1S04fPYk0GcxC/TzE+9X26oUKbfQsxphMcif+aI0=
 github.com/bloXroute-Labs/relay-grpc v0.0.65 h1:U2cPiIqpB0JmAXfuM0F58hAntTLArJceQgSG79EaxCo=
 github.com/bloXroute-Labs/relay-grpc v0.0.65/go.mod h1:z/QhiWStVWPJBaArHhzOCiMxzBbyvQB3L7P+KgmoNFI=
 github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 h1:DDGfHa7BWjL4YnC6+E63dPcxHo2sUxDIu8g3QgEJdRY=
