@@ -127,7 +127,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	if fields.payloadFetchUrl != "" {
 		subStart := time.Now()
 		_, sub := s.tracer.Start(spanCtx, GetSpanName("prefetch", "builderHTTPorGRPC"))
-		successBuilder = s.prefetchPayloadFromBuilder(ctx, spanCtx, &fields, prefetchLogger)
+		successBuilder = s.PrefetchPayloadFromBuilder(ctx, spanCtx, &fields, prefetchLogger)
 		sub.SetAttributes(
 			attribute.Bool("success", successBuilder),
 			attribute.Int64("duration_ms", time.Since(subStart).Milliseconds()),
@@ -721,7 +721,7 @@ func (s *Service) prefetchGRPCSingle(
 	return nil, fmt.Errorf("%s", errMsg)
 }
 
-func (s *Service) prefetchPayloadFromBuilder(
+func (s *Service) PrefetchPayloadFromBuilder(
 	ctx context.Context,
 	spanCtx context.Context,
 	fields *preFetcherFields,
