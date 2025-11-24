@@ -119,6 +119,7 @@ type Service struct {
 	BlockPublishFunc             func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, blockPublishingGatewayClient interface{}, authKey string)
 	OnPayloadRequested           func(slot uint64, blockHash string, parentHash string, proposerPubkey string, getPayloadRequestClientIP string, receivedAt time.Time, signedBlindedBeaconBlock *eth2Api.VersionedSignedBlindedBeaconBlock, ProposerRequestStartTimeUnixMS int64, validatorID string) error
 	OnHeaderBidRetrieved         func(ctx context.Context, bid *common.Bid, log zerolog.Logger, slot uint64, parentHash, builderPubkey, accountID string, replacemendDelayMs int64, clients []*common.ParentClient) (*common.Bid, bool, error)
+	OnHeaderDeliveredToProposer  func(slot uint64, parentHash string, proposerPubkey string, blockNumber uint64, blockHash string, optimisticV3PayloadURL string)
 }
 
 type slotStatsEvent struct {

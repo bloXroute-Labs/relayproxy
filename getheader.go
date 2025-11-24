@@ -245,6 +245,9 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		Logger()
 
 	go func() {
+		// Gossip header delivered to proposer event over libp2p
+		s.OnHeaderDeliveredToProposer(_slot, in.ParentHash, in.PubKey, slotBestHeader.BlockNumber, slotBestHeader.BlockHash, optimisticV3PayloadUrl)
+
 		slotStats := SlotStatsRecord{
 			HeaderReqID:               id,
 			HeaderReqReceivedAt:       in.ReceivedAt,
