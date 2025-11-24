@@ -406,7 +406,7 @@ func (s *Service) sendPayloadStats(payload []byte, log *zerolog.Logger, isSuccee
 		fallback SlotStatsRecord
 	)
 	k := fmt.Sprintf("slot-%v-parentHash-%v", out.GetSlot(), out.GetParentHash())
-	v, ok := s.slotStatsHeaderRecord.Get(k)
+	v, ok := s.slotStats.Get(k)
 	if ok {
 		if records, success := v.([]SlotStatsRecord); success {
 			for i, record := range records {
@@ -427,19 +427,19 @@ func (s *Service) sendPayloadStats(payload []byte, log *zerolog.Logger, isSuccee
 	} else {
 		log.Warn().Str("slotKey", k).Msg("no previous slot stats found, creating new record")
 	}
-	//s.slotStatsHeaderPayloadRecord.Set(k, statsRecord, cache.DefaultExpiration) // replace with updated slot stats
+	//s.slotStatsEvent.Set(k, statsRecord, cache.DefaultExpiration) // replace with updated slot stats
 
-	if v, ok := s.slotStatsHeaderPayloadRecord.Get(k); ok {
+	if v, ok := s.slotStatsEvent.Get(k); ok {
 		if slice, success := v.([]SlotStatsRecord); success {
 			slice = append(slice, statsRecord)
-			s.slotStatsHeaderPayloadRecord.Set(k, slice, cache.DefaultExpiration)
+			s.slotStatsEvent.Set(k, slice, cache.DefaultExpiration)
 		} else {
 			newSlice := []SlotStatsRecord{statsRecord}
-			s.slotStatsHeaderPayloadRecord.Set(k, newSlice, cache.DefaultExpiration)
+			s.slotStatsEvent.Set(k, newSlice, cache.DefaultExpiration)
 		}
 	} else {
 		newSlice := []SlotStatsRecord{statsRecord}
-		s.slotStatsHeaderPayloadRecord.Set(k, newSlice, cache.DefaultExpiration)
+		s.slotStatsEvent.Set(k, newSlice, cache.DefaultExpiration)
 	}
 
 	if isRelayProxyWin {

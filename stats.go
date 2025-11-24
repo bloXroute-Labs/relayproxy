@@ -7,7 +7,7 @@ import (
 const (
 	StatsRelayProxyGetHeader              = "relay-proxy-getHeader"
 	StatsRelayProxyGetPayload             = "relay-proxy-getPayload"
-	StatsRelayProxySlotStats              = "stats.relay-proxy-slotStatsHeaderRecord"
+	StatsRelayProxySlotStats              = "stats.relay-proxy-slotStats"
 	StatsRelayProxySlotWon                = "stats.relay-proxy-slot-won"
 	StatsRelayProxyHeaderStreamReceived   = "stats.relay-proxy-headerStreamReceived"
 	StatsRelayProxyBlockStreamReceived    = "stats.relay-proxy-blockStreamReceived"
