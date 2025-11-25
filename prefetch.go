@@ -208,7 +208,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		prefetchLogger.Info().Time("currentTime", time.Now().UTC()).Msg("Starting GRPC prefetch")
+		prefetchLogger.Info().Time("currentTime", time.Now().UTC()).Msg("Starting prefetchGRPC")
 		res, err := s.prefetchGRPC(ctx, spanCtx, clients, prefetchLogger, fields, prefetchID, startTime)
 		if err == nil && res != nil {
 			successGRPC = true
@@ -216,7 +216,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	}()
 	go func() {
 		defer wg.Done()
-		prefetchLogger.Info().Time("currentTime", time.Now().UTC()).Msg("Starting HTTP prefetch")
+		prefetchLogger.Info().Time("currentTime", time.Now().UTC()).Msg("Starting prefetchHTTP")
 		res, err := s.prefetchHTTP(ctx, spanCtx, clients, prefetchLogger, fields, prefetchID, startTime)
 		if err == nil && res != nil {
 			successHTTP = true
@@ -333,7 +333,14 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 		go func(client *common.Client, parentURL string) {
 			defer wg.Done()
 
-			clientLogger := baseLogger.With().Str("downstream_url", parentURL).Logger()
+			clientLogger := baseLogger.With().
+				Str("downstreamURL", parentURL).
+				Str("clientURL", client.URL).
+				Str("clientURL", client.URL).
+				Str("clientNodeID", client.NodeID).
+				Logger()
+
+			clientLogger.Info().Time("currentTime", time.Now().UTC()).Msg("Starting prefetchHTTPSingle")
 
 			res, pErr := s.prefetchHTTPSingle(gctx, spanCtx, client, clientLogger, fields, reqID, prefetchStartTime)
 			if pErr != nil || res == nil {
@@ -627,7 +634,14 @@ func (s *Service) prefetchGRPC(
 		go func(client *common.Client, parentURL string, req *relaygrpc.PreFetchGetPayloadRequest) {
 			defer wg.Done()
 
-			clientLogger := baseLogger.With().Str("downstream_url", parentURL).Logger()
+			clientLogger := baseLogger.With().
+				Str("downstreamURL", parentURL).
+				Str("clientURL", client.URL).
+				Str("clientURL", client.URL).
+				Str("clientNodeID", client.NodeID).
+				Logger()
+
+			clientLogger.Info().Time("currentTime", time.Now().UTC()).Msg("Starting prefetchGRPCSingle")
 
 			res, pErr := s.prefetchGRPCSingle(gctx, spanCtx, client, req, clientLogger)
 			if pErr != nil || res == nil {
