@@ -784,7 +784,6 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
-
 	start := time.Now().UTC()
 	success := false
 	defer func() {
@@ -841,6 +840,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		Strs("headers", headers).
 		Str("slotUID", headerSlotUID).
 		Logger()
+
 	span.SetAttributes(
 		attribute.String("reqHost", r.Host),
 		attribute.String("method", r.Method),
