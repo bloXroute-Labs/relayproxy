@@ -36,7 +36,7 @@ import (
 
 const (
 	regRequestTimeout        = 1 * time.Second
-	preFetcherRequestTimeout = 3 * time.Second
+	PreFetcherRequestTimeout = 3 * time.Second
 
 	// cache
 	BuilderBidsCleanupInterval      = 60 * time.Second // 5 slots
@@ -128,7 +128,7 @@ type slotStatsEvent struct {
 	UserAgent string
 }
 
-type preFetcherFields struct {
+type PreFetcherFields struct {
 	clientIP        string
 	authHeader      string
 	slot            uint64

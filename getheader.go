@@ -376,7 +376,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		}
 	}()
 
-	fields := preFetcherFields{
+	fields := PreFetcherFields{
 		clientIP:                          in.ClientIP,
 		authHeader:                        in.AuthHeader,
 		slot:                              _slot,
@@ -393,8 +393,8 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	}
 
 	// Prefetch the payload in a goroutine
-	go func(fields preFetcherFields) {
-		prefetchCtx, cancel := context.WithTimeout(ctx, preFetcherRequestTimeout)
+	go func(fields PreFetcherFields) {
+		prefetchCtx, cancel := context.WithTimeout(ctx, PreFetcherRequestTimeout)
 		defer cancel()
 		s.PreFetchGetPayload(prefetchCtx, fields)
 	}(fields)
@@ -456,7 +456,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	return signedHeaderResponse, onHeaderDeliveredParams, nil
 }
 
-func (s *Service) prefetchPayloadGRPC(ctx context.Context, spanctx context.Context, fields *preFetcherFields, logMetric *LogMetric, span trace.Span, reqID string, startTime time.Time, success *bool) {
+func (s *Service) prefetchPayloadGRPC(ctx context.Context, spanctx context.Context, fields *PreFetcherFields, logMetric *LogMetric, span trace.Span, reqID string, startTime time.Time, success *bool) {
 	req := &relaygrpc.PreFetchGetPayloadRequest{
 		ReqId:       reqID,
 		Version:     s.version,
@@ -564,7 +564,7 @@ func (s *Service) prefetchPayloadGRPC(ctx context.Context, spanctx context.Conte
 	}
 }
 
-func (s *Service) prefetchPayloadFromBuilderOld(ctx context.Context, spanCtx context.Context, fields *preFetcherFields, logMetric *LogMetric) bool {
+func (s *Service) prefetchPayloadFromBuilderOld(ctx context.Context, spanCtx context.Context, fields *PreFetcherFields, logMetric *LogMetric) bool {
 	_, span := s.tracer.Start(spanCtx, "prefetchPayloadFromBuilder")
 	var success atomic.Bool
 
@@ -612,7 +612,7 @@ func (s *Service) prefetchPayloadFromBuilderOld(ctx context.Context, spanCtx con
 func (s *Service) clientPreFetchGetPayloadHTTP(
 	ctx context.Context,
 	logMetric *LogMetric,
-	fields *preFetcherFields,
+	fields *PreFetcherFields,
 	payloadUrls []string,
 ) bool {
 	_, fetchSpan := s.tracer.Start(ctx, "clientPreFetchGetPayloadHTTP")
@@ -685,7 +685,7 @@ func (s *Service) processGetPayloadV3ResponsesOld(
 	ctx context.Context,
 	responseChan chan *common.VersionedSubmitBlockRequest,
 	logMetric *LogMetric,
-	fields *preFetcherFields,
+	fields *PreFetcherFields,
 ) bool {
 	for {
 		select {
