@@ -149,6 +149,14 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		ctx, childSpan := s.tracer.Start(ctx, "validateAndFetchPayload")
 		defer childSpan.End()
 
+		start := time.Now()
+		log.Info().
+			Time("currentTime", start).
+			Uint64("slot", uint64(slot)).
+			Str("parentHash", parentHash.String()).
+			Str("blockHash", blockHash.String()).
+			Msg("Start validateAndFetchPayload-GetPayload from local cache")
+
 		payloadInfo, err := s.validateAndFetchPayload(ctx, blindedBeaconBlock)
 		if err == nil && payloadInfo != nil {
 			select {
@@ -156,11 +164,19 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 			default:
 			}
 			if err != nil {
-				l.Warn().Err(err).Msg("validateAndFetchPayload returned payload with partial error")
+				l.Warn().Err(err).Msg("validateAndFetchPayload-GetPayload returned payload with partial error")
 			}
 		} else {
-			l.Warn().Err(err).Msg("validateAndFetchPayload returned no payload")
+			l.Warn().Err(err).Msg("validateAndFetchPayload-GetPayload returned no payload")
 		}
+
+		log.Info().
+			Time("currentTime", start).
+			Uint64("slot", uint64(slot)).
+			Str("parentHash", parentHash.String()).
+			Str("blockHash", blockHash.String()).
+			Dur("duration", time.Since(start)).
+			Msg("Finished validateAndFetchPayload-GetPayload from local cache")
 	}(ctx, *log, parentSpan)
 
 	// fetch payload relay
@@ -169,6 +185,16 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 			ctx, childSpan := s.tracer.Start(ctx, "getPayloadWithRetry")
 			defer childSpan.End()
 
+			start := time.Now()
+			log.Info().
+				Time("currentTime", start).
+				Uint64("slot", uint64(slot)).
+				Str("parentHash", parentHash.String()).
+				Str("blockHash", blockHash.String()).
+				Str("SafeClientURL", c.SafeClient.URL).
+				Str("SafeClientNodeID", c.SafeClient.NodeID).
+				Msg("Start getPayloadWithRetry-GetPayload from remote node")
+
 			resp, err := s.getPayloadWithRetry(ctx, c.SafeClient, childSpan, req, maxGetPayloadRetry)
 			if err == nil && resp != nil {
 				select {
@@ -176,6 +202,16 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 				default:
 				}
 			}
+
+			log.Info().
+				Time("currentTime", start).
+				Uint64("slot", uint64(slot)).
+				Str("parentHash", parentHash.String()).
+				Str("blockHash", blockHash.String()).
+				Dur("duration", time.Since(start)).
+				Str("SafeClientURL", c.SafeClient.URL).
+				Str("SafeClientNodeID", c.SafeClient.NodeID).
+				Msg("Finished getPayloadWithRetry-GetPayload from remote node")
 		}(client, parentSpan)
 	}
 
@@ -534,5 +570,4 @@ func (s *Service) validateAndFetchPayload(ctx context.Context, signedBlindedBeac
 		BlockHash:  blockHashString,
 		Pubkey:     pubkeyStr,
 	}, toErrorResp(http.StatusBadRequest, "pre fetch payload not available in cache after retries")
-
 }
