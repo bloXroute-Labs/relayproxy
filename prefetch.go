@@ -340,7 +340,17 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 				Str("clientNodeID", client.NodeID).
 				Logger()
 
-			clientLogger.Info().Time("currentTime", time.Now().UTC()).Msg("Starting prefetchHTTPSingle")
+			prefetchHTTPSingleStart := time.Now()
+			clientLogger.Info().
+				Time("currentTime", prefetchHTTPSingleStart).
+				Msg("Starting prefetchHTTPSingle")
+
+			defer func(clientLogger *zerolog.Logger) {
+				clientLogger.Info().
+					Time("currentTime", time.Now().UTC()).
+					Dur("prefetchHTTPSingleDuration", time.Since(prefetchHTTPSingleStart)).
+					Msg("Finishing prefetchHTTPSingle")
+			}(&clientLogger)
 
 			res, pErr := s.prefetchHTTPSingle(gctx, spanCtx, client, clientLogger, fields, reqID, prefetchStartTime)
 			if pErr != nil || res == nil {
@@ -645,7 +655,17 @@ func (s *Service) prefetchGRPC(
 				Str("clientNodeID", client.NodeID).
 				Logger()
 
-			clientLogger.Info().Time("currentTime", time.Now().UTC()).Msg("Starting prefetchGRPCSingle")
+			prefetchGRPCSingleStart := time.Now()
+			clientLogger.Info().
+				Time("currentTime", prefetchGRPCSingleStart).
+				Msg("Starting prefetchGRPCSingle")
+
+			defer func(clientLogger *zerolog.Logger) {
+				clientLogger.Info().
+					Time("currentTime", time.Now().UTC()).
+					Dur("prefetchGRPCSingleDuration", time.Since(prefetchGRPCSingleStart)).
+					Msg("Finishing prefetchGRPCSingle")
+			}(&clientLogger)
 
 			res, pErr := s.prefetchGRPCSingle(gctx, spanCtx, client, req, clientLogger)
 			if pErr != nil || res == nil {
