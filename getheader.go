@@ -32,7 +32,6 @@ import (
 	otelcodes "go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -246,6 +245,9 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		Logger()
 
 	go func() {
+		// Gossip header delivered to proposer event over libp2p
+		s.OnHeaderDeliveredToProposer(_slot, in.ParentHash, in.PubKey, slotBestHeader.BlockHash, slotBestHeader.PayloadFetchUrl)
+
 		slotStats := SlotStatsRecord{
 			HeaderReqID:               id,
 			HeaderReqReceivedAt:       in.ReceivedAt,
@@ -374,8 +376,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		}
 	}()
 
-	// send in payload to pre fetcher event
-	s.preFetchPayloadChan <- preFetcherFields{
+	fields := PreFetcherFields{
 		clientIP:                          in.ClientIP,
 		authHeader:                        in.AuthHeader,
 		slot:                              _slot,
@@ -390,6 +391,13 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		msIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
 		getHeaderReqID:                    id,
 	}
+
+	// Prefetch the payload in a goroutine
+	go func(fields PreFetcherFields) {
+		prefetchCtx, cancel := context.WithTimeout(ctx, PreFetcherRequestTimeout)
+		defer cancel()
+		s.PreFetchGetPayload(prefetchCtx, fields)
+	}(fields)
 
 	signedHeaderResponse, prevSigned, err := slotBestHeader.GetSignedHeaderResponse(s.secretKey, &s.publicKey, s.builderSigningDomain)
 	if err != nil {
@@ -445,83 +453,10 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		RepickedBlock:        usedRepick,
 	})
 
-	return json.RawMessage(signedHeaderResponse), onHeaderDeliveredParams, nil
+	return signedHeaderResponse, onHeaderDeliveredParams, nil
 }
 
-func (s *Service) StartPreFetcherOld(ctx context.Context) {
-	for fields := range s.preFetchPayloadChan {
-		go func(fields preFetcherFields) {
-			_ctx, cancel := context.WithTimeout(ctx, preFetcherRequestTimeout)
-			defer cancel()
-			s.PreFetchGetPayload(_ctx, fields)
-		}(fields)
-	}
-}
-
-func (s *Service) PreFetchGetPayloadOld(ctx context.Context, fields preFetcherFields) {
-	var (
-		clientURL string
-		success   bool
-	)
-	startTime := time.Now().UTC()
-	defer func() {
-		s.performancestats.SetEndpointStats("PreFetchGetPayload-rproxy", uint64(time.Since(startTime).Microseconds()), success, 100)
-	}()
-	id := uuid.NewString()
-	parentSpan := trace.SpanFromContext(ctx)
-	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
-	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
-	spanctx, span := s.tracer.Start(ctx, "preFetchGetPayload-start")
-	uKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", fields.slot, fields.blockHash, fields.parentHash)
-	defer func() {
-		span.SetAttributes(
-			attribute.String("method", preFetchPayload),
-			attribute.String("clientIP", fields.clientIP),
-			attribute.String("clientURL", clientURL),
-			attribute.String("reqID", id),
-			attribute.Int64("receivedAt", startTime.Unix()),
-			attribute.String("traceID", parentSpan.SpanContext().TraceID().String()),
-			attribute.String("authHeader", fields.authHeader),
-			attribute.String("secretToken", s.secretToken),
-			attribute.String("uKey", uKey),
-			attribute.Int64("slot", int64(fields.slot)),
-			attribute.String("blockHash", fields.blockHash),
-		)
-		span.End()
-	}()
-
-	if fields.client != nil {
-		clientURL = fields.client.SafeClient.URL
-	}
-
-	logMetric := NewLogMetric(
-		map[string]any{
-			"method":      preFetchPayload,
-			"receivedAt":  startTime,
-			"clientIP":    fields.clientIP,
-			"clientURL":   clientURL,
-			"reqID":       id,
-			"traceID":     parentSpan.SpanContext().TraceID().String(),
-			"secretToken": s.secretToken,
-			"authHeader":  fields.authHeader,
-			"uKey":        uKey,
-			"slot":        int64(fields.slot),
-			"blockHash":   fields.blockHash,
-		},
-	)
-
-	s.logger.Info().Fields(logMetric.GetFields()).Msg("received preFetchGetPayload")
-
-	// If necessary, fetch the Optimistic V3 payload directly from the specified builder URL(s)
-	if fields.payloadFetchUrl != "" {
-		success = s.prefetchPayloadFromBuilderOld(ctx, spanctx, &fields, logMetric.Copy())
-		return
-	}
-
-	s.prefetchPayloadGRPC(ctx, spanctx, &fields, logMetric.Copy(), span, id, startTime, &success)
-}
-
-func (s *Service) prefetchPayloadGRPC(ctx context.Context, spanctx context.Context, fields *preFetcherFields, logMetric *LogMetric, span trace.Span, reqID string, startTime time.Time, success *bool) {
+func (s *Service) prefetchPayloadGRPC(ctx context.Context, spanctx context.Context, fields *PreFetcherFields, logMetric *LogMetric, span trace.Span, reqID string, startTime time.Time, success *bool) {
 	req := &relaygrpc.PreFetchGetPayloadRequest{
 		ReqId:       reqID,
 		Version:     s.version,
@@ -629,7 +564,7 @@ func (s *Service) prefetchPayloadGRPC(ctx context.Context, spanctx context.Conte
 	}
 }
 
-func (s *Service) prefetchPayloadFromBuilderOld(ctx context.Context, spanCtx context.Context, fields *preFetcherFields, logMetric *LogMetric) bool {
+func (s *Service) prefetchPayloadFromBuilderOld(ctx context.Context, spanCtx context.Context, fields *PreFetcherFields, logMetric *LogMetric) bool {
 	_, span := s.tracer.Start(spanCtx, "prefetchPayloadFromBuilder")
 	var success atomic.Bool
 
@@ -677,7 +612,7 @@ func (s *Service) prefetchPayloadFromBuilderOld(ctx context.Context, spanCtx con
 func (s *Service) clientPreFetchGetPayloadHTTP(
 	ctx context.Context,
 	logMetric *LogMetric,
-	fields *preFetcherFields,
+	fields *PreFetcherFields,
 	payloadUrls []string,
 ) bool {
 	_, fetchSpan := s.tracer.Start(ctx, "clientPreFetchGetPayloadHTTP")
@@ -750,7 +685,7 @@ func (s *Service) processGetPayloadV3ResponsesOld(
 	ctx context.Context,
 	responseChan chan *common.VersionedSubmitBlockRequest,
 	logMetric *LogMetric,
-	fields *preFetcherFields,
+	fields *PreFetcherFields,
 ) bool {
 	for {
 		select {

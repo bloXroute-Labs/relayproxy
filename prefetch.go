@@ -44,17 +44,7 @@ func getPrefetchHttpClient() *http.Client {
 	return prefetchHttpClient
 }
 
-func (s *Service) StartPreFetcher(ctx context.Context) {
-	for fields := range s.preFetchPayloadChan {
-		go func(fields preFetcherFields) {
-			prefetchCtx, cancel := context.WithTimeout(ctx, preFetcherRequestTimeout)
-			defer cancel()
-			s.PreFetchGetPayload(prefetchCtx, fields)
-		}(fields)
-	}
-}
-
-func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherFields) {
+func (s *Service) PreFetchGetPayload(ctx context.Context, fields PreFetcherFields) {
 	startTime := time.Now().UTC()
 	var (
 		successGRPC    bool
@@ -137,7 +127,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	if fields.payloadFetchUrl != "" {
 		subStart := time.Now()
 		_, sub := s.tracer.Start(spanCtx, GetSpanName("prefetch", "builderHTTPorGRPC"))
-		successBuilder = s.prefetchPayloadFromBuilder(ctx, spanCtx, &fields, prefetchLogger)
+		_, successBuilder = s.PrefetchPayloadFromBuilder(ctx, spanCtx, &fields, prefetchLogger)
 		sub.SetAttributes(
 			attribute.Bool("success", successBuilder),
 			attribute.Int64("duration_ms", time.Since(subStart).Milliseconds()),
@@ -228,7 +218,7 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 	spanCtx context.Context,
 	clients []*common.ParentClient,
 	baseLogger zerolog.Logger,
-	fields preFetcherFields,
+	fields PreFetcherFields,
 	reqID string,
 	prefetchStartTime time.Time) (result *prefetchResultHTTP, err error) {
 
@@ -379,7 +369,7 @@ func (s *Service) prefetchHTTPSingle(ctx context.Context,
 	spanCtx context.Context,
 	client *common.Client,
 	baseLogger zerolog.Logger,
-	fields preFetcherFields,
+	fields PreFetcherFields,
 	reqID string,
 	prefetchStartTime time.Time) (*prefetchResultHTTP, error) {
 
@@ -501,7 +491,7 @@ func (s *Service) prefetchGRPC(
 	spanCtx context.Context,
 	clients []*common.ParentClient,
 	baseLogger zerolog.Logger,
-	fields preFetcherFields,
+	fields PreFetcherFields,
 	reqID string,
 	prefetchStartTime time.Time,
 ) (result *prefetchResult, err error) {
@@ -731,12 +721,12 @@ func (s *Service) prefetchGRPCSingle(
 	return nil, fmt.Errorf("%s", errMsg)
 }
 
-func (s *Service) prefetchPayloadFromBuilder(
+func (s *Service) PrefetchPayloadFromBuilder(
 	ctx context.Context,
 	spanCtx context.Context,
-	fields *preFetcherFields,
+	fields *PreFetcherFields,
 	log zerolog.Logger,
-) bool {
+) (*common.PayloadResponseForProxy, bool) {
 	_, span := s.tracer.Start(spanCtx, GetSpanName("prefetch", "fromBuilder"))
 	var success atomic.Bool
 	defer func() {
@@ -753,7 +743,7 @@ func (s *Service) prefetchPayloadFromBuilder(
 			Err(err).
 			Msg("Failed to fetch Optimistic V3 payload from builder")
 
-		return success.Load()
+		return nil, success.Load()
 	}
 
 	payloadUrlType := payloadUrlsData[optimisticv3.PayloadUrlTypeIndex]
@@ -773,28 +763,29 @@ func (s *Service) prefetchPayloadFromBuilder(
 
 	switch optimisticv3.PayloadUrlType(payloadUrlType) {
 	case optimisticv3.PayloadUrlTypeHTTP:
-		success.Store(s.builderPreFetchGetPayloadHTTP(ctx, log, fields, payloadUrls))
-		return success.Load()
+		getPayloadResponse, fetchSuccess := s.builderPreFetchGetPayloadHTTP(ctx, log, fields, payloadUrls)
+		success.Store(fetchSuccess)
+		return getPayloadResponse, success.Load()
 
 	case optimisticv3.PayloadUrlTypeGRPC:
 		log.Debug().
 			Msg("Ignoring fetch Optimistic V3 payload request with 'grpc' URL type")
-		return success.Load()
+		return nil, success.Load()
 
 	default:
 		log.Debug().
 			Err(errors.New("invalid payload URL type")).
 			Msg("Failed to fetch Optimistic V3 payload from builder")
-		return success.Load()
+		return nil, success.Load()
 	}
 }
 
 func (s *Service) builderPreFetchGetPayloadHTTP(
 	ctx context.Context,
 	log zerolog.Logger,
-	fields *preFetcherFields,
+	fields *PreFetcherFields,
 	payloadUrls []string,
-) bool {
+) (*common.PayloadResponseForProxy, bool) {
 	_, fetchSpan := s.tracer.Start(ctx, GetSpanName("prefetch", "builderHttpFanout"))
 	defer func() {
 		fetchSpan.SetAttributes(
@@ -812,7 +803,7 @@ func (s *Service) builderPreFetchGetPayloadHTTP(
 		log.Debug().
 			Err(err).
 			Msg("failed to prepare HTTP get_payload_v3 request")
-		return false
+		return nil, false
 	}
 
 	responseChan := make(chan *common.VersionedSubmitBlockRequest, len(payloadUrls))
@@ -856,13 +847,13 @@ func (s *Service) processGetPayloadV3Responses(
 	ctx context.Context,
 	responseChan <-chan *common.VersionedSubmitBlockRequest,
 	log zerolog.Logger,
-	fields *preFetcherFields,
-) bool {
+	fields *PreFetcherFields,
+) (*common.PayloadResponseForProxy, bool) {
 	for {
 		select {
 		case <-ctx.Done():
 			log.Debug().Msg("PreFetchPayloadV3 :: context cancelled")
-			return false
+			return nil, false
 
 		case response := <-responseChan:
 			if response == nil {
@@ -897,15 +888,15 @@ func (s *Service) processGetPayloadV3Responses(
 					Err(err).
 					Msg("PreFetchPayloadV3 :: cache already exists")
 				// payload already ready in cache
-				return true
+				return payloadResponse, true
 			}
 
 			log.Info().Msg("PreFetchPayloadV3 :: HTTP builder prefetch succeeded")
-			return true
+			return payloadResponse, true
 
 		case <-time.After(common.OptimisticV3FetchPayloadTimeout):
 			log.Warn().Msg("PreFetchPayloadV3 :: timeout waiting for builder HTTP response")
-			return false
+			return nil, false
 		}
 	}
 }

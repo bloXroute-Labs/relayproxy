@@ -36,7 +36,7 @@ import (
 
 const (
 	regRequestTimeout        = 1 * time.Second
-	preFetcherRequestTimeout = 3 * time.Second
+	PreFetcherRequestTimeout = 3 * time.Second
 
 	// cache
 	BuilderBidsCleanupInterval      = 60 * time.Second // 5 slots
@@ -46,7 +46,6 @@ const (
 
 	maxGetPayloadRetry                = 3
 	getPayloadInterval                = 150 * time.Millisecond
-	preFetchPayloadChanBufSize        = 100
 	getPayloadRequestCutoffMs         = 4000
 	duplicateSlotCacheCleanupInterval = 180 * time.Second // 30 slots
 	reconnectTime                     = 6000
@@ -83,7 +82,6 @@ type Service struct {
 	builderBidsForProxySlot        *cache.Cache
 	builderExistingBlockHash       *cache.Cache
 	getPayloadResponseForProxySlot *cache.Cache
-	preFetchPayloadChan            chan preFetcherFields
 	performancestats               *stat.PerformanceStats
 
 	beaconGenesisTime  int64
@@ -121,6 +119,7 @@ type Service struct {
 	BlockPublishFunc             func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, blockPublishingGatewayClient interface{}, authKey string)
 	OnPayloadRequested           func(slot uint64, blockHash string, parentHash string, proposerPubkey string, getPayloadRequestClientIP string, receivedAt time.Time, signedBlindedBeaconBlock *eth2Api.VersionedSignedBlindedBeaconBlock, ProposerRequestStartTimeUnixMS int64, validatorID string) error
 	OnHeaderBidRetrieved         func(ctx context.Context, bid *common.Bid, log zerolog.Logger, slot uint64, parentHash, builderPubkey, accountID string, replacemendDelayMs int64, clients []*common.ParentClient) (*common.Bid, bool, error)
+	OnHeaderDeliveredToProposer  func(slot uint64, parentHash string, proposerPubkey string, blockHash string, optimisticV3PayloadURL string)
 }
 
 type slotStatsEvent struct {
@@ -129,7 +128,7 @@ type slotStatsEvent struct {
 	UserAgent string
 }
 
-type preFetcherFields struct {
+type PreFetcherFields struct {
 	clientIP        string
 	authHeader      string
 	slot            uint64
@@ -147,9 +146,7 @@ type preFetcherFields struct {
 }
 
 func NewService(opts ...ServiceOption) *Service {
-
 	svc := &Service{
-		preFetchPayloadChan:           make(chan preFetcherFields, preFetchPayloadChanBufSize),
 		slotStats:                     cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
 		slotStatsEvent:                cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
 		duplicateSlotCache:            cache.New(duplicateSlotCacheCleanupInterval, duplicateSlotCacheCleanupInterval), // cache to avoid emitting duplicate stats

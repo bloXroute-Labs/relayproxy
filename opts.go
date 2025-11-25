@@ -170,12 +170,6 @@ func WithGetPayloadResponseForProxySlot(cache *cache.Cache) ServiceOption {
 	}
 }
 
-func WithPreFetchPayloadChan(ch chan preFetcherFields) ServiceOption {
-	return func(s *Service) {
-		s.preFetchPayloadChan = ch
-	}
-}
-
 func WithSvcBeaconGenesisTime(time int64) ServiceOption {
 	return func(s *Service) {
 		s.beaconGenesisTime = time
