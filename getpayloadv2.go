@@ -108,7 +108,7 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 	parentHashStr = parentHash.String()
 	uKey = fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", slotInt, blockHashStr, parentHashStr)
 	*log = log.With().
-		Int64("Slot", slotInt).
+		Int64("slot", slotInt).
 		Str("blockHash", blockHashStr).
 		Str("parentHash", parentHashStr).
 		Str("uKey", uKey).
@@ -179,9 +179,6 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 			start := time.Now()
 			log.Info().
 				Time("currentTime", start).
-				Uint64("slot", uint64(slot)).
-				Str("parentHash", parentHash.String()).
-				Str("blockHash", blockHash.String()).
 				Str("SafeClientURL", c.SafeClient.URL).
 				Str("SafeClientNodeID", c.SafeClient.NodeID).
 				Msg("Start getPayloadWithRetry-GetPayloadV2 from remote node")
@@ -196,9 +193,6 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 
 			log.Info().
 				Time("currentTime", start).
-				Uint64("slot", uint64(slot)).
-				Str("parentHash", parentHash.String()).
-				Str("blockHash", blockHash.String()).
 				Dur("duration", time.Since(start)).
 				Str("SafeClientURL", c.SafeClient.URL).
 				Str("SafeClientNodeID", c.SafeClient.NodeID).

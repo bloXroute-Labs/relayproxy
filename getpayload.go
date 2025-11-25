@@ -117,7 +117,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 	parentHashStr = parentHash.String()
 	uKey = fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", slotInt, blockHashStr, parentHashStr)
 	*log = log.With().
-		Int64("Slot", slotInt).
+		Int64("slot", slotInt).
 		Str("blockHash", blockHashStr).
 		Str("parentHash", parentHashStr).
 		Str("uKey", uKey).
@@ -234,6 +234,8 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 			Int64("msIntoSlot", msIntoSlot).
 			Str("blockValue", blockValueStr).
 			Logger()
+
+		log.Info().
 
 		return payloadInfo, nil
 	case <-time.After(1500 * time.Millisecond):
