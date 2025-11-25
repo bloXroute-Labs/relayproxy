@@ -226,6 +226,8 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 			Str("blockValue", blockValueStr).
 			Logger()
 
+		log.Info().Msg("Payload successfully fetched in GetPayloadV2")
+
 		// return success response only
 		return nil
 

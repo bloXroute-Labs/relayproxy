@@ -235,7 +235,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 			Str("blockValue", blockValueStr).
 			Logger()
 
-		log.Info().
+		log.Info().Msg("Payload successfully fetched in GetPayload")
 
 		return payloadInfo, nil
 	case <-time.After(1500 * time.Millisecond):
