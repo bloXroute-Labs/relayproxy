@@ -39,6 +39,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", authKey)
 
 	*log = log.With().
+		Time("getPayloadStartTime", startTime).
 		Str("method", getPayload).
 		Time("receivedAt", in.ReceivedAt).
 		Str("reqID", id).

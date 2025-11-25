@@ -821,6 +821,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	sszRequest, sszResponse := common.ParseBuilderContentType(r)
 
 	log := s.logger.With().
+		Time("handleGetPayloadStart", start).
 		Str("reqHost", r.Host).
 		Str("method", r.Method).
 		Str("userAgent", userAgent).
@@ -865,7 +866,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
-		log.Error().Err(err).Msg("could not read registration")
+		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("could not read registration")
 		respondError(getPayloadCtx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "could not read registration"), &log, s.tracer)
 		return
 	}
@@ -877,7 +878,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		sszUnmarshalDuration := time.Since(sszUnmarshalStart)
 		log = log.With().Dur("sszUnmarshalDuration", sszUnmarshalDuration).Logger()
 		if err != nil {
-			log.Error().Err(err).Msg("failed to decode request payload")
+			log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("failed to decode request payload")
 			decodeSSZSpan.End()
 			respondError(getPayloadCtx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "failed to decode request payload"), &log, s.tracer)
 			return
@@ -890,7 +891,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		log = log.With().Dur("sszReqJsonMarshalDuration", sszReqJsonMarshalDuration).Logger()
 		if err != nil {
 			encodeJSONSpan.End()
-			log.Error().Err(err).Msg("failed to marshal to json")
+			log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("failed to marshal to json")
 			respondError(getPayloadCtx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "failed to marshal to json"), &log, s.tracer)
 			return
 		}
@@ -915,7 +916,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	})
 	_, mergeLogMetric := s.tracer.Start(getPayloadCtx, "handleGetPayload-mergeLogMetric")
 	if err != nil {
-		log.Error().Err(err).Msg("Error in GetPayload")
+		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("Error in GetPayload")
 		span.SetAttributes(
 			attribute.String("error", err.Error()),
 		)
@@ -936,13 +937,13 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	payloadResponse := new(common.VersionedSubmitBlindedBlockResponse)
 	if err := payloadResponse.UnmarshalJSON(versionedPayloadInfo.GetResponse()); err != nil {
 		span.SetStatus(codes.Error, err.Error())
-		log.Error().Err(err).Msg("failed to unmarshal getHeader response")
+		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("failed to unmarshal getHeader response")
 		respondError(getPayloadCtx, span, method, w, toErrorResp(http.StatusInternalServerError, err.Error()), &log, s.tracer)
 		return
 	}
 	outByte, err := payloadResponse.MarshalSSZ()
 	if err != nil {
-		log.Error().Err(err).Msg("failed to marshal getHeader to ssz")
+		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("failed to marshal getHeader to ssz")
 		span.SetStatus(codes.Error, err.Error())
 		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer, true); err == nil {
 			success = true
