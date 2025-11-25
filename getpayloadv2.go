@@ -31,6 +31,7 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", authKey)
 
 	*log = log.With().
+		Time("getPayloadV2StartTime", startTime).
 		Str("method", getPayloadV2).
 		Time("receivedAt", in.ReceivedAt).
 		Str("reqID", id).
