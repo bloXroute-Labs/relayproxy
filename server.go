@@ -872,7 +872,10 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	signedBlindedBeaconBlock := new(common.VersionedSignedBlindedBeaconBlock)
 	if sszRequest {
 		_, decodeSSZSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-decodeSSZ")
+		sszUnmarshalStart := time.Now()
 		err := signedBlindedBeaconBlock.UnmarshalSSZ(bodyBytes)
+		sszUnmarshalDuration := time.Since(sszUnmarshalStart)
+		log = log.With().Dur("sszUnmarshalDuration", sszUnmarshalDuration).Logger()
 		if err != nil {
 			log.Error().Err(err).Msg("failed to decode request payload")
 			decodeSSZSpan.End()
@@ -881,7 +884,10 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		}
 		decodeSSZSpan.End()
 		_, encodeJSONSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-encodeJSON")
+		sszReqJsonMarshalStart := time.Now()
 		bodyBytes, err = signedBlindedBeaconBlock.MarshalJSON()
+		sszReqJsonMarshalDuration := time.Since(sszReqJsonMarshalStart)
+		log = log.With().Dur("sszReqJsonMarshalDuration", sszReqJsonMarshalDuration).Logger()
 		if err != nil {
 			encodeJSONSpan.End()
 			log.Error().Err(err).Msg("failed to marshal to json")
