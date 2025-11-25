@@ -334,8 +334,8 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 			defer wg.Done()
 
 			clientLogger := baseLogger.With().
+				Time("prefetchStartTime", prefetchStartTime).
 				Str("downstreamURL", parentURL).
-				Str("clientURL", client.URL).
 				Str("clientURL", client.URL).
 				Str("clientNodeID", client.NodeID).
 				Logger()
@@ -635,8 +635,12 @@ func (s *Service) prefetchGRPC(
 			defer wg.Done()
 
 			clientLogger := baseLogger.With().
+				Str("requestID", req.ReqId).
+				Str("reqVersion", req.Version).
+				Str("reqClientIP", req.ClientIp).
+				Str("reqVersion", req.Version).
+				Time("prefetchStartTime", prefetchStartTime).
 				Str("downstreamURL", parentURL).
-				Str("clientURL", client.URL).
 				Str("clientURL", client.URL).
 				Str("clientNodeID", client.NodeID).
 				Logger()
