@@ -416,8 +416,8 @@ func (s *Service) prefetchHTTPSingle(ctx context.Context,
 	baseLogger zerolog.Logger,
 	fields preFetcherFields,
 	reqID string,
-	prefetchStartTime time.Time) (*prefetchResultHTTP, error) {
-
+	prefetchStartTime time.Time,
+) (*prefetchResultHTTP, error) {
 	clientCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 	var clientURL string
@@ -441,31 +441,21 @@ func (s *Service) prefetchHTTPSingle(ctx context.Context,
 	jsonMarshalStart := time.Now()
 	reqBytes, err := json.Marshal(req)
 	jsonMarshalDuration := time.Since(jsonMarshalStart)
-	baseLogger = baseLogger.With().Dur("jsonMarshalDuration", jsonMarshalDuration).Logger()
+	baseLogger = baseLogger.With().Dur("jsonMarshalDuration", jsonMarshalDuration).Str("clientURL", clientURL).Logger()
 	if err != nil {
-		baseLogger.Error().
-			Err(err).
-			Time("currentTime", time.Now().UTC()).
-			Str("url", clientURL).
-			Msg("prefetch HTTP: failed")
+		baseLogger.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("prefetch HTTP: failed")
 		return nil, fmt.Errorf("failed to marshal prefetch http req %v", err.Error())
 	}
+
 	url, err := getURL(clientURL)
 	if err != nil {
-		baseLogger.Error().
-			Err(err).
-			Time("currentTime", time.Now().UTC()).
-			Str("url", clientURL).
-			Msg("prefetch HTTP: failed")
+		baseLogger.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("prefetch HTTP: failed")
 		return nil, fmt.Errorf("failed to parse prefetch http clientURL:%v,error: %v", clientURL, err.Error())
 	}
+
 	httpReq, err := http.NewRequestWithContext(clientCtx, http.MethodGet, url, bytes.NewReader(reqBytes))
 	if err != nil {
-		baseLogger.Error().
-			Err(err).
-			Time("currentTime", time.Now().UTC()).
-			Str("url", clientURL).
-			Msg("prefetch HTTP: failed")
+		baseLogger.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("prefetch HTTP: failed")
 		return nil, fmt.Errorf("failed to marshal prefetch http req %v", err.Error())
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -480,43 +470,26 @@ func (s *Service) prefetchHTTPSingle(ctx context.Context,
 	)
 	res, err := getPrefetchHttpClient().Do(httpReq)
 	reqDurMs := time.Since(reqStart).Milliseconds()
+	baseLogger = baseLogger.With().Int64("duration_ms", reqDurMs).Logger()
 	if err != nil {
-		baseLogger.Error().
-			Err(err).
-			Time("currentTime", time.Now().UTC()).
-			Str("url", clientURL).
-			Int64("duration_ms", reqDurMs).
-			Msg("prefetch HTTP: failed")
+		baseLogger.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("prefetch HTTP: failed")
 		return nil, err
 	}
+
 	if res.StatusCode >= http.StatusMultipleChoices {
 		statusCodeErr := fmt.Errorf("Received invalid status code %d", res.StatusCode)
-		baseLogger.Error().
-			Err(statusCodeErr).
-			Time("currentTime", time.Now().UTC()).
-			Str("url", clientURL).
-			Int64("duration_ms", reqDurMs).
-			Msg("prefetch HTTP: failed")
+		baseLogger.Error().Err(statusCodeErr).Time("currentTime", time.Now().UTC()).Msg("prefetch HTTP: failed")
 		return nil, statusCodeErr
 	}
 
 	defer res.Body.Close()
 	var respData common.PreFetchGetPayloadResponseHTTP
 	if err = json.NewDecoder(res.Body).Decode(&respData); err != nil && err != io.EOF {
-		baseLogger.Error().
-			Err(err).
-			Time("currentTime", time.Now().UTC()).
-			Str("url", clientURL).
-			Int64("duration_ms", reqDurMs).
-			Msg("prefetch HTTP: failed")
+		baseLogger.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("prefetch HTTP: failed")
 		return nil, err
 	}
 
-	baseLogger.Info().
-		Time("currentTime", time.Now().UTC()).
-		Str("url", clientURL).
-		Int64("duration_ms", reqDurMs).
-		Msg("prefetch HTTP: succeeded")
+	baseLogger.Info().Time("currentTime", time.Now().UTC()).Msg("prefetch HTTP: succeeded")
 
 	childSpan.SetAttributes(
 		attribute.Int64("request_duration_ms", reqDurMs),
@@ -525,11 +498,7 @@ func (s *Service) prefetchHTTPSingle(ctx context.Context,
 	errMsg := ""
 	if respData.Code == uint32(codes.OK) {
 		if len(respData.VersionedExecutionPayload) != 0 {
-			baseLogger.Info().
-				Time("currentTime", time.Now().UTC()).
-				Str("url", clientURL).
-				Int64("duration_ms", reqDurMs).
-				Msg("prefetch http: succeeded")
+			baseLogger.Info().Time("currentTime", time.Now().UTC()).Msg("prefetch http: succeeded")
 
 			childSpan.SetAttributes(
 				attribute.Int64("request_duration_ms", reqDurMs),
