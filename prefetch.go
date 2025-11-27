@@ -463,17 +463,37 @@ func (s *Service) prefetchHTTPSingle(ctx context.Context,
 	res, err := getPrefetchHttpClient().Do(httpReq)
 	reqDurMs := time.Since(reqStart).Milliseconds()
 	if err != nil {
+		baseLogger.Error().
+			Err(err).
+			Time("currentTime", time.Now().UTC()).
+			Str("url", clientURL).
+			Int64("duration_ms", reqDurMs).
+			Msg("prefetch HTTP: failed")
 		return nil, err
 	}
 	if res.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("Received invalid status code %d", res.StatusCode)
+		statusCodeErr := fmt.Errorf("Received invalid status code %d", res.StatusCode)
+		baseLogger.Error().
+			Err(statusCodeErr).
+			Time("currentTime", time.Now().UTC()).
+			Str("url", clientURL).
+			Int64("duration_ms", reqDurMs).
+			Msg("prefetch HTTP: failed")
+		return nil, statusCodeErr
 	}
 
 	defer res.Body.Close()
 	var respData common.PreFetchGetPayloadResponseHTTP
 	if err = json.NewDecoder(res.Body).Decode(&respData); err != nil && err != io.EOF {
+		baseLogger.Error().
+			Err(err).
+			Time("currentTime", time.Now().UTC()).
+			Str("url", clientURL).
+			Int64("duration_ms", reqDurMs).
+			Msg("prefetch HTTP: failed")
 		return nil, err
 	}
+
 	baseLogger.Info().
 		Time("currentTime", time.Now().UTC()).
 		Str("url", clientURL).
@@ -781,7 +801,7 @@ func (s *Service) prefetchGRPCSingle(
 		errMsg = "nil response from relay"
 	}
 
-	logger.Info().
+	logger.Error().
 		Time("currentTime", time.Now().UTC()).
 		Str("url", clientURL).
 		Int64("duration_ms", reqDurMs).
