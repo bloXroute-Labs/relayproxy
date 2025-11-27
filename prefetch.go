@@ -438,16 +438,34 @@ func (s *Service) prefetchHTTPSingle(ctx context.Context,
 		NodeID:         s.nodeID,
 	}
 
+	jsonMarshalStart := time.Now()
 	reqBytes, err := json.Marshal(req)
+	jsonMarshalDuration := time.Since(jsonMarshalStart)
+	baseLogger = baseLogger.With().Dur("jsonMarshalDuration", jsonMarshalDuration).Logger()
 	if err != nil {
+		baseLogger.Error().
+			Err(err).
+			Time("currentTime", time.Now().UTC()).
+			Str("url", clientURL).
+			Msg("prefetch HTTP: failed")
 		return nil, fmt.Errorf("failed to marshal prefetch http req %v", err.Error())
 	}
 	url, err := getURL(clientURL)
 	if err != nil {
+		baseLogger.Error().
+			Err(err).
+			Time("currentTime", time.Now().UTC()).
+			Str("url", clientURL).
+			Msg("prefetch HTTP: failed")
 		return nil, fmt.Errorf("failed to parse prefetch http clientURL:%v,error: %v", clientURL, err.Error())
 	}
 	httpReq, err := http.NewRequestWithContext(clientCtx, http.MethodGet, url, bytes.NewReader(reqBytes))
 	if err != nil {
+		baseLogger.Error().
+			Err(err).
+			Time("currentTime", time.Now().UTC()).
+			Str("url", clientURL).
+			Msg("prefetch HTTP: failed")
 		return nil, fmt.Errorf("failed to marshal prefetch http req %v", err.Error())
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
