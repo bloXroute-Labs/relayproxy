@@ -418,7 +418,7 @@ func (s *Service) prefetchHTTPSingle(ctx context.Context,
 	reqID string,
 	prefetchStartTime time.Time) (*prefetchResultHTTP, error) {
 
-	clientCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	clientCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 	var clientURL string
 
@@ -734,7 +734,7 @@ func (s *Service) prefetchGRPCSingle(
 	req *relaygrpc.PreFetchGetPayloadRequest,
 	logger zerolog.Logger,
 ) (*prefetchResult, error) {
-	clientCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	clientCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 	var errMsg, clientURL string
 
