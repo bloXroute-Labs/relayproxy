@@ -136,6 +136,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		Int64("msIntoSlotStart", msIntoSlotPrefetchStart).
 		Int64("msIntoSlotGetHeaderIncludingDelay", fields.msIntoSlotGetHeaderIncludingDelay).
 		Str("getHeaderReqID", fields.getHeaderReqID).
+		Str("builderPayloadFetchURL", fields.payloadFetchUrl).
 		Logger()
 	prefetchLogger.Info().Msg("received prefetchPayload")
 
@@ -183,6 +184,9 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 				payloadSize = len(payload)
 				successCache = true
 				localCacheSpan.End()
+				prefetchLogger.Info().
+					Bool("successCache", successCache).
+					Msg("Prefetch payload available in local cache, do not require grpc and http remote call")
 				return
 			}
 		}
@@ -277,7 +281,7 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 				Int("payload_size_bytes", payloadSize).
 				Str("winner_url", result.url).
 				Str("targetClientIP", targetClientIP).
-				Int64("endedAt", durationMs).
+				Int64("duration_ms", durationMs).
 				Msg("prefetchHTTP :: succeeded")
 		} else {
 			baseLogger.Error().Err(err).
@@ -286,7 +290,7 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 				Str("url", url).
 				Str("targetClientIP", targetClientIP).
 				Time("currentTime", time.Now().UTC()).
-				Int64("endedAt", durationMs).
+				Int64("duration_ms", durationMs).
 				Msg("prefetchHTTP :: failed")
 		}
 		span.SetAttributes(
@@ -585,7 +589,7 @@ func (s *Service) prefetchGRPC(
 				Int("payload_size_bytes", payloadSize).
 				Str("winner_url", url).
 				Str("targetClientIP", targetClientIP).
-				Int64("endedAt", durationMs).
+				Int64("durationMs", durationMs).
 				Msg("prefetchGRPC :: succeeded")
 		} else {
 			baseLogger.Error().Err(err).
@@ -593,7 +597,7 @@ func (s *Service) prefetchGRPC(
 				Int("payload_size_bytes", payloadSize).
 				Str("url", url).
 				Str("targetClientIP", targetClientIP).
-				Int64("endedAt", durationMs).
+				Int64("durationMs", durationMs).
 				Msg("prefetchGRPC :: failed")
 		}
 		span.SetAttributes(

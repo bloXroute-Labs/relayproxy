@@ -60,7 +60,6 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 			attribute.String("uniqueKey", uKey),
 			attribute.Int64("latency", latency),
 		)
-		log.Info().Msg("added spans getPayloadTrusted")
 		logTimingSpan.End()
 		span.End()
 	}()
