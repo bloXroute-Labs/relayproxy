@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/rs/zerolog"
 	goacceptheaders "github.com/timewasted/go-accept-headers"
@@ -34,6 +35,16 @@ const (
 	HeaderEthConsensusVersion = "Eth-Consensus-Version"
 	HeaderUserAgent           = "User-Agent"
 )
+
+func GetCurrentForkVersion() spec.DataVersion {
+	if IsFulu {
+		return spec.DataVersionFulu
+	}
+	if IsElectra {
+		return spec.DataVersionElectra
+	}
+	return spec.DataVersionDeneb
+}
 
 // DecodeExtraData returns a decoded string from block ExtraData
 func DecodeExtraData(extraData []byte) string {
