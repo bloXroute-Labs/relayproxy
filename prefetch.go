@@ -60,7 +60,6 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	startTime := time.Now().UTC()
 	var (
 		successGRPC    bool
-		successHTTP    bool
 		successCache   bool
 		successBuilder bool
 	)
@@ -96,7 +95,6 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 			attribute.Int64("total_ms", totalMs),
 			attribute.Bool("successCache", successCache),
 			attribute.Bool("successGRPC", successGRPC),
-			attribute.Bool("successHTTP", successHTTP),
 			attribute.Bool("successBuilder", successBuilder),
 			attribute.Int64("slot", int64(fields.slot)),
 			attribute.String("blockHash", fields.blockHash),
@@ -114,7 +112,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		s.performancestats.SetEndpointStats(
 			"PreFetchGetPayload-rproxy",
 			uint64(time.Since(startTime).Microseconds()),
-			successCache || successHTTP || successGRPC || successBuilder,
+			successCache || successGRPC || successBuilder,
 			100,
 		)
 	}()
@@ -211,21 +209,13 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 	)
 
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		prefetchLogger.Info().Time("currentTime", time.Now().UTC()).Msg("Starting prefetchGRPC")
 		res, err := s.prefetchGRPC(ctx, spanCtx, clients, prefetchLogger, fields, prefetchID, startTime)
 		if err == nil && res != nil {
 			successGRPC = true
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		prefetchLogger.Info().Time("currentTime", time.Now().UTC()).Msg("Starting prefetchHTTP")
-		res, err := s.prefetchHTTP(ctx, spanCtx, clients, prefetchLogger, fields, prefetchID, startTime)
-		if err == nil && res != nil {
-			successHTTP = true
 		}
 	}()
 	wg.Wait()
