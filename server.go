@@ -784,7 +784,6 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
-
 	start := time.Now().UTC()
 	success := false
 	defer func() {
@@ -822,6 +821,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	sszRequest, sszResponse := common.ParseBuilderContentType(r)
 
 	log := s.logger.With().
+		Time("handleGetPayloadStart", start).
 		Str("reqHost", r.Host).
 		Str("method", r.Method).
 		Str("userAgent", userAgent).
@@ -841,6 +841,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		Strs("headers", headers).
 		Str("slotUID", headerSlotUID).
 		Logger()
+
 	span.SetAttributes(
 		attribute.String("reqHost", r.Host),
 		attribute.String("method", r.Method),
@@ -865,26 +866,32 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
-		log.Error().Err(err).Msg("could not read registration")
+		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("could not read registration")
 		respondError(getPayloadCtx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "could not read registration"), &log, s.tracer)
 		return
 	}
 	signedBlindedBeaconBlock := new(common.VersionedSignedBlindedBeaconBlock)
 	if sszRequest {
 		_, decodeSSZSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-decodeSSZ")
+		sszUnmarshalStart := time.Now()
 		err := signedBlindedBeaconBlock.UnmarshalSSZ(bodyBytes)
+		sszUnmarshalDuration := time.Since(sszUnmarshalStart)
+		log = log.With().Dur("sszUnmarshalDuration", sszUnmarshalDuration).Logger()
 		if err != nil {
-			log.Error().Err(err).Msg("failed to decode request payload")
+			log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("failed to decode request payload")
 			decodeSSZSpan.End()
 			respondError(getPayloadCtx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "failed to decode request payload"), &log, s.tracer)
 			return
 		}
 		decodeSSZSpan.End()
 		_, encodeJSONSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-encodeJSON")
+		sszReqJsonMarshalStart := time.Now()
 		bodyBytes, err = signedBlindedBeaconBlock.MarshalJSON()
+		sszReqJsonMarshalDuration := time.Since(sszReqJsonMarshalStart)
+		log = log.With().Dur("sszReqJsonMarshalDuration", sszReqJsonMarshalDuration).Logger()
 		if err != nil {
 			encodeJSONSpan.End()
-			log.Error().Err(err).Msg("failed to marshal to json")
+			log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("failed to marshal to json")
 			respondError(getPayloadCtx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "failed to marshal to json"), &log, s.tracer)
 			return
 		}
@@ -895,6 +902,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		versionedPayloadInfo *common.VersionedPayloadInfo
 	)
 	method := getPayload
+	svcGetPayloadStart := time.Now()
 	versionedPayloadInfo, err = s.svc.GetPayload(getPayloadCtx, &log, &PayloadRequestParams{
 		ReceivedAt:                receivedAt,
 		Payload:                   bodyBytes,
@@ -907,9 +915,11 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		UserAgent:                 userAgent,
 		SlotUID:                   headerSlotUID,
 	})
+	svcGetPayloadDuration := time.Since(svcGetPayloadStart)
+	log = log.With().Dur("svcGetPayloadDuration", svcGetPayloadDuration).Logger()
 	_, mergeLogMetric := s.tracer.Start(getPayloadCtx, "handleGetPayload-mergeLogMetric")
 	if err != nil {
-		log.Error().Err(err).Msg("Error in GetPayload")
+		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("Error in GetPayload")
 		span.SetAttributes(
 			attribute.String("error", err.Error()),
 		)
@@ -928,15 +938,23 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	}
 	_, marshalUnmarshalSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-marshalUnmarshal")
 	payloadResponse := new(common.VersionedSubmitBlindedBlockResponse)
-	if err := payloadResponse.UnmarshalJSON(versionedPayloadInfo.GetResponse()); err != nil {
+	responseJsonUnmarshalStart := time.Now()
+	err = payloadResponse.UnmarshalJSON(versionedPayloadInfo.GetResponse())
+	responseJsonUnmarshalDuration := time.Since(responseJsonUnmarshalStart)
+	log = log.With().Dur("responseJsonUnmarshalDuration", responseJsonUnmarshalDuration).Logger()
+	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
-		log.Error().Err(err).Msg("failed to unmarshal getHeader response")
+		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("failed to unmarshal getHeader response")
 		respondError(getPayloadCtx, span, method, w, toErrorResp(http.StatusInternalServerError, err.Error()), &log, s.tracer)
 		return
 	}
+
+	responseSszMarshalStart := time.Now()
 	outByte, err := payloadResponse.MarshalSSZ()
+	responseSszMarshalDuration := time.Since(responseSszMarshalStart)
+	log = log.With().Dur("responseSszMarshalDuration", responseSszMarshalDuration).Logger()
 	if err != nil {
-		log.Error().Err(err).Msg("failed to marshal getHeader to ssz")
+		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("failed to marshal getHeader to ssz")
 		span.SetStatus(codes.Error, err.Error())
 		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer, true); err == nil {
 			success = true
@@ -945,11 +963,14 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	}
 	marshalUnmarshalSpan.End()
 	w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
+
+	writeResponseStart := time.Now().UTC()
 	success = s.respondOKWithContextSSZMarshalled(getPayloadCtx, span, method, w, outByte, &log, s.tracer)
-
+	writeResponseDuration := time.Since(writeResponseStart)
+	log = log.With().Dur("writeResponseDuration", writeResponseDuration).Logger()
 }
-func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 
+func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 	start := time.Now().UTC()
 	success := false
 	defer func() {
@@ -987,6 +1008,7 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 	sszRequest, sszResponse := common.ParseBuilderContentType(r)
 
 	log := s.logger.With().
+		Time("handleGetPayloadV2Start", start).
 		Str("reqHost", r.Host).
 		Str("method", r.Method).
 		Str("userAgent", userAgent).
@@ -1006,6 +1028,7 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 		Strs("headers", headers).
 		Str("slotUID", headerSlotUID).
 		Logger()
+
 	span.SetAttributes(
 		attribute.String("reqHost", r.Host),
 		attribute.String("method", r.Method),
@@ -1030,26 +1053,32 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
-		log.Error().Err(err).Msg("could not read registration")
+		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("could not read registration")
 		respondError(getPayloadCtx, span, getPayloadV2, w, toErrorResp(http.StatusInternalServerError, "could not read payload"), &log, s.tracer)
 		return
 	}
 	signedBlindedBeaconBlock := new(common.VersionedSignedBlindedBeaconBlock)
 	if sszRequest {
 		_, decodeSSZSpan := s.tracer.Start(getPayloadCtx, "handleGetPayloadV2-decodeSSZ")
+		sszUnmarshalStart := time.Now()
 		err := signedBlindedBeaconBlock.UnmarshalSSZ(bodyBytes)
+		sszUnmarshalDuration := time.Since(sszUnmarshalStart)
+		log = log.With().Dur("sszUnmarshalDuration", sszUnmarshalDuration).Logger()
 		if err != nil {
-			log.Error().Err(err).Msg("failed to decode request payload")
+			log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("failed to decode request payload")
 			decodeSSZSpan.End()
 			respondError(getPayloadCtx, span, getPayloadV2, w, toErrorResp(http.StatusInternalServerError, "failed to decode request payload"), &log, s.tracer)
 			return
 		}
 		decodeSSZSpan.End()
 		_, encodeJSONSpan := s.tracer.Start(getPayloadCtx, "handleGetPayloadV2-encodeJSON")
+		sszReqJsonMarshalStart := time.Now()
 		bodyBytes, err = signedBlindedBeaconBlock.MarshalJSON()
+		sszReqJsonMarshalDuration := time.Since(sszReqJsonMarshalStart)
+		log = log.With().Dur("sszReqJsonMarshalDuration", sszReqJsonMarshalDuration).Logger()
 		if err != nil {
 			encodeJSONSpan.End()
-			log.Error().Err(err).Msg("failed to marshal to json")
+			log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("failed to marshal to json")
 			respondError(getPayloadCtx, span, getPayloadV2, w, toErrorResp(http.StatusInternalServerError, "failed to marshal to json"), &log, s.tracer)
 			return
 		}
@@ -1058,7 +1087,8 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 	span.AddEvent("handleGetPayload-svcGetPayloadV2")
 
 	method := getPayloadV2
-	if err := s.svc.GetPayloadV2(getPayloadCtx, &log, &PayloadRequestParams{
+	svcGetPayloadV2Start := time.Now()
+	err = s.svc.GetPayloadV2(getPayloadCtx, &log, &PayloadRequestParams{
 		ReceivedAt:                receivedAt,
 		Payload:                   bodyBytes,
 		ClientIP:                  clientIP,
@@ -1069,7 +1099,12 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 		Cluster:                   cluster,
 		UserAgent:                 userAgent,
 		SlotUID:                   headerSlotUID,
-	}); err != nil {
+	})
+	svcGetPayloadV2Duration := time.Since(svcGetPayloadV2Start)
+	log = log.With().Dur("svcGetPayloadV2Duration", svcGetPayloadV2Duration).Logger()
+
+	if err != nil {
+		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("Error in GetPayloadV2")
 		span.SetAttributes(attribute.String("error", err.Error()))
 		span.SetStatus(codes.Error, err.Error())
 		respondError(getPayloadCtx, span, method, w, err, &log, s.tracer)
