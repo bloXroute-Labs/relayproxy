@@ -85,6 +85,29 @@ func TestCheckElectraEpochFork(t *testing.T) {
 	require.True(t, IsElectra)
 }
 
+func TestCheckFuluEpochFork(t *testing.T) {
+	//holesky
+	require.False(t, IsFulu)
+	mockTime := time.Date(2025, time.October, 01, 8, 48, 0, 0, time.UTC).Add(-1 * time.Second)
+	CheckFuluEpochFork(mockTime, 1759308480, 12, 32, FuluForkEpochHolesky, zerolog.Logger{})
+	require.False(t, IsFulu)
+
+	mockTime2 := time.Date(2025, time.October, 01, 8, 48, 0, 0, time.UTC)
+	CheckFuluEpochFork(mockTime2, 1759308480, 12, 32, FuluForkEpochHolesky, zerolog.Logger{})
+	require.True(t, mockTime.Before(mockTime2))
+	require.True(t, IsFulu)
+
+	mockTime3 := time.Date(2025, time.October, 01, 8, 48, 6, 0, time.UTC)
+	CheckFuluEpochFork(mockTime3, 1759308480, 12, 32, FuluForkEpochHolesky, zerolog.Logger{})
+	require.True(t, mockTime2.Before(mockTime3))
+	require.True(t, IsFulu)
+
+	mockTime4 := time.Date(2025, time.October, 01, 8, 48, 12, 0, time.UTC).Add(1 * time.Second)
+	CheckFuluEpochFork(mockTime4, 1759308480, 12, 32, FuluForkEpochHolesky, zerolog.Logger{})
+	require.True(t, mockTime3.Before(mockTime4))
+	require.True(t, IsFulu)
+}
+
 func TestSafeSplitSemicolonSeparatedCSV(t *testing.T) {
 	tests := []struct {
 		input    string

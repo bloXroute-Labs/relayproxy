@@ -5,6 +5,7 @@ import (
 
 	builderApi "github.com/attestantio/go-builder-client/api"
 	builderApiDeneb "github.com/attestantio/go-builder-client/api/deneb"
+	builderApiFulu "github.com/attestantio/go-builder-client/api/fulu"
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/pkg/errors"
@@ -12,6 +13,14 @@ import (
 
 func BuildGetPayloadResponse(payload *VersionedSubmitBlockRequest) (*builderApi.VersionedSubmitBlindedBlockResponse, error) {
 	switch payload.Version {
+	case spec.DataVersionFulu:
+		return &builderApi.VersionedSubmitBlindedBlockResponse{
+			Version: spec.DataVersionFulu,
+			Fulu: &builderApiFulu.ExecutionPayloadAndBlobsBundle{
+				ExecutionPayload: payload.Fulu.ExecutionPayload,
+				BlobsBundle:      payload.Fulu.BlobsBundle,
+			},
+		}, nil
 	case spec.DataVersionElectra:
 		return &builderApi.VersionedSubmitBlindedBlockResponse{
 			Version: spec.DataVersionElectra,
@@ -42,6 +51,8 @@ type VersionedSubmitBlindedBlockResponse struct {
 
 func (r *VersionedSubmitBlindedBlockResponse) MarshalSSZ() ([]byte, error) {
 	switch r.Version {
+	case spec.DataVersionFulu:
+		return r.Fulu.MarshalSSZ()
 	case spec.DataVersionElectra:
 		return r.Electra.MarshalSSZ()
 	case spec.DataVersionDeneb:
@@ -53,21 +64,13 @@ func (r *VersionedSubmitBlindedBlockResponse) MarshalSSZ() ([]byte, error) {
 
 func (r *VersionedSubmitBlindedBlockResponse) UnmarshalSSZ(input []byte) error {
 	var err error
-
-	if IsElectra {
-		electraRequest := new(builderApiDeneb.ExecutionPayloadAndBlobsBundle)
-		if err = electraRequest.UnmarshalSSZ(input); err == nil {
-			r.Version = spec.DataVersionElectra
-			r.Electra = electraRequest
+	if IsFulu {
+		fuluRequest := new(builderApiFulu.ExecutionPayloadAndBlobsBundle)
+		if err = fuluRequest.UnmarshalSSZ(input); err == nil {
+			r.Version = spec.DataVersionFulu
+			r.Fulu = fuluRequest
 			return nil
 		}
-	}
-
-	denebRequest := new(builderApiDeneb.ExecutionPayloadAndBlobsBundle)
-	if err = denebRequest.UnmarshalSSZ(input); err == nil {
-		r.Version = spec.DataVersionDeneb
-		r.Deneb = denebRequest
-		return nil
 	}
 
 	electraRequest := new(builderApiDeneb.ExecutionPayloadAndBlobsBundle)
@@ -76,11 +79,26 @@ func (r *VersionedSubmitBlindedBlockResponse) UnmarshalSSZ(input []byte) error {
 		r.Electra = electraRequest
 		return nil
 	}
+
+	denebRequest := new(builderApiDeneb.ExecutionPayloadAndBlobsBundle)
+	if err = denebRequest.UnmarshalSSZ(input); err == nil {
+		r.Version = spec.DataVersionDeneb
+		r.Deneb = denebRequest
+		return nil
+	}
 	return errors.Wrap(err, "failed to unmarshal SubmitBlockRequest SSZ")
 }
 
 func (r *VersionedSubmitBlindedBlockResponse) BlockNumber() (uint64, error) {
 	switch r.Version {
+	case spec.DataVersionFulu:
+		if r.Fulu == nil {
+			return 0, errors.New("no data")
+		}
+		if r.Fulu.ExecutionPayload == nil {
+			return 0, errors.New("no execution payload")
+		}
+		return r.Fulu.ExecutionPayload.BlockNumber, nil
 	case spec.DataVersionElectra:
 		if r.Electra == nil {
 			return 0, errors.New("no data")
@@ -104,6 +122,14 @@ func (r *VersionedSubmitBlindedBlockResponse) BlockNumber() (uint64, error) {
 
 func (r *VersionedSubmitBlindedBlockResponse) ExtraData() ([]byte, error) {
 	switch r.Version {
+	case spec.DataVersionFulu:
+		if r.Fulu == nil {
+			return nil, errors.New("no data")
+		}
+		if r.Fulu.ExecutionPayload == nil {
+			return nil, errors.New("no execution payload")
+		}
+		return r.Fulu.ExecutionPayload.ExtraData, nil
 	case spec.DataVersionElectra:
 		if r.Electra == nil {
 			return nil, errors.New("no data")
@@ -127,6 +153,14 @@ func (r *VersionedSubmitBlindedBlockResponse) ExtraData() ([]byte, error) {
 
 func (r *VersionedSubmitBlindedBlockResponse) ParentHash() (phase0.Hash32, error) {
 	switch r.Version {
+	case spec.DataVersionFulu:
+		if r.Fulu == nil {
+			return phase0.Hash32{}, errors.New("no data")
+		}
+		if r.Fulu.ExecutionPayload == nil {
+			return phase0.Hash32{}, errors.New("no execution payload")
+		}
+		return r.Fulu.ExecutionPayload.ParentHash, nil
 	case spec.DataVersionElectra:
 		if r.Electra == nil {
 			return phase0.Hash32{}, errors.New("no data")
@@ -150,6 +184,14 @@ func (r *VersionedSubmitBlindedBlockResponse) ParentHash() (phase0.Hash32, error
 
 func (r *VersionedSubmitBlindedBlockResponse) GasUsed() (uint64, error) {
 	switch r.Version {
+	case spec.DataVersionFulu:
+		if r.Fulu == nil {
+			return 0, errors.New("no data")
+		}
+		if r.Fulu.ExecutionPayload == nil {
+			return 0, errors.New("no execution payload")
+		}
+		return r.Fulu.ExecutionPayload.GasUsed, nil
 	case spec.DataVersionElectra:
 		if r.Electra == nil {
 			return 0, errors.New("no data")
@@ -173,6 +215,14 @@ func (r *VersionedSubmitBlindedBlockResponse) GasUsed() (uint64, error) {
 
 func (r *VersionedSubmitBlindedBlockResponse) GasLimit() (uint64, error) {
 	switch r.Version {
+	case spec.DataVersionFulu:
+		if r.Fulu == nil {
+			return 0, errors.New("no data")
+		}
+		if r.Fulu.ExecutionPayload == nil {
+			return 0, errors.New("no execution payload")
+		}
+		return r.Fulu.ExecutionPayload.GasLimit, nil
 	case spec.DataVersionElectra:
 		if r.Electra == nil {
 			return 0, errors.New("no data")

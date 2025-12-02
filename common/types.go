@@ -10,16 +10,21 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/attestantio/go-builder-client/api/fulu"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/attestantio/go-builder-client/api/deneb"
 	"github.com/attestantio/go-builder-client/api/electra"
+
+	//"github.com/attestantio/go-eth2-client/api/v1/fulu"
 	builderApiV1 "github.com/attestantio/go-builder-client/api/v1"
 	builderSpec "github.com/attestantio/go-builder-client/spec"
 	eth2Api "github.com/attestantio/go-eth2-client/api"
 	eth2ApiV1Deneb "github.com/attestantio/go-eth2-client/api/v1/deneb"
 	eth2ApiV1Electra "github.com/attestantio/go-eth2-client/api/v1/electra"
+
+	//eth2ApiV1Fulu "github.com/attestantio/go-eth2-client/api/v1/fulu"
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
@@ -70,12 +75,23 @@ var (
 	ElectraForkEpochHoodi     = int64(2048)
 	ElectraForkEpochMainnet   = int64(364032)
 
+	//FULU
+	FuluForkVersionHolesky = "0x07017000"
+	FuluForkVersionSepolia = "0x90000075"
+	FuluForkVersionHoodi   = "0x70000910"
+	FuluForkVersionMainnet = "0x06000000"
+	FuluForkEpochHolesky   = int64(165120)
+	FuluForkEpochSepolia   = int64(272640)
+	FuluForkEpochHoodi     = int64(50688)
+	FuluForkEpochMainnet   = int64(411392)
+
 	HoodiChainID   = "560048"
 	HoleskyChainID = "17000"
 	SepoliaChainID = "11155111"
 	MainnetChainID = "1"
 
 	IsElectra                       bool
+	IsFulu                          bool
 	TransferGasLimit                = uint64(21000)
 	SlotsPerEpoch                   = uint64(32)
 	OptimisticV3FetchPayloadTimeout = 10 * time.Second
@@ -87,10 +103,12 @@ type EthNetworkDetails struct {
 	GenesisValidatorsRootHex string
 	DenebForkVersionHex      string
 	ElectraForkVersionHex    string
+	FuluForkVersionHex       string
 
 	DomainBuilder               phase0.Domain
 	DomainBeaconProposerDeneb   phase0.Domain
 	DomainBeaconProposerElectra phase0.Domain
+	DomainBeaconProposerFulu    phase0.Domain
 
 	ChainID    string
 	ChainIDInt int
@@ -101,9 +119,11 @@ func NewEthNetworkDetails(networkName string) (ret *EthNetworkDetails, err error
 	var genesisValidatorsRoot string
 	var denebForkVersion string
 	var electraForkVersion string
+	var fuluForkVersion string
 	var domainBuilder phase0.Domain
 	var domainBeaconProposerDeneb phase0.Domain
 	var domainBeaconProposerElectra phase0.Domain
+	var domainBeaconProposerFulu phase0.Domain
 	var chainID string
 	switch networkName {
 	case EthNetworkHolesky:
@@ -111,30 +131,35 @@ func NewEthNetworkDetails(networkName string) (ret *EthNetworkDetails, err error
 		genesisValidatorsRoot = GenesisValidatorsRootHolesky
 		denebForkVersion = DenebForkVersionHolesky
 		electraForkVersion = ElectraForkVersionHolesky
+		fuluForkVersion = FuluForkVersionHolesky
 		chainID = HoleskyChainID
 	case EthNetworkSepolia:
 		genesisForkVersion = boostTypes.GenesisForkVersionSepolia
 		genesisValidatorsRoot = boostTypes.GenesisValidatorsRootSepolia
 		denebForkVersion = DenebForkVersionSepolia
 		electraForkVersion = ElectraForkVersionSepolia
+		fuluForkVersion = FuluForkVersionSepolia
 		chainID = SepoliaChainID
 	case EthNetworkHoodi:
 		genesisForkVersion = GenesisForkVersionHoodi
 		genesisValidatorsRoot = GenesisValidatorsRootHoodi
 		denebForkVersion = DenebForkVersionHoodi
 		electraForkVersion = ElectraForkVersionHoodi
+		fuluForkVersion = FuluForkVersionHoodi
 		chainID = HoodiChainID
 	case EthNetworkMainnet:
 		genesisForkVersion = boostTypes.GenesisForkVersionMainnet
 		genesisValidatorsRoot = boostTypes.GenesisValidatorsRootMainnet
 		denebForkVersion = DenebForkVersionMainnet
 		electraForkVersion = ElectraForkVersionMainnet
+		fuluForkVersion = FuluForkVersionMainnet
 		chainID = MainnetChainID
 	case EthNetworkCustom:
 		genesisForkVersion = os.Getenv("GENESIS_FORK_VERSION")
 		genesisValidatorsRoot = os.Getenv("GENESIS_VALIDATORS_ROOT")
 		denebForkVersion = os.Getenv("DENEB_FORK_VERSION")
 		electraForkVersion = os.Getenv("ELECTRA_FORK_VERSION")
+		fuluForkVersion = os.Getenv("FULU_FORK_VERSION")
 		chainID = os.Getenv("CHAIN_ID")
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnknownNetwork, networkName)
@@ -155,6 +180,10 @@ func NewEthNetworkDetails(networkName string) (ret *EthNetworkDetails, err error
 		return nil, err
 	}
 
+	domainBeaconProposerFulu, err = ComputeDomain(ssz.DomainTypeBeaconProposer, fuluForkVersion, genesisValidatorsRoot)
+	if err != nil {
+		return nil, err
+	}
 	chainIDInt, err := strconv.Atoi(chainID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid chain ID %s: %w", chainID, err)
@@ -165,9 +194,11 @@ func NewEthNetworkDetails(networkName string) (ret *EthNetworkDetails, err error
 		GenesisValidatorsRootHex:    genesisValidatorsRoot,
 		DenebForkVersionHex:         denebForkVersion,
 		ElectraForkVersionHex:       electraForkVersion,
+		FuluForkVersionHex:          fuluForkVersion,
 		DomainBuilder:               domainBuilder,
 		DomainBeaconProposerDeneb:   domainBeaconProposerDeneb,
 		DomainBeaconProposerElectra: domainBeaconProposerElectra,
+		DomainBeaconProposerFulu:    domainBeaconProposerFulu,
 		ChainID:                     chainID,
 		ChainIDInt:                  chainIDInt,
 	}, nil
@@ -181,18 +212,22 @@ func (e *EthNetworkDetails) String() string {
 	GenesisValidatorsRootHex: %s,
 	DenebForkVersionHex: %s,
 	ElectraForkVersionHex: %s,
+	FuluForkVersionHex:%s,
 	DomainBuilder: %x,
 	DomainBeaconProposerDeneb: %x
 	DomainBeaconProposerElectra: %x
+	DomainBeaconProposerFulu:%x
 }`,
 		e.Name,
 		e.GenesisForkVersionHex,
 		e.GenesisValidatorsRootHex,
 		e.DenebForkVersionHex,
 		e.ElectraForkVersionHex,
+		e.FuluForkVersionHex,
 		e.DomainBuilder,
 		e.DomainBeaconProposerDeneb,
-		e.DomainBeaconProposerElectra)
+		e.DomainBeaconProposerElectra,
+		e.DomainBeaconProposerFulu)
 }
 
 // ComputeDomain computes the signing domain
@@ -213,6 +248,8 @@ type VersionedSignedBlindedBeaconBlock struct {
 
 func (r *VersionedSignedBlindedBeaconBlock) MarshalJSON() ([]byte, error) {
 	switch r.Version { //nolint:exhaustive
+	case spec.DataVersionFulu:
+		return json.Marshal(r.Fulu)
 	case spec.DataVersionElectra:
 		return json.Marshal(r.Electra)
 	case spec.DataVersionDeneb:
@@ -224,25 +261,26 @@ func (r *VersionedSignedBlindedBeaconBlock) MarshalJSON() ([]byte, error) {
 
 func (r *VersionedSignedBlindedBeaconBlock) UnmarshalJSON(input []byte) error {
 	var err error
-	if IsElectra {
-		electraBlock := new(eth2ApiV1Electra.SignedBlindedBeaconBlock)
-		if err = json.Unmarshal(input, electraBlock); err == nil {
-			r.Version = spec.DataVersionElectra
-			r.Electra = electraBlock
+
+	if IsFulu {
+		fuluBlock := new(eth2ApiV1Electra.SignedBlindedBeaconBlock)
+		if err = json.Unmarshal(input, fuluBlock); err == nil {
+			r.Version = spec.DataVersionFulu
+			r.Fulu = fuluBlock
 			return nil
 		}
 	}
-	denebBlock := new(eth2ApiV1Deneb.SignedBlindedBeaconBlock)
-	if err = json.Unmarshal(input, denebBlock); err == nil {
-		r.Version = spec.DataVersionDeneb
-		r.Deneb = denebBlock
-		return nil
-	}
-
 	electraBlock := new(eth2ApiV1Electra.SignedBlindedBeaconBlock)
 	if err = json.Unmarshal(input, electraBlock); err == nil {
 		r.Version = spec.DataVersionElectra
 		r.Electra = electraBlock
+		return nil
+	}
+
+	denebBlock := new(eth2ApiV1Deneb.SignedBlindedBeaconBlock)
+	if err = json.Unmarshal(input, denebBlock); err == nil {
+		r.Version = spec.DataVersionDeneb
+		r.Deneb = denebBlock
 		return nil
 	}
 	return fmt.Errorf("failed to unmarshal SignedBlindedBeaconBlock %v", err)
@@ -251,20 +289,13 @@ func (r *VersionedSignedBlindedBeaconBlock) UnmarshalJSON(input []byte) error {
 func (r *VersionedSignedBlindedBeaconBlock) UnmarshalSSZ(input []byte) error {
 	var err error
 
-	if IsElectra {
-		electraBlock := new(eth2ApiV1Electra.SignedBlindedBeaconBlock)
-		if err = electraBlock.UnmarshalSSZ(input); err == nil {
-			r.Version = spec.DataVersionElectra
-			r.Electra = electraBlock
+	if IsFulu {
+		fuluBlock := new(eth2ApiV1Electra.SignedBlindedBeaconBlock)
+		if err = fuluBlock.UnmarshalSSZ(input); err == nil {
+			r.Version = spec.DataVersionFulu
+			r.Fulu = fuluBlock
 			return nil
 		}
-	}
-
-	denebBlock := new(eth2ApiV1Deneb.SignedBlindedBeaconBlock)
-	if err = denebBlock.UnmarshalSSZ(input); err == nil {
-		r.Version = spec.DataVersionDeneb
-		r.Deneb = denebBlock
-		return nil
 	}
 
 	electraBlock := new(eth2ApiV1Electra.SignedBlindedBeaconBlock)
@@ -274,12 +305,27 @@ func (r *VersionedSignedBlindedBeaconBlock) UnmarshalSSZ(input []byte) error {
 		return nil
 	}
 
+	denebBlock := new(eth2ApiV1Deneb.SignedBlindedBeaconBlock)
+	if err = denebBlock.UnmarshalSSZ(input); err == nil {
+		r.Version = spec.DataVersionDeneb
+		r.Deneb = denebBlock
+		return nil
+	}
 	return fmt.Errorf("failed to unmarshal SignedBlindedBeaconBlock %w", err)
 }
 
 // ExecutionParentHash returns the parent hash of the beacon block.
 func (r *VersionedSignedBlindedBeaconBlock) ExecutionParentHash() (phase0.Hash32, error) {
 	switch r.Version {
+	case spec.DataVersionFulu:
+		if r.Fulu == nil ||
+			r.Fulu.Message == nil ||
+			r.Fulu.Message.Body == nil ||
+			r.Fulu.Message.Body.ExecutionPayloadHeader == nil {
+			return phase0.Hash32{}, ErrDataMissing
+		}
+
+		return r.Fulu.Message.Body.ExecutionPayloadHeader.ParentHash, nil
 	case spec.DataVersionElectra:
 		if r.Electra == nil ||
 			r.Electra.Message == nil ||
@@ -545,6 +591,20 @@ func ToSubmitBlockRequest(v *optimisticv3.VersionedAdjustableSubmitBlockRequest)
 				},
 			},
 		}, v.Electra.AdjustmentData, nil
+
+	case spec.DataVersionFulu:
+		return &VersionedSubmitBlockRequest{
+			VersionedSubmitBlockRequest: builderSpec.VersionedSubmitBlockRequest{
+				Version: spec.DataVersionFulu,
+				Fulu: &fulu.SubmitBlockRequest{
+					Message:           v.Fulu.Message,
+					ExecutionPayload:  v.Fulu.ExecutionPayload,
+					BlobsBundle:       v.Fulu.BlobsBundle,
+					ExecutionRequests: v.Fulu.ExecutionRequests,
+					Signature:         v.Fulu.Signature,
+				},
+			},
+		}, v.Fulu.AdjustmentData, nil
 	}
 	return nil, nil, errors.New("unknown data version")
 }

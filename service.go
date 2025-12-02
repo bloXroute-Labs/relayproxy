@@ -449,7 +449,8 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 		// Store the bid for builder pubkey
 		_, storeBidsSpan := s.tracer.Start(streamReceiveCtx, "StreamHeader-storeBids")
 		payloadURL := "grpc;" + client.URL
-		headerSubmissionV3, err := optimisticv3.RelayGrpcHeaderSubmissionToVersioned(header, []byte(payloadURL))
+		forkVersion := common.GetCurrentForkVersion()
+		headerSubmissionV3, err := optimisticv3.RelayGrpcHeaderSubmissionToVersioned(header, []byte(payloadURL), forkVersion)
 		if err != nil && header.GetPayload() == nil {
 			s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to convert to versioned header submission")
 			continue
