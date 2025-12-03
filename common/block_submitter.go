@@ -75,11 +75,12 @@ func (b *BlockSubmission) UnmarshalSSZ(input []byte, out *VersionedSubmitBlockRe
 		return nil
 	}
 
-	// Fallback Electra fast path (if first attempt failed but payload was Electra)
-	electraRequest := new(builderApiElectra.SubmitBlockRequest)
-	if err = b.unmarshalSSZFast(electraRequest, input); err == nil {
-		out.Version = spec.DataVersionElectra
-		out.Electra = electraRequest
+	// Fallback fulu fast path (if first attempt failed but payload was Fulu)
+	fuluRequest := new(builderApiFulu.SubmitBlockRequest)
+	if err = b.unmarshalSSZFastFulu(fuluRequest, input); err == nil {
+		// Adjust this if you have a dedicated Fulu data version.
+		out.Version = spec.DataVersionFulu
+		out.Fulu = fuluRequest
 		return nil
 	}
 
