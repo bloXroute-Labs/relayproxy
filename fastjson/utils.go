@@ -18,6 +18,8 @@ import (
 
 func CheckProposerSignature(ethNetwork *proxycommon.EthNetworkDetails, block *proxycommon.VersionedSignedBlindedBeaconBlock, pubKey []byte) (bool, error) {
 	switch block.Version {
+	case spec.DataVersionFulu:
+		return verifyBlockSignature(block, ethNetwork.DomainBeaconProposerFulu, pubKey)
 	case spec.DataVersionElectra:
 		return verifyBlockSignature(block, ethNetwork.DomainBeaconProposerElectra, pubKey)
 	case spec.DataVersionDeneb:

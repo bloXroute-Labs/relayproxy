@@ -7,6 +7,7 @@ import (
 
 	builderApiDeneb "github.com/attestantio/go-builder-client/api/deneb"
 	builderApiElectra "github.com/attestantio/go-builder-client/api/electra"
+	builderApiFulu "github.com/attestantio/go-builder-client/api/fulu"
 	builderapiv1 "github.com/attestantio/go-builder-client/api/v1"
 	v1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/bellatrix"
@@ -114,6 +115,75 @@ func NewElectraBuilderSubmitBlockRequest(slot uint64, proposerPubKey, builderPub
 			BlobGasUsed:   0,
 		},
 		BlobsBundle: &builderApiDeneb.BlobsBundle{
+			Commitments: []denebspec.KZGCommitment{},
+			Proofs:      []denebspec.KZGProof{},
+			Blobs:       []denebspec.Blob{},
+		},
+		ExecutionRequests: &electraspec.ExecutionRequests{
+			Deposits: []*electraspec.DepositRequest{
+				&electraspec.DepositRequest{
+					Pubkey:                phase0.BLSPubKey{},
+					WithdrawalCredentials: credentials[:],
+					Amount:                12,
+					Signature:             phase0.BLSSignature{13},
+					Index:                 14,
+				},
+			},
+			Withdrawals: []*electraspec.WithdrawalRequest{
+				&electraspec.WithdrawalRequest{
+					SourceAddress:   bellatrix.ExecutionAddress{15},
+					ValidatorPubkey: phase0.BLSPubKey{16},
+					Amount:          17,
+				},
+			},
+			Consolidations: []*electraspec.ConsolidationRequest{
+				&electraspec.ConsolidationRequest{
+					SourceAddress: bellatrix.ExecutionAddress{18},
+					SourcePubkey:  phase0.BLSPubKey{19},
+					TargetPubkey:  phase0.BLSPubKey{20},
+				},
+			},
+		},
+	}
+}
+
+func NewFuluBuilderSubmitBlockRequest(slot uint64, proposerPubKey, builderPubKey phase0.BLSPubKey, parentHash, blockHash common.Hash, bidValue *big.Int, feeRecipient bellatrix.ExecutionAddress, extraData []byte) *builderApiFulu.SubmitBlockRequest {
+	bidBlockHash := phase0.Hash32(blockHash.Bytes())
+	value := new(uint256.Int)
+	value.SetFromBig(bidValue)
+	credentials := [32]byte{8}
+	return &builderApiFulu.SubmitBlockRequest{
+		Signature: phase0.BLSSignature{},
+		Message: &builderapiv1.BidTrace{
+			Slot:                 slot,
+			ParentHash:           phase0.Hash32(parentHash),
+			BlockHash:            bidBlockHash,
+			BuilderPubkey:        builderPubKey,
+			ProposerPubkey:       proposerPubKey,
+			ProposerFeeRecipient: feeRecipient,
+			GasLimit:             0,
+			GasUsed:              0,
+			Value:                value,
+		},
+		ExecutionPayload: &denebspec.ExecutionPayload{
+			ParentHash:    phase0.Hash32(parentHash),
+			FeeRecipient:  feeRecipient,
+			StateRoot:     [32]byte{3},
+			ReceiptsRoot:  [32]byte{4},
+			LogsBloom:     [256]byte{5},
+			PrevRandao:    [32]byte{6},
+			BlockNumber:   7,
+			GasLimit:      8,
+			GasUsed:       9,
+			Timestamp:     12 * 1,
+			ExtraData:     extraData,
+			BaseFeePerGas: uint256.NewInt(11),
+			BlockHash:     (phase0.Hash32)(blockHash),
+			Transactions:  []bellatrix.Transaction{},
+			Withdrawals:   []*capella.Withdrawal{},
+			BlobGasUsed:   0,
+		},
+		BlobsBundle: &builderApiFulu.BlobsBundle{
 			Commitments: []denebspec.KZGCommitment{},
 			Proofs:      []denebspec.KZGProof{},
 			Blobs:       []denebspec.Blob{},

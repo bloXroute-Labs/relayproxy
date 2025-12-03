@@ -7,6 +7,7 @@ import (
 	apideneb "github.com/attestantio/go-builder-client/api/deneb"
 	builderApiDeneb "github.com/attestantio/go-builder-client/api/deneb"
 	builderApiElectra "github.com/attestantio/go-builder-client/api/electra"
+	builderApiFulu "github.com/attestantio/go-builder-client/api/fulu"
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
 	builderSpec "github.com/attestantio/go-builder-client/spec"
 	"github.com/attestantio/go-eth2-client/spec"
@@ -23,6 +24,8 @@ type VersionedSubmitBlockRequest struct {
 
 func (r *VersionedSubmitBlockRequest) SizeSSZ() int {
 	switch r.Version { //nolint:exhaustive
+	case spec.DataVersionFulu:
+		return r.Fulu.SizeSSZ()
 	case spec.DataVersionElectra:
 		return r.Electra.SizeSSZ()
 	case spec.DataVersionDeneb:
@@ -34,6 +37,8 @@ func (r *VersionedSubmitBlockRequest) SizeSSZ() int {
 
 func (r *VersionedSubmitBlockRequest) MarshalSSZTo(buf []byte) (dst []byte, err error) {
 	switch r.Version { //nolint:exhaustive
+	case spec.DataVersionFulu:
+		return r.Fulu.MarshalSSZTo(buf)
 	case spec.DataVersionElectra:
 		return r.Electra.MarshalSSZTo(buf)
 	case spec.DataVersionDeneb:
@@ -45,6 +50,8 @@ func (r *VersionedSubmitBlockRequest) MarshalSSZTo(buf []byte) (dst []byte, err 
 
 func (r *VersionedSubmitBlockRequest) MarshalSSZ() ([]byte, error) {
 	switch r.Version { //nolint:exhaustive
+	case spec.DataVersionFulu:
+		return r.Fulu.MarshalSSZ()
 	case spec.DataVersionElectra:
 		return r.Electra.MarshalSSZ()
 	case spec.DataVersionDeneb:
@@ -57,19 +64,13 @@ func (r *VersionedSubmitBlockRequest) MarshalSSZ() ([]byte, error) {
 func (r *VersionedSubmitBlockRequest) UnmarshalSSZ(input []byte) error {
 	var err error
 
-	if IsElectra {
-		electraRequest := new(builderApiElectra.SubmitBlockRequest)
-		if err = UnmarshalSSZFast(electraRequest, input); err == nil {
-			r.Version = spec.DataVersionElectra
-			r.Electra = electraRequest
+	if IsFulu {
+		fuluRequest := new(builderApiFulu.SubmitBlockRequest)
+		if err = fuluRequest.UnmarshalSSZ(input); err == nil {
+			r.Version = spec.DataVersionFulu
+			r.Fulu = fuluRequest
 			return nil
 		}
-	}
-	denebRequest := new(builderApiDeneb.SubmitBlockRequest)
-	if err = denebRequest.UnmarshalSSZ(input); err == nil {
-		r.Version = spec.DataVersionDeneb
-		r.Deneb = denebRequest
-		return nil
 	}
 
 	electraRequest := new(builderApiElectra.SubmitBlockRequest)
@@ -79,11 +80,19 @@ func (r *VersionedSubmitBlockRequest) UnmarshalSSZ(input []byte) error {
 		return nil
 	}
 
+	denebRequest := new(builderApiDeneb.SubmitBlockRequest)
+	if err = denebRequest.UnmarshalSSZ(input); err == nil {
+		r.Version = spec.DataVersionDeneb
+		r.Deneb = denebRequest
+		return nil
+	}
 	return errors.Wrap(err, "failed to unmarshal SubmitBlockRequest SSZ")
 }
 
 func (r *VersionedSubmitBlockRequest) MarshalJSON() ([]byte, error) {
 	switch r.Version { //nolint:exhaustive
+	case spec.DataVersionFulu:
+		return json.Marshal(r.Fulu)
 	case spec.DataVersionElectra:
 		return json.Marshal(r.Electra)
 	case spec.DataVersionDeneb:
@@ -95,25 +104,26 @@ func (r *VersionedSubmitBlockRequest) MarshalJSON() ([]byte, error) {
 
 func (r *VersionedSubmitBlockRequest) UnmarshalJSON(input []byte) error {
 	var err error
-	if IsElectra {
-		electraRequest := new(builderApiElectra.SubmitBlockRequest)
-		if err = json.Unmarshal(input, electraRequest); err == nil {
-			r.Version = spec.DataVersionElectra
-			r.Electra = electraRequest
+	if IsFulu {
+		fuluRequest := new(builderApiFulu.SubmitBlockRequest)
+		if err = json.Unmarshal(input, fuluRequest); err == nil {
+			r.Version = spec.DataVersionFulu
+			r.Fulu = fuluRequest
 			return nil
 		}
-	}
-	denebRequest := new(builderApiDeneb.SubmitBlockRequest)
-	if err = json.Unmarshal(input, denebRequest); err == nil {
-		r.Version = spec.DataVersionDeneb
-		r.Deneb = denebRequest
-		return nil
 	}
 
 	electraRequest := new(builderApiElectra.SubmitBlockRequest)
 	if err = json.Unmarshal(input, electraRequest); err == nil {
 		r.Version = spec.DataVersionElectra
 		r.Electra = electraRequest
+		return nil
+	}
+
+	denebRequest := new(builderApiDeneb.SubmitBlockRequest)
+	if err = json.Unmarshal(input, denebRequest); err == nil {
+		r.Version = spec.DataVersionDeneb
+		r.Deneb = denebRequest
 		return nil
 	}
 	return errors.Wrap(err, "failed to unmarshal SubmitBlockRequest ")
@@ -125,6 +135,14 @@ func (r *VersionedSubmitBlockRequest) ExecutionPayloadExtraData() ([]byte, error
 		return nil, errors.New("nil struct")
 	}
 	switch r.Version {
+	case spec.DataVersionFulu:
+		if r.Fulu == nil {
+			return nil, errors.New("no data")
+		}
+		if r.Fulu.ExecutionPayload == nil {
+			return nil, errors.New("no data execution payload")
+		}
+		return r.Fulu.ExecutionPayload.ExtraData, nil
 	case spec.DataVersionElectra:
 		if r.Electra == nil {
 			return nil, errors.New("no data")
@@ -152,6 +170,15 @@ func (r *VersionedSubmitBlockRequest) ExecutionPayloadLogsBloom() ([256]byte, er
 		return [256]byte{}, errors.New("nil struct")
 	}
 	switch r.Version {
+	case spec.DataVersionFulu:
+		if r.Fulu == nil {
+			return [256]byte{}, errors.New("no data")
+		}
+		if r.Fulu.ExecutionPayload == nil {
+			return [256]byte{}, errors.New("no data execution payload")
+		}
+		return r.Fulu.ExecutionPayload.LogsBloom, nil
+
 	case spec.DataVersionElectra:
 		if r.Electra == nil {
 			return [256]byte{}, errors.New("no data")
