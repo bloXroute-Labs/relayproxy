@@ -68,12 +68,12 @@ func (b *BlockSubmission) UnmarshalSSZ(input []byte, out *VersionedSubmitBlockRe
 		}
 	}
 
-	denebRequest := new(apideneb.SubmitBlockRequest)
-	if err = denebRequest.UnmarshalSSZ(input); err == nil {
-		out.Version = spec.DataVersionDeneb
-		out.Deneb = denebRequest
-		return nil
-	}
+	//denebRequest := new(apideneb.SubmitBlockRequest)
+	//if err = denebRequest.UnmarshalSSZ(input); err == nil {
+	//	out.Version = spec.DataVersionDeneb
+	//	out.Deneb = denebRequest
+	//	return nil
+	//}
 
 	// Fallback fulu fast path (if first attempt failed but payload was Fulu)
 	fuluRequest := new(builderApiFulu.SubmitBlockRequest)
