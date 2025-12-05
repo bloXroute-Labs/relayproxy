@@ -484,10 +484,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 			100)
 	}()
 
-	parentSpan := trace.SpanFromContext(r.Context())
-	parentSpanCtx := trace.ContextWithSpan(context.Background(), parentSpan)
-	handleRegistrationCtx, handleRegistrationSpan := s.tracer.Start(parentSpanCtx, "handleRegistration-start")
-	defer parentSpan.End()
+	handleRegistrationCtx, handleRegistrationSpan := s.tracer.Start(r.Context(), "handleRegistration-start")
 	defer handleRegistrationSpan.End()
 
 	receivedAt := time.Now().UTC()
@@ -609,9 +606,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	start := time.Now().UTC()
 	success := false
 
-	parentSpan := trace.SpanFromContext(r.Context())
-	parentSpanCtx := trace.ContextWithSpan(context.Background(), parentSpan)
-	handleGetHeaderCtx, span := s.tracer.Start(parentSpanCtx, "handleGetHeader-start")
+	handleGetHeaderCtx, span := s.tracer.Start(r.Context(), "handleGetHeader-start")
 
 	receivedAt := time.Now().UTC()
 	slot := chi.URLParam(r, "slot")
@@ -672,7 +667,6 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 				attribute.String("blockHash", onHeaderDeliveredParams.BlockHash),
 			)
 		}
-		parentSpan.End()
 		span.End()
 		s.performanceStats.SetEndpointStats(
 			common.PathGetHeader,
@@ -794,10 +788,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 			100)
 	}()
 
-	parentSpan := trace.SpanFromContext(r.Context())
-	parentCtx := trace.ContextWithSpan(context.Background(), parentSpan)
-	getPayloadCtx, span := s.tracer.Start(parentCtx, "handleGetPayload-start")
-	defer parentSpan.End()
+	getPayloadCtx, span := s.tracer.Start(r.Context(), "handleGetPayload-start")
 	defer span.End()
 
 	receivedAt := time.Now().UTC()
@@ -981,10 +972,7 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 			100)
 	}()
 
-	parentSpan := trace.SpanFromContext(r.Context())
-	parentCtx := trace.ContextWithSpan(context.Background(), parentSpan)
-	getPayloadCtx, span := s.tracer.Start(parentCtx, "handleGetPayloadV2-start")
-	defer parentSpan.End()
+	getPayloadCtx, span := s.tracer.Start(r.Context(), "handleGetPayloadV2-start")
 	defer span.End()
 
 	receivedAt := time.Now().UTC()
@@ -1153,17 +1141,31 @@ func respondError(ctx context.Context, parentSpan trace.Span, method string, w h
 	_, span := tracer.Start(ctx, "respondError-"+method)
 	defer span.End()
 
+	if err == nil {
+		parentSpan.SetAttributes(
+			attribute.Int("responseCode", http.StatusInternalServerError),
+		)
+		log.Error().Str("method", method).Msg("respondError called with nil err")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		span.SetStatus(codes.Error, "nil err passed to respondError")
+		return
+	}
+
 	resp, ok := err.(*ErrorResp)
-	parentSpan.SetAttributes(
-		attribute.String("Err", err.Error()),
-		attribute.Int("responseCode", resp.ErrorCode()),
-	)
-	if !ok {
+	if !ok || resp == nil {
+		parentSpan.SetAttributes(
+			attribute.String("Err", err.Error()),
+			attribute.Int("responseCode", http.StatusInternalServerError),
+		)
 		log.Error().Str("method", method).Err(err).Msg("failed to typecast error response")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		span.SetStatus(codes.Error, "failed to typecast error response")
 		return
 	}
+	parentSpan.SetAttributes(
+		attribute.String("Err", err.Error()),
+		attribute.Int("responseCode", resp.ErrorCode()),
+	)
 	w.WriteHeader(resp.Code)
 	log.Error().Str("method", method).Msg(method + " failed")
 	if resp.Message != "" && resp.Code != http.StatusNoContent { // HTTP status "No Content" implies that no message body should be included in the response.
