@@ -70,7 +70,7 @@ type Server struct {
 
 	authHeaderP2P string // Added until vouch support query params
 
-	ghRatelimit      *SyncMap[uint64, struct{}]
+	ghRatelimit      *SyncMap[string, uint64]
 	accountsLists    *AccountsLists
 	NodeID           string
 	AdminAccountID   string
@@ -111,7 +111,7 @@ func NewServer(opts ...ServerOption) *Server {
 		opt(server)
 	}
 
-	server.ghRatelimit = NewIntegerMapOf[uint64, struct{}]()
+	server.ghRatelimit = NewStringMapOf[uint64]()
 
 	return server
 }
@@ -297,19 +297,18 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 
 	if isGetHeader && !isWhitelisted {
 		currentSlot := uint64(CalculateCurrentSlot(s.beaconGenesisTime, s.secondsPerSlot))
-		if _, exist := s.ghRatelimit.LoadAndStore(currentSlot, struct{}{}); exist {
+
+		prev, exist := s.ghRatelimit.LoadOrStore(clientIP, currentSlot)
+		if exist && prev == currentSlot {
 			s.logger.Warn().
 				Str("authHeader", authHeader).
 				Str("accountID", accountID).
 				Str("ip", clientIP).
 				Str("url", parsedURL.String()).
 				Err(err).Msg("get header rate limit exceeded")
-			// Not saying IP because that encourages people to work around the rate limit
+
 			http.Error(w, "only one getheader request allowed per slot per validator", http.StatusTooManyRequests)
 			return
-		}
-		if currentSlot > keepOld {
-			s.ghRatelimit.Delete(currentSlot - keepOld)
 		}
 	}
 	ctx = context.WithValue(ctx, keyParsedURL, parsedURL)
