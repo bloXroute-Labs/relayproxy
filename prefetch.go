@@ -385,8 +385,8 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 					fields.proposerPubKey,
 				)
 				payloadResponse := &common.PayloadResponseForProxy{
-					MarshalledPayloadResponse: result.resp.VersionedExecutionPayload,
-					BlockValue:                fields.blockValue,
+					SszMarshalledPayloadResponse: result.resp.VersionedExecutionPayload,
+					BlockValue:                   fields.blockValue,
 				}
 				payloadSize = len(result.resp.VersionedExecutionPayload)
 				_ = s.getPayloadResponseForProxySlot.Add(
@@ -707,8 +707,8 @@ func (s *Service) prefetchGRPC(
 					fields.proposerPubKey,
 				)
 				payloadResponse := &common.PayloadResponseForProxy{
-					MarshalledPayloadResponse: result.resp.VersionedExecutionPayload,
-					BlockValue:                fields.blockValue,
+					SszMarshalledPayloadResponse: result.resp.VersionedExecutionPayload,
+					BlockValue:                   fields.blockValue,
 				}
 				payloadSize = len(result.resp.VersionedExecutionPayload)
 				_ = s.getPayloadResponseForProxySlot.Add(
