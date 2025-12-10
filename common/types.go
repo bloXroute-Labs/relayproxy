@@ -459,23 +459,23 @@ type DuplicateBlock struct {
 }
 
 type PayloadResponseForProxy struct {
-	MarshalledPayloadResponse []byte
-	PayloadResponse           VersionedSubmitBlindedBlockResponse
-	BlockValue                string
+	SszMarshalledPayloadResponse []byte
+	PayloadResponse              VersionedSubmitBlindedBlockResponse
+	BlockValue                   string
 }
 
 func (p *PayloadResponseForProxy) GetMarshalledResponse() ([]byte, error) {
-	if len(p.MarshalledPayloadResponse) != 0 {
-		return p.MarshalledPayloadResponse, nil
+	if len(p.SszMarshalledPayloadResponse) != 0 {
+		return p.SszMarshalledPayloadResponse, nil
 	}
 	if p.PayloadResponse.IsEmpty() {
 		return nil, errors.New("empty payload response")
 	}
-	marshaledResponse, err := p.PayloadResponse.MarshalJSON()
+	marshaledResponse, err := p.PayloadResponse.MarshalSSZ()
 	if err != nil {
 		return nil, err
 	}
-	p.MarshalledPayloadResponse = marshaledResponse
+	p.SszMarshalledPayloadResponse = marshaledResponse
 	return marshaledResponse, nil
 }
 
