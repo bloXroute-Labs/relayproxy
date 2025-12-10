@@ -920,9 +920,14 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	}
 	mergeLogMetric.End()
 
+	fullPayloadResponse := versionedPayloadInfo.GetFullPayloadResponse()
+
 	// Return SSZ response
 	if sszResponse {
 		writeResponseStart := time.Now().UTC()
+		if fullPayloadResponse != nil {
+			w.Header().Set(common.HeaderEthConsensusVersion, fullPayloadResponse.Version.String())
+		}
 		success = s.respondOKWithContextSSZMarshalled(getPayloadCtx, span, method, w, versionedPayloadInfo.GetSszResponse(), &log, s.tracer)
 		writeResponseDuration := time.Since(writeResponseStart)
 		log = log.With().Dur("writeResponseDuration", writeResponseDuration).Logger()
@@ -930,11 +935,11 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return JSON response (convert from ssz)
-	payloadResponse := new(common.VersionedSubmitBlindedBlockResponse)
 	_, marshalUnmarshalSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-marshalUnmarshal")
+	payloadResponse := new(common.VersionedSubmitBlindedBlockResponse)
 	// If we already have the full response struct, we can skip the ssz unmarshal
-	if versionedPayloadInfo.FullPayloadResponse != nil {
-		payloadResponse = versionedPayloadInfo.FullPayloadResponse
+	if fullPayloadResponse != nil {
+		payloadResponse = fullPayloadResponse
 	} else {
 		responseSszUnmarshalStart := time.Now()
 		err = payloadResponse.UnmarshalSSZ(versionedPayloadInfo.GetSszResponse())
@@ -959,6 +964,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	marshalUnmarshalSpan.End()
+
 	w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
 
 	writeResponseStart := time.Now().UTC()

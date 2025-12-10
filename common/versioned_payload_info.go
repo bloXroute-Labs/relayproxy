@@ -61,12 +61,21 @@ func (v *VersionedPayloadInfo) SetBlockValue(bv string) {
 		v.BlockValue = bv
 	}
 }
+
+func (v *VersionedPayloadInfo) GetFullPayloadResponse() *VersionedSubmitBlindedBlockResponse {
+	if v != nil {
+		return v.FullPayloadResponse
+	}
+	return nil
+}
+
 func (v *VersionedPayloadInfo) GetSszResponse() []byte {
 	if v != nil {
 		return v.SszResponse
 	}
 	return nil
 }
+
 func (v *VersionedPayloadInfo) GetSlot() uint64 {
 	if v != nil {
 		return v.Slot
