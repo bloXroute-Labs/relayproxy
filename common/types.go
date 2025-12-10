@@ -464,7 +464,7 @@ type PayloadResponseForProxy struct {
 	BlockValue                   string
 }
 
-func (p *PayloadResponseForProxy) GetMarshalledResponse() ([]byte, error) {
+func (p *PayloadResponseForProxy) GetSszMarshalledResponse() ([]byte, error) {
 	if len(p.SszMarshalledPayloadResponse) != 0 {
 		return p.SszMarshalledPayloadResponse, nil
 	}
@@ -481,17 +481,17 @@ func (p *PayloadResponseForProxy) GetMarshalledResponse() ([]byte, error) {
 
 // BuildVersionedPayloadInfo builds the VersionedPayloadInfo struct and sets it to the PayloadResponseForProxy struct
 func (p *PayloadResponseForProxy) BuildVersionedPayloadInfo(slot uint64, parentHash string, blockHash string, pubkey string) (*VersionedPayloadInfo, error) {
-	marshalledPayload, err := p.GetMarshalledResponse()
+	marshalledPayload, err := p.GetSszMarshalledResponse()
 	if err != nil {
 		return &VersionedPayloadInfo{}, err
 	}
 	versionedPayloadInfo := VersionedPayloadInfo{
-		Response:   marshalledPayload,
-		Slot:       slot,
-		ParentHash: parentHash,
-		BlockHash:  blockHash,
-		Pubkey:     pubkey,
-		BlockValue: p.BlockValue,
+		SszResponse: marshalledPayload,
+		Slot:        slot,
+		ParentHash:  parentHash,
+		BlockHash:   blockHash,
+		Pubkey:      pubkey,
+		BlockValue:  p.BlockValue,
 	}
 	return &versionedPayloadInfo, nil
 }

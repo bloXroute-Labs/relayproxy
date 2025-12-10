@@ -3,7 +3,7 @@ package common
 import relaygrpc "github.com/bloXroute-Labs/relay-grpc"
 
 type VersionedPayloadInfo struct {
-	Response      []byte
+	SszResponse   []byte
 	Slot          uint64
 	ParentHash    string
 	BlockHash     string
@@ -14,7 +14,7 @@ type VersionedPayloadInfo struct {
 
 func BuildVersionedPayloadInfoFromGrpcResponse(in *relaygrpc.GetPayloadResponse) *VersionedPayloadInfo {
 	return &VersionedPayloadInfo{
-		Response:      in.GetVersionedExecutionPayload(),
+		SszResponse:   in.GetSszVersionedExecutionPayload(),
 		Slot:          in.GetSlot(),
 		ParentHash:    in.GetParentHash(),
 		BlockHash:     in.GetBlockHash(),
@@ -24,9 +24,9 @@ func BuildVersionedPayloadInfoFromGrpcResponse(in *relaygrpc.GetPayloadResponse)
 	}
 }
 
-func (v *VersionedPayloadInfo) SetResponse(in []byte) {
+func (v *VersionedPayloadInfo) SetResponse(sszBytes []byte) {
 	if v != nil {
-		v.Response = in
+		v.SszResponse = sszBytes
 	}
 }
 
@@ -59,9 +59,9 @@ func (v *VersionedPayloadInfo) SetBlockValue(bv string) {
 		v.BlockValue = bv
 	}
 }
-func (v *VersionedPayloadInfo) GetResponse() []byte {
+func (v *VersionedPayloadInfo) GetSszResponse() []byte {
 	if v != nil {
-		return v.Response
+		return v.SszResponse
 	}
 	return nil
 }
@@ -104,10 +104,10 @@ func (v *VersionedPayloadInfo) Copy() *VersionedPayloadInfo {
 	if v == nil {
 		return nil
 	}
-	newResponse := make([]byte, len(v.Response))
-	copy(newResponse, v.Response)
+	newResponse := make([]byte, len(v.SszResponse))
+	copy(newResponse, v.SszResponse)
 	return &VersionedPayloadInfo{
-		Response:      newResponse,
+		SszResponse:   newResponse,
 		Slot:          v.Slot,
 		ParentHash:    v.ParentHash,
 		BlockHash:     v.BlockHash,
