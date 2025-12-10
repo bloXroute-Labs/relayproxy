@@ -548,9 +548,9 @@ type MiniValidatorLatency struct {
 }
 
 type PreFetchGetPayloadResponseHTTP struct {
-	Code                      uint32
-	Message                   string
-	VersionedExecutionPayload []byte
+	Code                         uint32
+	Message                      string
+	SszVersionedExecutionPayload []byte
 }
 
 type PreFetchGetPayloadRequestHTTP struct {

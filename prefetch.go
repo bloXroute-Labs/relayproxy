@@ -263,7 +263,7 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 		//source := FlowSourcePrefetchGRPC
 		if success {
 			if result != nil {
-				payloadSize = len(result.resp.VersionedExecutionPayload)
+				payloadSize = len(result.resp.SszVersionedExecutionPayload)
 			}
 			//source = result.source
 			baseLogger.Info().
@@ -385,10 +385,10 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 					fields.proposerPubKey,
 				)
 				payloadResponse := &common.PayloadResponseForProxy{
-					SszMarshalledPayloadResponse: result.resp.VersionedExecutionPayload,
+					SszMarshalledPayloadResponse: result.resp.SszVersionedExecutionPayload,
 					BlockValue:                   fields.blockValue,
 				}
-				payloadSize = len(result.resp.VersionedExecutionPayload)
+				payloadSize = len(result.resp.SszVersionedExecutionPayload)
 				_ = s.getPayloadResponseForProxySlot.Add(
 					payloadCacheKey,
 					payloadResponse,
@@ -489,16 +489,16 @@ func (s *Service) prefetchHTTPSingle(ctx context.Context,
 
 	childSpan.SetAttributes(
 		attribute.Int64("request_duration_ms", reqDurMs),
-		attribute.Int("payload_size_bytes", len(respData.VersionedExecutionPayload)),
+		attribute.Int("payload_size_bytes", len(respData.SszVersionedExecutionPayload)),
 	)
 	errMsg := ""
 	if respData.Code == uint32(codes.OK) {
-		if len(respData.VersionedExecutionPayload) != 0 {
+		if len(respData.SszVersionedExecutionPayload) != 0 {
 			baseLogger.Info().Time("currentTime", time.Now().UTC()).Msg("prefetch http: succeeded")
 
 			childSpan.SetAttributes(
 				attribute.Int64("request_duration_ms", reqDurMs),
-				attribute.Int("payload_size_bytes", len(respData.VersionedExecutionPayload)),
+				attribute.Int("payload_size_bytes", len(respData.SszVersionedExecutionPayload)),
 			)
 
 			return &prefetchResultHTTP{
@@ -571,7 +571,7 @@ func (s *Service) prefetchGRPC(
 		if success {
 			if result != nil && result.resp != nil {
 				url = result.url
-				payloadSize = len(result.resp.VersionedExecutionPayload)
+				payloadSize = len(result.resp.SszVersionedExecutionPayload)
 			}
 			//source = result.source
 			baseLogger.Info().
@@ -707,10 +707,10 @@ func (s *Service) prefetchGRPC(
 					fields.proposerPubKey,
 				)
 				payloadResponse := &common.PayloadResponseForProxy{
-					SszMarshalledPayloadResponse: result.resp.VersionedExecutionPayload,
+					SszMarshalledPayloadResponse: result.resp.SszVersionedExecutionPayload,
 					BlockValue:                   fields.blockValue,
 				}
-				payloadSize = len(result.resp.VersionedExecutionPayload)
+				payloadSize = len(result.resp.SszVersionedExecutionPayload)
 				_ = s.getPayloadResponseForProxySlot.Add(
 					payloadCacheKey,
 					payloadResponse,
@@ -757,7 +757,7 @@ func (s *Service) prefetchGRPCSingle(
 	reqDurMs := time.Since(reqStart).Milliseconds()
 
 	if err == nil && out != nil && out.Code == uint32(codes.OK) {
-		if len(out.VersionedExecutionPayload) != 0 {
+		if len(out.SszVersionedExecutionPayload) != 0 {
 			logger.Info().
 				Time("currentTime", time.Now().UTC()).
 				Str("url", clientURL).
@@ -766,7 +766,7 @@ func (s *Service) prefetchGRPCSingle(
 
 			childSpan.SetAttributes(
 				attribute.Int64("request_duration_ms", reqDurMs),
-				attribute.Int("payload_size_bytes", len(out.VersionedExecutionPayload)),
+				attribute.Int("payload_size_bytes", len(out.SszVersionedExecutionPayload)),
 			)
 
 			return &prefetchResult{
