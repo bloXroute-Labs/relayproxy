@@ -441,7 +441,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		RepickedBlock:        usedRepick,
 	})
 
-	return json.RawMessage(signedHeaderResponse), onHeaderDeliveredParams, nil
+	return signedHeaderResponse, onHeaderDeliveredParams, nil
 }
 
 func (s *Service) clientPreFetchGetPayloadHTTP(
