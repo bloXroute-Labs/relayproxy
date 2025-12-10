@@ -486,12 +486,13 @@ func (p *PayloadResponseForProxy) BuildVersionedPayloadInfo(slot uint64, parentH
 		return &VersionedPayloadInfo{}, err
 	}
 	versionedPayloadInfo := VersionedPayloadInfo{
-		SszResponse: marshalledPayload,
-		Slot:        slot,
-		ParentHash:  parentHash,
-		BlockHash:   blockHash,
-		Pubkey:      pubkey,
-		BlockValue:  p.BlockValue,
+		FullPayloadResponse: &p.PayloadResponse,
+		SszResponse:         marshalledPayload,
+		Slot:                slot,
+		ParentHash:          parentHash,
+		BlockHash:           blockHash,
+		Pubkey:              pubkey,
+		BlockValue:          p.BlockValue,
 	}
 	return &versionedPayloadInfo, nil
 }

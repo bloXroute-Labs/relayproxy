@@ -171,7 +171,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 			prefetchLogger.Error().Msg(errMsg)
 		} else {
 			marshalResponseStart := time.Now()
-			payload, err := payloadResponseForProxy.GetMarshalledResponse()
+			payload, err := payloadResponseForProxy.GetSszMarshalledResponse()
 			marshalResponseDurationMs := time.Since(marshalResponseStart).Milliseconds()
 			prefetchLogger = prefetchLogger.With().Int64("marshalResponseDurationMs", marshalResponseDurationMs).Logger()
 

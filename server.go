@@ -920,43 +920,51 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	}
 	mergeLogMetric.End()
 
-	// Return response
-	if !sszResponse {
-		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer, true); err == nil {
-			success = true
-		}
-		return
-	}
-	_, marshalUnmarshalSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-marshalUnmarshal")
-	payloadResponse := new(common.VersionedSubmitBlindedBlockResponse)
-	responseJsonUnmarshalStart := time.Now()
-	err = payloadResponse.UnmarshalJSON(versionedPayloadInfo.GetResponse())
-	responseJsonUnmarshalDuration := time.Since(responseJsonUnmarshalStart)
-	log = log.With().Dur("responseJsonUnmarshalDuration", responseJsonUnmarshalDuration).Logger()
-	if err != nil {
-		span.SetStatus(codes.Error, err.Error())
-		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("failed to unmarshal getHeader response")
-		respondError(getPayloadCtx, span, method, w, toErrorResp(http.StatusInternalServerError, err.Error()), &log, s.tracer)
+	// Return SSZ response
+	if sszResponse {
+		writeResponseStart := time.Now().UTC()
+		success = s.respondOKWithContextSSZMarshalled(getPayloadCtx, span, method, w, versionedPayloadInfo.GetSszResponse(), &log, s.tracer)
+		writeResponseDuration := time.Since(writeResponseStart)
+		log = log.With().Dur("writeResponseDuration", writeResponseDuration).Logger()
 		return
 	}
 
-	responseSszMarshalStart := time.Now()
-	outByte, err := payloadResponse.MarshalSSZ()
-	responseSszMarshalDuration := time.Since(responseSszMarshalStart)
-	log = log.With().Dur("responseSszMarshalDuration", responseSszMarshalDuration).Logger()
-	if err != nil {
-		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("failed to marshal getHeader to ssz")
-		span.SetStatus(codes.Error, err.Error())
-		if err := respondOK(getPayloadCtx, span, method, w, versionedPayloadInfo.GetResponse(), &log, s.tracer, true); err == nil {
-			success = true
+	// Return JSON response (convert from ssz)
+	payloadResponse := new(common.VersionedSubmitBlindedBlockResponse)
+	_, marshalUnmarshalSpan := s.tracer.Start(getPayloadCtx, "handleGetPayload-marshalUnmarshal")
+	// If we already have the full response struct, we can skip the ssz unmarshal
+	if versionedPayloadInfo.FullPayloadResponse != nil {
+		payloadResponse = versionedPayloadInfo.FullPayloadResponse
+	} else {
+		responseSszUnmarshalStart := time.Now()
+		err = payloadResponse.UnmarshalSSZ(versionedPayloadInfo.GetSszResponse())
+		responseSszUnmarshalDuration := time.Since(responseSszUnmarshalStart)
+		log = log.With().Dur("responseSszUnmarshalDuration", responseSszUnmarshalDuration).Logger()
+		if err != nil {
+			span.SetStatus(codes.Error, err.Error())
+			log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("failed to unmarshal getPayload response from ssz")
+			respondError(getPayloadCtx, span, method, w, toErrorResp(http.StatusInternalServerError, err.Error()), &log, s.tracer)
+			return
 		}
+	}
+
+	responseJsonMarshalStart := time.Now()
+	outByte, err := payloadResponse.MarshalJSON()
+	responseJsonMarshalDuration := time.Since(responseJsonMarshalStart)
+	log = log.With().Dur("responseJsonMarshalDuration", responseJsonMarshalDuration).Logger()
+	if err != nil {
+		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("failed to marshal getPayload response to json, responding with ssz")
+		span.SetStatus(codes.Error, err.Error())
+		success = s.respondOKWithContextSSZMarshalled(getPayloadCtx, span, method, w, versionedPayloadInfo.GetSszResponse(), &log, s.tracer)
 		return
 	}
 	marshalUnmarshalSpan.End()
 	w.Header().Set(common.HeaderEthConsensusVersion, payloadResponse.Version.String())
 
 	writeResponseStart := time.Now().UTC()
-	success = s.respondOKWithContextSSZMarshalled(getPayloadCtx, span, method, w, outByte, &log, s.tracer)
+	if err := respondOK(getPayloadCtx, span, method, w, outByte, &log, s.tracer, true); err == nil {
+		success = true
+	}
 	writeResponseDuration := time.Since(writeResponseStart)
 	log = log.With().Dur("writeResponseDuration", writeResponseDuration).Logger()
 }

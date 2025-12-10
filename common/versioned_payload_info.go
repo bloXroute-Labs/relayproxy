@@ -3,24 +3,26 @@ package common
 import relaygrpc "github.com/bloXroute-Labs/relay-grpc"
 
 type VersionedPayloadInfo struct {
-	SszResponse   []byte
-	Slot          uint64
-	ParentHash    string
-	BlockHash     string
-	Pubkey        string
-	BlockValue    string
-	ServerMessage string
+	FullPayloadResponse *VersionedSubmitBlindedBlockResponse
+	SszResponse         []byte
+	Slot                uint64
+	ParentHash          string
+	BlockHash           string
+	Pubkey              string
+	BlockValue          string
+	ServerMessage       string
 }
 
 func BuildVersionedPayloadInfoFromGrpcResponse(in *relaygrpc.GetPayloadResponse) *VersionedPayloadInfo {
 	return &VersionedPayloadInfo{
-		SszResponse:   in.GetSszVersionedExecutionPayload(),
-		Slot:          in.GetSlot(),
-		ParentHash:    in.GetParentHash(),
-		BlockHash:     in.GetBlockHash(),
-		Pubkey:        in.GetPubkey(),
-		BlockValue:    in.GetBlockValue(),
-		ServerMessage: in.GetMessage(),
+		FullPayloadResponse: nil, // we don't have this in the gRPC GetPayloadResponse
+		SszResponse:         in.GetSszVersionedExecutionPayload(),
+		Slot:                in.GetSlot(),
+		ParentHash:          in.GetParentHash(),
+		BlockHash:           in.GetBlockHash(),
+		Pubkey:              in.GetPubkey(),
+		BlockValue:          in.GetBlockValue(),
+		ServerMessage:       in.GetMessage(),
 	}
 }
 
@@ -107,12 +109,13 @@ func (v *VersionedPayloadInfo) Copy() *VersionedPayloadInfo {
 	newResponse := make([]byte, len(v.SszResponse))
 	copy(newResponse, v.SszResponse)
 	return &VersionedPayloadInfo{
-		SszResponse:   newResponse,
-		Slot:          v.Slot,
-		ParentHash:    v.ParentHash,
-		BlockHash:     v.BlockHash,
-		Pubkey:        v.Pubkey,
-		BlockValue:    v.BlockValue,
-		ServerMessage: v.ServerMessage,
+		FullPayloadResponse: v.FullPayloadResponse,
+		SszResponse:         newResponse,
+		Slot:                v.Slot,
+		ParentHash:          v.ParentHash,
+		BlockHash:           v.BlockHash,
+		Pubkey:              v.Pubkey,
+		BlockValue:          v.BlockValue,
+		ServerMessage:       v.ServerMessage,
 	}
 }
