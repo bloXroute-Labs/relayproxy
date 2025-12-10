@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
@@ -27,9 +26,7 @@ import (
 	"github.com/patrickmn/go-cache"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
-	otelcodes "go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc/codes"
 )
 
 func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
@@ -579,155 +576,6 @@ func (s *Service) prefetchPayloadToSignedBlindedBeaconBlock(ctx context.Context,
 	}
 	decodeJSONSpan.End(trace.WithTimestamp(time.Now()))
 	return signedBlindedBeaconBlock, nil
-}
-
-func (s *Service) prefetchPayload(
-	ctx context.Context,
-	spanctx context.Context,
-	client *common.Client,
-	req *relaygrpc.PreFetchGetPayloadRequest,
-	span trace.Span,
-	errChan chan *ErrorResp,
-	respChan chan *relaygrpc.PreFetchGetPayloadResponse,
-	logger zerolog.Logger,
-) {
-	clientCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	exitSignal := false
-	wg := &sync.WaitGroup{}
-	mu := &sync.Mutex{}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 5 && !exitSignal; i++ {
-			childCtx, childSpan := s.tracer.Start(spanctx, "PreFetchGetPayload")
-			_, reqSpan := s.tracer.Start(childCtx, "PreFetchGetPayload-request")
-			childSpan.SetAttributes(
-				attribute.String("url", client.URL),
-				attribute.String("nodeID", client.NodeID),
-			)
-			out, err := client.PreFetchGetPayload(clientCtx, req)
-			reqSpan.End()
-			if exitSignal {
-				childSpan.End()
-				return
-			}
-			if err != nil {
-				logger.Error().
-					Err(err).
-					Str("url", client.URL).
-					Msg("prefetchPayload: error fetching payload")
-				span.SetStatus(otelcodes.Error, err.Error())
-				time.Sleep(100 * time.Millisecond)
-				childSpan.End()
-				continue
-			}
-
-			if out == nil {
-				logger.Error().
-					Str("url", client.URL).
-					Msg("prefetchPayload: received nil payload from relay")
-				span.SetStatus(otelcodes.Error, "nil payload")
-				time.Sleep(100 * time.Millisecond)
-				childSpan.End()
-				continue
-			}
-
-			if out.Code != uint32(codes.OK) {
-				logger.Error().
-					Uint32("code", out.Code).
-					Str("message", out.Message).
-					Str("url", client.URL).
-					Msg("prefetchPayload: invalid payload or failure response code")
-				span.SetStatus(otelcodes.Error, out.Message)
-				time.Sleep(100 * time.Millisecond)
-				childSpan.End()
-				continue
-			}
-
-			logger.Info().
-				Str("url", client.URL).
-				Msg("prefetchPayload: preFetchGetPayload succeeded")
-			mu.Lock()
-			if !exitSignal {
-				exitSignal = true
-				respChan <- out
-				cancel()
-			}
-			mu.Unlock()
-			childSpan.End()
-			return
-		}
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 5 && !exitSignal; i++ {
-			reqCtx, childSpan := s.tracer.Start(spanctx, "PreFetchGetPayloadPlaceHTTPRequest")
-			childSpan.SetAttributes(
-				attribute.String("url", client.URL),
-				attribute.String("nodeID", client.NodeID),
-			)
-			out, err := s.PreFetchGetPayloadPlaceHTTPRequest(clientCtx, reqCtx, req, client.URL, client.NodeID)
-			if exitSignal {
-				childSpan.End()
-				return
-			}
-			if err != nil {
-				logger.Error().
-					Err(err).
-					Str("url", client.URL).
-					Msg("prefetchPayload: error fetching payload")
-				span.SetStatus(otelcodes.Error, err.Error())
-				time.Sleep(100 * time.Millisecond)
-				childSpan.End()
-				continue
-			}
-
-			if out == nil {
-				logger.Error().
-					Str("url", client.URL).
-					Msg("prefetchPayload: received nil payload from relay")
-				span.SetStatus(otelcodes.Error, "nil payload")
-				time.Sleep(100 * time.Millisecond)
-				childSpan.End()
-				continue
-			}
-
-			if out.Code != uint32(codes.OK) {
-				logger.Error().
-					Uint32("code", out.Code).
-					Str("message", out.Message).
-					Str("url", client.URL).
-					Msg("prefetchPayload: invalid payload or failure response code")
-				span.SetStatus(otelcodes.Error, out.Message)
-				time.Sleep(100 * time.Millisecond)
-				childSpan.End()
-				continue
-			}
-
-			logger.Info().
-				Str("url", client.URL).
-				Msg("prefetchPayload: preFetchGetPayload succeeded")
-			mu.Lock()
-			if !exitSignal {
-				exitSignal = true
-				respChan <- out
-				cancel()
-			}
-			mu.Unlock()
-			childSpan.End()
-			return
-		}
-	}()
-
-	wg.Wait()
-	if exitSignal {
-		return
-	}
-
-	errChan <- toErrorResp(http.StatusInternalServerError, "relay failed all attempts")
 }
 
 func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, reqCtx context.Context, origReq *relaygrpc.PreFetchGetPayloadRequest, url string, nodeID string) (*relaygrpc.PreFetchGetPayloadResponse, error) {
