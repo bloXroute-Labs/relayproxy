@@ -224,7 +224,7 @@ func TestService_getPayload(t *testing.T) {
 	}{
 		"If getPayload succeeded ": {
 			f: func(ctx context.Context, req *relaygrpc.GetPayloadRequest, opts ...grpc.CallOption) (*relaygrpc.GetPayloadResponse, error) {
-				return &relaygrpc.GetPayloadResponse{Code: 0, Message: "success", VersionedExecutionPayload: []byte(`payload`)}, nil
+				return &relaygrpc.GetPayloadResponse{Code: 0, Message: "success", SszVersionedExecutionPayload: []byte(`payload`)}, nil
 			},
 			wantSuccess: []byte(`payload`),
 			wantErr:     nil,
@@ -260,7 +260,7 @@ func TestService_getPayload(t *testing.T) {
 				AccountNameToInfo: make(map[AccountName]*AccountInfo)}
 			got, err := s.GetPayload(context.Background(), &zerolog.Logger{}, &PayloadRequestParams{AuthHeader: TestAuthHeader})
 			if err == nil {
-				assert.Equal(t, string(got.GetResponse()), string(tt.wantSuccess))
+				assert.Equal(t, string(got.GetSszResponse()), string(tt.wantSuccess))
 				return
 			}
 			assert.Equal(t, err.Error(), tt.wantErr.Error())
