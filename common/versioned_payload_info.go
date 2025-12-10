@@ -12,16 +12,6 @@ type VersionedPayloadInfo struct {
 	ServerMessage string
 }
 
-func BuildVersionedPayloadInfo(res []byte, slot uint64, parentHash, blockHash, pubKey, blockValue string) *VersionedPayloadInfo {
-	return &VersionedPayloadInfo{
-		Response:   res,
-		Slot:       slot,
-		ParentHash: parentHash,
-		BlockHash:  blockHash,
-		Pubkey:     pubKey,
-		BlockValue: blockValue,
-	}
-}
 func BuildVersionedPayloadInfoFromGrpcResponse(in *relaygrpc.GetPayloadResponse) *VersionedPayloadInfo {
 	return &VersionedPayloadInfo{
 		Response:      in.GetVersionedExecutionPayload(),
