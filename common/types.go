@@ -399,6 +399,7 @@ type Bid struct {
 	ReceivedAt          time.Time
 	AuthHeader          string
 	BlockSequenceNumber *uint64
+	Hidden              bool
 }
 
 func NewBid(Value []byte,
@@ -413,6 +414,7 @@ func NewBid(Value []byte,
 	receivedAt time.Time,
 	authHeader string,
 	blockSequenceNumber *uint64,
+	hidden bool,
 ) *Bid {
 	return &Bid{
 		Value:               Value,
@@ -427,6 +429,7 @@ func NewBid(Value []byte,
 		ReceivedAt:          receivedAt,
 		AuthHeader:          authHeader,
 		BlockSequenceNumber: blockSequenceNumber,
+		Hidden:              hidden,
 	}
 }
 
@@ -462,7 +465,6 @@ type PayloadResponseForProxy struct {
 	MarshalledPayloadResponse []byte
 	PayloadResponse           VersionedSubmitBlindedBlockResponse
 	BlockValue                string
-	Hidden                    bool
 }
 
 func (p *PayloadResponseForProxy) GetMarshalledResponse() ([]byte, error) {
