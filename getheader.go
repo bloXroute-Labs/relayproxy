@@ -1,20 +1,16 @@
 package relayproxy
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math/big"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
 	"github.com/bloXroute-Labs/relay-grpc/optimisticv3"
 	"github.com/bloXroute-Labs/relayproxy/common"
 	"github.com/bloXroute-Labs/relayproxy/fastjson"
@@ -576,64 +572,4 @@ func (s *Service) prefetchPayloadToSignedBlindedBeaconBlock(ctx context.Context,
 	}
 	decodeJSONSpan.End(trace.WithTimestamp(time.Now()))
 	return signedBlindedBeaconBlock, nil
-}
-
-func (s *Service) PreFetchGetPayloadPlaceHTTPRequest(ctx context.Context, reqCtx context.Context, origReq *relaygrpc.PreFetchGetPayloadRequest, url string, nodeID string) (*relaygrpc.PreFetchGetPayloadResponse, error) {
-	reqData := common.PreFetchGetPayloadRequestHTTP{
-		Slot:       origReq.GetSlot(),
-		ParentHash: origReq.GetParentHash(),
-		BlockHash:  origReq.GetBlockHash(),
-		Pubkey:     origReq.GetPubkey(),
-		ClientIp:   origReq.GetClientIp(),
-		ReceivedAt: origReq.GetReceivedAt(),
-	}
-	_, marshalSpan := s.tracer.Start(reqCtx, "PreFetchGetPayloadPlaceHTTPRequest-marshal")
-	reqJSON, err := json.Marshal(reqData)
-	marshalSpan.End()
-	if err != nil {
-		return nil, err
-	}
-	originalURL := url
-	port := ":18555"
-
-	if strings.Contains(url, ":") {
-		host, portNumber, err := net.SplitHostPort(url)
-		if err != nil {
-			return nil, err
-		}
-		url = host
-		if portNumber == "5015" {
-			port = ":18550"
-		}
-	}
-
-	finalURL := "http://" + url + port + common.PathPrefetchBlock
-	s.logger.Info().Str("nodeID", nodeID).Str("finalURL", finalURL).Str("originalURL", originalURL).Msg("making prefetch request")
-	req, err := http.NewRequest("GET", finalURL, bytes.NewReader(reqJSON))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	_, requestSpan := s.tracer.Start(reqCtx, "PreFetchGetPayloadPlaceHTTPRequest-request")
-	resp, err := client.Do(req)
-	requestSpan.End()
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	_, unmarshalSpan := s.tracer.Start(reqCtx, "PreFetchGetPayloadPlaceHTTPRequest-unmarshal")
-	var respData common.PreFetchGetPayloadResponseHTTP
-	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil && err != io.EOF {
-		unmarshalSpan.End()
-		return nil, err
-	}
-	unmarshalSpan.End()
-	return &relaygrpc.PreFetchGetPayloadResponse{
-		Code:                      respData.Code,
-		Message:                   respData.Message,
-		VersionedExecutionPayload: respData.VersionedExecutionPayload,
-	}, nil
 }
