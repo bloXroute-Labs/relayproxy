@@ -444,16 +444,6 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	return json.RawMessage(signedHeaderResponse), onHeaderDeliveredParams, nil
 }
 
-func (s *Service) StartPreFetcherOld(ctx context.Context) {
-	for fields := range s.preFetchPayloadChan {
-		go func(fields preFetcherFields) {
-			_ctx, cancel := context.WithTimeout(ctx, preFetcherRequestTimeout)
-			defer cancel()
-			s.PreFetchGetPayload(_ctx, fields)
-		}(fields)
-	}
-}
-
 func (s *Service) clientPreFetchGetPayloadHTTP(
 	ctx context.Context,
 	logMetric *LogMetric,
