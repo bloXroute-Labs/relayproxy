@@ -483,7 +483,6 @@ func (p *PayloadResponseForProxy) GetMarshalledResponse() ([]byte, error) {
 }
 
 // BuildVersionedPayloadInfo builds the VersionedPayloadInfo struct and sets it to the PayloadResponseForProxy struct
-// TODO: addumed that this should not be changed with respect to hidden field
 func (p *PayloadResponseForProxy) BuildVersionedPayloadInfo(slot uint64, parentHash string, blockHash string, pubkey string) (*VersionedPayloadInfo, error) {
 	marshalledPayload, err := p.GetMarshalledResponse()
 	if err != nil {
