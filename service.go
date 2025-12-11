@@ -375,6 +375,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			"accountID":           header.GetAccountId(),
 			"payloadFetchUrl":     header.GetPayloadFetchUrl(),
 			"blockSequenceNumber": header.GetBlockSequenceNumber(),
+			"hidden":              header.GetHidden(),
 		})
 
 		if s.skipBidForOldBlockSequenceNumber(keyForCachingBids, header.GetBuilderPubkey(), blockSequenceNumber) {
@@ -468,6 +469,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			header.GetRelayReceiveTime().AsTime(),
 			"",
 			blockSequenceNumber,
+			header.GetHidden(),
 		)
 		s.setBuilderBidForProxySlot(keyForCachingBids, header.GetBuilderPubkey(), bid, header.GetSlot())
 		storeBidsSpan.SetAttributes(
@@ -493,6 +495,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			attribute.Bool("paidBlxr", header.GetPaidBlxr()),
 			attribute.String("accountID", header.GetAccountId()),
 			attribute.String("payloadFetchUrl", header.GetPayloadFetchUrl()),
+			attribute.Bool("hidden", header.GetHidden()),
 		)
 		if duplicateReceiveTime > 0 {
 			storeBidsSpan.SetAttributes(
