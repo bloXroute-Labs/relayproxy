@@ -603,18 +603,34 @@ func SignExecutionPayloadHeader(headerSubmissionV3 *optimisticv3.HeaderSubmissio
 	}
 }
 func SignedBlindedBeaconBlockToBeaconBlock(signedBlindedBeaconBlock *VersionedSignedBlindedBeaconBlock, blockPayload *builderApi.VersionedSubmitBlindedBlockResponse) (*VersionedSignedProposal, error) {
+	// Make sure the block versions match
+	if signedBlindedBeaconBlock.Version != blockPayload.Version {
+		return nil, fmt.Errorf("signedBlindedBeaconBlock version %s does not match blockPayload version %s", signedBlindedBeaconBlock.Version, blockPayload.Version)
+	}
+
+	// Make sure no data is missing
+	emptySignedBlindedBeaconBlock := signedBlindedBeaconBlock.IsEmpty()
+	emptyBlockPayload := blockPayload.IsEmpty()
+
+	if emptySignedBlindedBeaconBlock || emptyBlockPayload {
+		return nil, fmt.Errorf("data missing, emptySignedBlindedBeaconBlock: %v, emptyBlockPayload: %v", emptySignedBlindedBeaconBlock, emptyBlockPayload)
+	}
+
 	signedBeaconBlock := VersionedSignedProposal{
 		eth2Api.VersionedSignedProposal{ //nolint:exhaustruct
 			Version: signedBlindedBeaconBlock.Version,
 		},
 	}
+
 	switch signedBlindedBeaconBlock.Version {
 	case spec.DataVersionFulu:
 		fuluBlindedBlock := signedBlindedBeaconBlock.Fulu
 		if len(fuluBlindedBlock.Message.Body.BlobKZGCommitments) != len(blockPayload.Fulu.BlobsBundle.Blobs) {
 			return nil, errors.New("number of blinded blobs does not match blobs bundle length")
 		}
+
 		signedBeaconBlock.Fulu = FuluUnblindSignedBlock(fuluBlindedBlock, blockPayload.Fulu)
+
 	case spec.DataVersionElectra:
 		electraBlindedBlock := signedBlindedBeaconBlock.Electra
 		if len(electraBlindedBlock.Message.Body.BlobKZGCommitments) != len(blockPayload.Electra.BlobsBundle.Blobs) {
@@ -622,13 +638,14 @@ func SignedBlindedBeaconBlockToBeaconBlock(signedBlindedBeaconBlock *VersionedSi
 		}
 
 		signedBeaconBlock.Electra = ElectraUnblindSignedBlock(electraBlindedBlock, blockPayload.Electra)
-	case spec.DataVersionUnknown, spec.DataVersionPhase0, spec.DataVersionAltair, spec.DataVersionBellatrix:
-		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", signedBlindedBeaconBlock.Version))
+
 	default:
 		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", signedBlindedBeaconBlock.Version))
 	}
+
 	return &signedBeaconBlock, nil
 }
+
 func FuluUnblindSignedBlock(blindedBlock *eth2ApiV1Electra.SignedBlindedBeaconBlock, blockPayload *builderApiFulu.ExecutionPayloadAndBlobsBundle) *eth2ApiV1Fulu.SignedBlockContents {
 	return &eth2ApiV1Fulu.SignedBlockContents{
 		SignedBlock: &electra.SignedBeaconBlock{

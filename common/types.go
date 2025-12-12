@@ -246,6 +246,26 @@ type VersionedSignedBlindedBeaconBlock struct {
 	eth2Api.VersionedSignedBlindedBeaconBlock
 }
 
+// IsEmpty returns true if there is no payload.
+func (r *VersionedSignedBlindedBeaconBlock) IsEmpty() bool {
+	switch r.Version {
+	case spec.DataVersionFulu:
+		return r.Fulu == nil ||
+			r.Fulu.Message == nil ||
+			r.Fulu.Message.Body == nil
+	case spec.DataVersionElectra:
+		return r.Electra == nil ||
+			r.Electra.Message == nil ||
+			r.Electra.Message.Body == nil
+	case spec.DataVersionDeneb:
+		return r.Deneb == nil ||
+			r.Deneb.Message == nil ||
+			r.Deneb.Message.Body == nil
+	default:
+		return true
+	}
+}
+
 func (r *VersionedSignedBlindedBeaconBlock) MarshalJSON() ([]byte, error) {
 	switch r.Version { //nolint:exhaustive
 	case spec.DataVersionFulu:
