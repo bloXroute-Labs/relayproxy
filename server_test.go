@@ -503,7 +503,7 @@ func TestServer_Middleware(t *testing.T) {
 					accessFilter: AccessFilter{
 						Accounts: AccessList{
 							AllowList: map[string]struct{}{},
-							BlockList: map[string]struct{}{"bf5c5d1b-7030-4f05-9ac3-217095e9d2b6": {}},
+							BlockList: map[string]struct{}{TestAccountID: {}},
 						},
 						IPs: AccessList{
 							AllowList: map[string]struct{}{},
