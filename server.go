@@ -910,7 +910,10 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	log = log.With().Dur("svcGetPayloadDuration", svcGetPayloadDuration).Logger()
 	_, mergeLogMetric := s.tracer.Start(getPayloadCtx, "handleGetPayload-mergeLogMetric")
 	if err != nil {
-		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("Error in GetPayload")
+		log.Error().
+			Str("errString", err.Error()).
+			Time("currentTime", time.Now().UTC()).
+			Msg("Error in GetPayload")
 		span.SetAttributes(
 			attribute.String("error", err.Error()),
 		)
