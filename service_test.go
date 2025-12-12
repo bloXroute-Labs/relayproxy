@@ -78,7 +78,7 @@ func TestService_RegisterValidator(t *testing.T) {
 		},
 		"If registerValidator returns error": {
 			f: func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
-				return nil, fmt.Errorf("error")
+				return nil, fmt.Errorf("relays returned error")
 			},
 			expectedErr: toErrorResp(http.StatusInternalServerError, "relays returned error"),
 		},
@@ -92,7 +92,7 @@ func TestService_RegisterValidator(t *testing.T) {
 			f: func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
 				return &relaygrpc.RegisterValidatorResponse{Code: 2, Message: "failed"}, nil
 			},
-			expectedErr: toErrorResp(http.StatusInternalServerError, "relay returned failure response code"),
+			expectedErr: toErrorResp(http.StatusInternalServerError, "relay returned failure response code 2"),
 		},
 	}
 
