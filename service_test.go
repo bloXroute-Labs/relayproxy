@@ -263,7 +263,7 @@ func TestService_getPayload(t *testing.T) {
 				assert.Equal(t, string(got.GetSszResponse()), string(tt.expectedSuccess))
 				return
 			}
-			assert.Equal(t, err.Error(), tt.expectedErr.Error())
+			assert.Equal(t, tt.expectedErr.Error(), err.Error())
 		})
 	}
 }
