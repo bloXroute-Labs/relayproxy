@@ -59,7 +59,7 @@ var (
 )
 
 const (
-	TestAuthHeader = ""
+	TestAuthHeader = "NzM2NWJiYzgtMTBkNS00OGZjLTk5NGQtNjFlODQzYjE0OGNjOmZiMmQ3NWU5LWIwY2YtNDIyMS1hZjMxLTZjYTYwOGYyZTExNA=="
 )
 
 func TestService_RegisterValidator(t *testing.T) {
