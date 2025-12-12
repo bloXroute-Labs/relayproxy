@@ -1106,7 +1106,10 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 	log = log.With().Dur("svcGetPayloadV2Duration", svcGetPayloadV2Duration).Logger()
 
 	if err != nil {
-		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("Error in GetPayloadV2")
+		log.Error().
+			Str("errString", err.Error()).
+			Time("currentTime", time.Now().UTC()).
+			Msg("Error in GetPayloadV2")
 		span.SetAttributes(attribute.String("error", err.Error()))
 		span.SetStatus(codes.Error, err.Error())
 		respondError(getPayloadCtx, span, method, w, err, &log, s.tracer)
@@ -1171,7 +1174,11 @@ func respondError(ctx context.Context, parentSpan trace.Span, method string, w h
 			attribute.String("Err", err.Error()),
 			attribute.Int("responseCode", http.StatusInternalServerError),
 		)
-		log.Error().Str("method", method).Err(err).Msg("failed to typecast error response")
+		log.Error().
+			Str("errString", err.Error()).
+			Bool("typecastOK", ok).
+			Bool("nilErrorResp", resp == nil).
+			Msg("failed to typecast error response")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		span.SetStatus(codes.Error, "failed to typecast error response")
 		return
