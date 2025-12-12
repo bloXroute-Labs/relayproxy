@@ -10,9 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/attestantio/go-builder-client/api"
-	"github.com/attestantio/go-builder-client/api/fulu"
-	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/bloXroute-Labs/relay-grpc/stat"
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog"

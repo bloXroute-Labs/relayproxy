@@ -126,11 +126,11 @@ func TestService_GetHeader(t *testing.T) {
 		pubKey             string
 		accountID          string
 		slotStartTimeShift time.Duration
-		wantErr            *ErrorResp
+		expectedErr        *ErrorResp
 	}{
 		"invalid slot ": {
 			slot: "xyz",
-			wantErr: &ErrorResp{
+			expectedErr: &ErrorResp{
 				Code:    http.StatusNoContent,
 				Message: errInvalidSlot.Error(),
 			},
@@ -138,7 +138,7 @@ func TestService_GetHeader(t *testing.T) {
 		"invalid pubKey ": {
 			slot:   "123",
 			pubKey: "dummy-pubkey",
-			wantErr: &ErrorResp{
+			expectedErr: &ErrorResp{
 				Code:    http.StatusNoContent,
 				Message: errInvalidPubkey.Error(),
 			},
@@ -147,7 +147,7 @@ func TestService_GetHeader(t *testing.T) {
 			slot:       "123",
 			pubKey:     testBuilderPubkey1,
 			parentHash: "dummy-parent-hash",
-			wantErr: &ErrorResp{
+			expectedErr: &ErrorResp{
 				Code:    http.StatusNoContent,
 				Message: errInvalidHash.Error(),
 			},
@@ -157,7 +157,7 @@ func TestService_GetHeader(t *testing.T) {
 			pubKey:             testBuilderPubkey1,
 			parentHash:         "dummy-parent-hash",
 			slotStartTimeShift: 3100 * time.Millisecond,
-			wantErr: &ErrorResp{
+			expectedErr: &ErrorResp{
 				Code:    http.StatusNoContent,
 				Message: common.ErrLateHeader.Error(),
 			},
@@ -168,7 +168,7 @@ func TestService_GetHeader(t *testing.T) {
 			parentHash:         "dummy-parent-hash",
 			accountID:          "",
 			slotStartTimeShift: 2500 * time.Millisecond,
-			wantErr: &ErrorResp{
+			expectedErr: &ErrorResp{
 				Code:    http.StatusNoContent,
 				Message: common.ErrLateHeader.Error(),
 			},
@@ -211,7 +211,7 @@ func TestService_GetHeader(t *testing.T) {
 				ClientIP:   "ip",
 				AuthHeader: TestAuthHeader,
 			})
-			assert.Equal(t, err.Error(), tt.wantErr.Error())
+			assert.Equal(t, tt.expectedErr.Error(), err.Error())
 		})
 	}
 }
