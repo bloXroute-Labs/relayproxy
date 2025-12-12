@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/attestantio/go-builder-client/api"
+	"github.com/attestantio/go-builder-client/api/fulu"
+	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/bloXroute-Labs/relay-grpc/stat"
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog"
@@ -218,11 +221,11 @@ func TestServer_HandleGetHeader(t *testing.T) {
 				logger: zap.NewNop(),
 				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
 
-					return json.RawMessage("getHeader"), nil, nil
+					return json.RawMessage("{}"), nil, nil
 				},
 			},
 			expectedCode:   http.StatusOK,
-			expectedOutput: "getHeader",
+			expectedOutput: "{}",
 			ip:             "127.0.0.2",
 		},
 		"when getHeader failed": {
