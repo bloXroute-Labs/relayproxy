@@ -602,6 +602,7 @@ func SignExecutionPayloadHeader(headerSubmissionV3 *optimisticv3.HeaderSubmissio
 		return nil, errors.Wrap(errInvalidVersion, fmt.Sprintf("%s is not supported", header.Version))
 	}
 }
+
 func SignedBlindedBeaconBlockToBeaconBlock(signedBlindedBeaconBlock *VersionedSignedBlindedBeaconBlock, blockPayload *builderApi.VersionedSubmitBlindedBlockResponse) (*VersionedSignedProposal, error) {
 	// Make sure the block versions match
 	if signedBlindedBeaconBlock.Version != blockPayload.Version {
