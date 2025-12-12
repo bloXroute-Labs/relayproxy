@@ -112,7 +112,7 @@ func TestService_RegisterValidator(t *testing.T) {
 			}
 			got, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{})
 			if err == nil {
-				assert.Equal(t, got, tt.expectedSuccess)
+				assert.Equal(t, tt.expectedSuccess, got)
 				return
 			}
 			assert.Equal(t, tt.expectedErr.Error(), err.Error())
@@ -261,7 +261,7 @@ func TestService_getPayload(t *testing.T) {
 				AccountNameToInfo: make(map[AccountName]*AccountInfo)}
 			got, err := s.GetPayload(context.Background(), &zerolog.Logger{}, &PayloadRequestParams{AuthHeader: TestAuthHeader})
 			if err == nil {
-				assert.Equal(t, string(got.GetSszResponse()), string(tt.expectedSuccess))
+				assert.Equal(t, string(tt.expectedSuccess), string(got.GetSszResponse()))
 				return
 			}
 			assert.Equal(t, tt.expectedErr.Error(), err.Error())
