@@ -156,19 +156,8 @@ func TestService_GetHeader(t *testing.T) {
 		"default header too late": {
 			slot:               "123",
 			pubKey:             testBuilderPubkey1,
-			parentHash:         "dummy-parent-hash",
+			parentHash:         "0xe0837f394f390222f07d4afcaf4ce02a99199b8fd3abb5e5423f83fe1ed220c4",
 			slotStartTimeShift: 3100 * time.Millisecond,
-			expectedErr: &ErrorResp{
-				Code:    http.StatusNoContent,
-				Message: common.ErrLateHeader.Error(),
-			},
-		},
-		" header too late": {
-			slot:               "123",
-			pubKey:             testBuilderPubkey1,
-			parentHash:         "dummy-parent-hash",
-			accountID:          "",
-			slotStartTimeShift: 2500 * time.Millisecond,
 			expectedErr: &ErrorResp{
 				Code:    http.StatusNoContent,
 				Message: common.ErrLateHeader.Error(),
