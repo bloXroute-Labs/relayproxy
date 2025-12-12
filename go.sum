@@ -6,8 +6,8 @@ github.com/attestantio/go-eth2-client v0.27.1 h1:g7bm+gG/p+gfzYdEuxuAepVWYb8EO+2
 github.com/attestantio/go-eth2-client v0.27.1/go.mod h1:fvULSL9WtNskkOB4i+Yyr6BKpNHXvmpGZj9969fCrfY=
 github.com/bits-and-blooms/bitset v1.20.0 h1:2F+rfL86jE2d/bmw7OhqUg2Sj/1rURkBn3MdfoPyRVU=
 github.com/bits-and-blooms/bitset v1.20.0/go.mod h1:7hO7Gc7Pp1vODcmWvKMRA9BNmbv6a/7QIWpPxHddWR8=
-github.com/bloXroute-Labs/relay-grpc v0.0.68-0.20251212181303-edc7a72ec38d h1:xJmTOvFRyKPhgd+HlVAiDxjqysS8ABQKOssakdoOTOE=
-github.com/bloXroute-Labs/relay-grpc v0.0.68-0.20251212181303-edc7a72ec38d/go.mod h1:ywJRvkwerlgPSelpyo17bjurGhjxVi/1/t1jMH8PU8k=
+github.com/bloXroute-Labs/relay-grpc v0.0.68 h1:4Ilv6y5ghO0ErOA701uyhpkjojBVCWe92vLmvQ/Og5Y=
+github.com/bloXroute-Labs/relay-grpc v0.0.68/go.mod h1:ywJRvkwerlgPSelpyo17bjurGhjxVi/1/t1jMH8PU8k=
 github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 h1:DDGfHa7BWjL4YnC6+E63dPcxHo2sUxDIu8g3QgEJdRY=
 github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869/go.mod h1:Ekp36dRnpXw/yCqJaO+ZrUyxD+3VXMFFr56k5XYrpB4=
 github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK343L8=
