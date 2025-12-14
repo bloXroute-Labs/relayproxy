@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -527,5 +529,107 @@ func TestServer_Middleware(t *testing.T) {
 			handler.ServeHTTP(rr, req)
 			assert.Equal(t, tc.expectedCode, rr.Code)
 		})
+	}
+}
+
+func newTestServerForRateLimit() *Server {
+	s := &Server{}
+	s.ghRatelimit = GetHeaderRateLimitInfo{
+		slotToIPToGHRequest: NewIntegerMapOf[uint64, *SyncMap[string, struct{}]](),
+	}
+	return s
+}
+
+func TestAllowGetHeader_FirstRequestAllowed(t *testing.T) {
+	s := newTestServerForRateLimit()
+
+	allowed := s.allowGetHeaderForSlot("1.2.3.4", 100, keepOld)
+	if !allowed {
+		t.Fatalf("expected first request to be allowed")
+	}
+}
+
+func TestAllowGetHeader_SameSlotSameIP_SecondRejected(t *testing.T) {
+	s := newTestServerForRateLimit()
+
+	if !s.allowGetHeaderForSlot("1.2.3.4", 100, keepOld) {
+		t.Fatalf("expected first request to be allowed")
+	}
+	if s.allowGetHeaderForSlot("1.2.3.4", 100, keepOld) {
+		t.Fatalf("expected second request same slot+ip to be rejected")
+	}
+}
+
+func TestAllowGetHeader_SameSlotDifferentIP_BothAllowed(t *testing.T) {
+	s := newTestServerForRateLimit()
+
+	if !s.allowGetHeaderForSlot("1.2.3.4", 100, keepOld) {
+		t.Fatalf("expected ip A to be allowed")
+	}
+	if !s.allowGetHeaderForSlot("5.6.7.8", 100, keepOld) {
+		t.Fatalf("expected ip B to be allowed in same slot")
+	}
+}
+
+func TestAllowGetHeader_NextSlotSameIP_AllowedAgain(t *testing.T) {
+	s := newTestServerForRateLimit()
+
+	if !s.allowGetHeaderForSlot("1.2.3.4", 100, keepOld) {
+		t.Fatalf("expected slot 100 allowed")
+	}
+	// New slot => should be allowed again
+	if !s.allowGetHeaderForSlot("1.2.3.4", 101, keepOld) {
+		t.Fatalf("expected slot 101 allowed for same IP")
+	}
+}
+
+func TestAllowGetHeader_CleanupDeletesOldSlotBucket(t *testing.T) {
+	s := newTestServerForRateLimit()
+	keepOldSlot := uint64(2)
+
+	if !s.allowGetHeaderForSlot("1.2.3.4", 10, keepOldSlot) {
+		t.Fatalf("expected slot 10 allowed")
+	}
+
+	if !s.allowGetHeaderForSlot("5.6.7.8", 13, keepOldSlot) {
+		t.Fatalf("expected slot 13 allowed")
+	}
+
+	if !s.allowGetHeaderForSlot("9.9.9.9", 14, keepOldSlot) {
+		t.Fatalf("expected slot 14 allowed")
+	}
+
+	if _, exists := s.ghRatelimit.slotToIPToGHRequest.Load(12); exists {
+		t.Fatalf("expected slot 12 bucket to be deleted by cleanup")
+	}
+}
+
+func TestAllowGetHeader_ConcurrentSameSlotSameIP_OnlyOneAllowed(t *testing.T) {
+	s := newTestServerForRateLimit()
+
+	const (
+		nGoroutines = 200
+		slot        = uint64(100)
+		keepOld     = uint64(256)
+		ip          = "1.2.3.4"
+	)
+
+	var allowedCount int64
+	var wg sync.WaitGroup
+	wg.Add(nGoroutines)
+
+	for i := 0; i < nGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			if s.allowGetHeaderForSlot(ip, slot, keepOld) {
+				atomic.AddInt64(&allowedCount, 1)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	if allowedCount != 1 {
+		t.Fatalf("expected exactly 1 allowed under concurrency; got %d", allowedCount)
 	}
 }

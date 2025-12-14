@@ -42,7 +42,7 @@ const (
 	VouchCluster            = "setup"
 	statsNamePerformance    = "performanceStats"
 
-	keepOld uint64 = 256
+	keepOld uint64 = 100 // slot to keep for ip rate limit
 )
 
 type contextKey string
@@ -70,7 +70,7 @@ type Server struct {
 
 	authHeaderP2P string // Added until vouch support query params
 
-	ghRatelimit      *SyncMap[string, uint64]
+	ghRatelimit      GetHeaderRateLimitInfo
 	accountsLists    *AccountsLists
 	NodeID           string
 	AdminAccountID   string
@@ -84,6 +84,10 @@ type Server struct {
 		GetHeaderStartTimeUnixMS string,
 		ExtraData string,
 	) error
+}
+
+type GetHeaderRateLimitInfo struct {
+	slotToIPToGHRequest *SyncMap[uint64, *SyncMap[string, struct{}]]
 }
 
 type DelaySettings struct {
@@ -111,7 +115,9 @@ func NewServer(opts ...ServerOption) *Server {
 		opt(server)
 	}
 
-	server.ghRatelimit = NewStringMapOf[uint64]()
+	server.ghRatelimit = GetHeaderRateLimitInfo{
+		slotToIPToGHRequest: NewIntegerMapOf[uint64, *SyncMap[string, struct{}]](),
+	}
 
 	return server
 }
@@ -298,16 +304,15 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 	if isGetHeader && !isWhitelisted {
 		currentSlot := uint64(CalculateCurrentSlot(s.beaconGenesisTime, s.secondsPerSlot))
 
-		prev, exist := s.ghRatelimit.LoadOrStore(clientIP, currentSlot)
-		if exist && prev == currentSlot {
+		if !s.allowGetHeaderForSlot(clientIP, currentSlot, keepOld) {
 			s.logger.Warn().
 				Str("authHeader", authHeader).
 				Str("accountID", accountID).
 				Str("ip", clientIP).
 				Str("url", parsedURL.String()).
+				Uint64("slot", currentSlot).
 				Err(err).Msg("get header rate limit exceeded")
-
-			http.Error(w, "only one getheader request allowed per slot per validator", http.StatusTooManyRequests)
+			http.Error(w, "only one getheader request allowed per slot per ip", http.StatusTooManyRequests)
 			return
 		}
 	}
@@ -316,6 +321,22 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 	ctx = context.WithValue(ctx, keyAuthHeader, authHeader)
 	ctx = context.WithValue(ctx, keyAccountID, accountID)
 	next.ServeHTTP(w, r.WithContext(ctx))
+}
+
+func (s *Server) allowGetHeaderForSlot(clientIP string, currentSlot, keepOld uint64) bool {
+	ipSet, _ := s.ghRatelimit.slotToIPToGHRequest.LoadOrStore(
+		currentSlot,
+		NewStringMapOf[struct{}](),
+	)
+
+	if _, exist := ipSet.LoadOrStore(clientIP, struct{}{}); exist {
+		return false
+	}
+
+	if currentSlot > keepOld {
+		s.ghRatelimit.slotToIPToGHRequest.Delete(currentSlot - keepOld)
+	}
+	return true
 }
 
 func (s *Server) HandleOptions(w http.ResponseWriter, r *http.Request) {
