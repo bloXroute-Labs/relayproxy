@@ -17,7 +17,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) *ErrorResp {
+func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) error {
 	startTime := time.Now().UTC()
 	id := uuid.NewString()
 

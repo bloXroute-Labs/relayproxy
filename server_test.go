@@ -127,7 +127,7 @@ func (m *MockService) GetPayload(ctx context.Context, log *zerolog.Logger, in *P
 	return nil, nil
 }
 
-func (m *MockService) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) *ErrorResp {
+func (m *MockService) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *PayloadRequestParams) error {
 	return nil
 }
 
