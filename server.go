@@ -42,7 +42,7 @@ const (
 	VouchCluster            = "setup"
 	statsNamePerformance    = "performanceStats"
 
-	keepOld uint64 = 100 // slot to keep for ip rate limit
+	keepOld uint64 = 10 // slot to keep for ip rate limit
 )
 
 type contextKey string
@@ -304,7 +304,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 	if isGetHeader && !isWhitelisted {
 		currentSlot := uint64(CalculateCurrentSlot(s.beaconGenesisTime, s.secondsPerSlot))
 
-		if !s.allowGetHeaderForSlot(clientIP, currentSlot, keepOld) {
+		if !s.allowGetHeaderForSlot(clientIP, currentSlot) {
 			s.logger.Warn().
 				Str("authHeader", authHeader).
 				Str("accountID", accountID).
@@ -323,7 +323,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 	next.ServeHTTP(w, r.WithContext(ctx))
 }
 
-func (s *Server) allowGetHeaderForSlot(clientIP string, currentSlot, keepOld uint64) bool {
+func (s *Server) allowGetHeaderForSlot(clientIP string, currentSlot uint64) bool {
 	ipSet, _ := s.ghRatelimit.slotToIPToGHRequest.LoadOrStore(
 		currentSlot,
 		NewStringMapOf[struct{}](),
@@ -333,10 +333,35 @@ func (s *Server) allowGetHeaderForSlot(clientIP string, currentSlot, keepOld uin
 		return false
 	}
 
-	if currentSlot > keepOld {
-		s.ghRatelimit.slotToIPToGHRequest.Delete(currentSlot - keepOld)
-	}
 	return true
+}
+
+func (s *Server) CleanupGetHeaderRateLimitData(ctx context.Context) {
+
+	ticker := time.NewTicker(time.Second * 60)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			s.cleanupGetHeaderRateLimitOnce()
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (s *Server) cleanupGetHeaderRateLimitOnce() {
+	currentSlot := uint64(CalculateCurrentSlot(s.beaconGenesisTime, s.secondsPerSlot))
+	cutoff := uint64(0)
+	if currentSlot > keepOld {
+		cutoff = currentSlot - keepOld
+	}
+	s.ghRatelimit.slotToIPToGHRequest.Range(func(slot uint64, _ *SyncMap[string, struct{}]) bool {
+		if slot < cutoff {
+			s.ghRatelimit.slotToIPToGHRequest.Delete(slot)
+		}
+		return true
+	})
 }
 
 func (s *Server) HandleOptions(w http.ResponseWriter, r *http.Request) {
