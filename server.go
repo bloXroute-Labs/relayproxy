@@ -41,6 +41,8 @@ const (
 	HeaderKeySlotUID        = "X-MEVBoost-SlotID"
 	VouchCluster            = "setup"
 	statsNamePerformance    = "performanceStats"
+
+	keepOld uint64 = 10 // slot to keep for ip rate limit
 )
 
 type contextKey string
@@ -85,8 +87,7 @@ type Server struct {
 }
 
 type GetHeaderRateLimitInfo struct {
-	lastGetHeaderRequest uint64
-	slotToIPToGHRequest  *SyncMap[uint64, map[string]bool]
+	slotToIPToGHRequest *SyncMap[uint64, *SyncMap[string, struct{}]]
 }
 
 type DelaySettings struct {
@@ -115,8 +116,7 @@ func NewServer(opts ...ServerOption) *Server {
 	}
 
 	server.ghRatelimit = GetHeaderRateLimitInfo{
-		lastGetHeaderRequest: 0,
-		slotToIPToGHRequest:  NewIntegerMapOf[uint64, map[string]bool](),
+		slotToIPToGHRequest: NewIntegerMapOf[uint64, *SyncMap[string, struct{}]](),
 	}
 
 	return server
@@ -303,34 +303,65 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 
 	if isGetHeader && !isWhitelisted {
 		currentSlot := uint64(CalculateCurrentSlot(s.beaconGenesisTime, s.secondsPerSlot))
-		slotIPRequests, exists := s.ghRatelimit.slotToIPToGHRequest.Load(currentSlot)
-		if !exists || slotIPRequests == nil {
-			slotIPRequests = make(map[string]bool)
-		} else {
-			if slotIPRequests[clientIP] {
-				s.logger.Warn().
-					Str("authHeader", authHeader).
-					Str("accountID", accountID).
-					Str("ip", clientIP).
-					Str("url", parsedURL.String()).
-					Err(err).Msg("get header rate limit exceeded")
-				// Not saying IP because that encourages people to work around the rate limit
-				http.Error(w, "only one getheader request allowed per slot per validator", http.StatusTooManyRequests)
-				return
-			}
+
+		if !s.allowGetHeaderForSlot(clientIP, currentSlot) {
+			s.logger.Warn().
+				Str("authHeader", authHeader).
+				Str("accountID", accountID).
+				Str("ip", clientIP).
+				Str("url", parsedURL.String()).
+				Uint64("slot", currentSlot).
+				Err(err).Msg("get header rate limit exceeded")
+			http.Error(w, "only one getheader request allowed per slot per ip", http.StatusTooManyRequests)
+			return
 		}
-		slotIPRequests[clientIP] = true
-		s.ghRatelimit.slotToIPToGHRequest.Store(currentSlot, slotIPRequests)
-		for j := s.ghRatelimit.lastGetHeaderRequest - 100; j < currentSlot-100; j++ {
-			s.ghRatelimit.slotToIPToGHRequest.Delete(j)
-		}
-		s.ghRatelimit.lastGetHeaderRequest = currentSlot
 	}
 	ctx = context.WithValue(ctx, keyParsedURL, parsedURL)
 	ctx = context.WithValue(ctx, keyClientIP, clientIP)
 	ctx = context.WithValue(ctx, keyAuthHeader, authHeader)
 	ctx = context.WithValue(ctx, keyAccountID, accountID)
 	next.ServeHTTP(w, r.WithContext(ctx))
+}
+
+func (s *Server) allowGetHeaderForSlot(clientIP string, currentSlot uint64) bool {
+	ipSet, _ := s.ghRatelimit.slotToIPToGHRequest.LoadOrStore(
+		currentSlot,
+		NewStringMapOf[struct{}](),
+	)
+
+	if _, exist := ipSet.LoadOrStore(clientIP, struct{}{}); exist {
+		return false
+	}
+
+	return true
+}
+
+func (s *Server) CleanupGetHeaderRateLimitData(ctx context.Context) {
+
+	ticker := time.NewTicker(time.Second * 60)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			s.cleanupGetHeaderRateLimitOnce()
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (s *Server) cleanupGetHeaderRateLimitOnce() {
+	currentSlot := uint64(CalculateCurrentSlot(s.beaconGenesisTime, s.secondsPerSlot))
+	cutoff := uint64(0)
+	if currentSlot > keepOld {
+		cutoff = currentSlot - keepOld
+	}
+	s.ghRatelimit.slotToIPToGHRequest.Range(func(slot uint64, _ *SyncMap[string, struct{}]) bool {
+		if slot < cutoff {
+			s.ghRatelimit.slotToIPToGHRequest.Delete(slot)
+		}
+		return true
+	})
 }
 
 func (s *Server) HandleOptions(w http.ResponseWriter, r *http.Request) {

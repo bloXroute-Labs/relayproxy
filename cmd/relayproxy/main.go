@@ -449,6 +449,8 @@ func main() {
 		svc.StartStreamHeaders(_ctx, wg)
 	}(ctx)
 
+	go server.CleanupGetHeaderRateLimitData(ctx)
+
 	if err := server.Start(); err != nil {
 		l.Fatal().Err(err).Msg("failed to start relay proxy server")
 	}
