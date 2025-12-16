@@ -3,40 +3,32 @@ package common
 import relaygrpc "github.com/bloXroute-Labs/relay-grpc"
 
 type VersionedPayloadInfo struct {
-	Response      []byte
-	Slot          uint64
-	ParentHash    string
-	BlockHash     string
-	Pubkey        string
-	BlockValue    string
-	ServerMessage string
+	FullPayloadResponse *VersionedSubmitBlindedBlockResponse
+	SszResponse         []byte
+	Slot                uint64
+	ParentHash          string
+	BlockHash           string
+	Pubkey              string
+	BlockValue          string
+	ServerMessage       string
 }
 
-func BuildVersionedPayloadInfo(res []byte, slot uint64, parentHash, blockHash, pubKey, blockValue string) *VersionedPayloadInfo {
-	return &VersionedPayloadInfo{
-		Response:   res,
-		Slot:       slot,
-		ParentHash: parentHash,
-		BlockHash:  blockHash,
-		Pubkey:     pubKey,
-		BlockValue: blockValue,
-	}
-}
 func BuildVersionedPayloadInfoFromGrpcResponse(in *relaygrpc.GetPayloadResponse) *VersionedPayloadInfo {
 	return &VersionedPayloadInfo{
-		Response:      in.GetVersionedExecutionPayload(),
-		Slot:          in.GetSlot(),
-		ParentHash:    in.GetParentHash(),
-		BlockHash:     in.GetBlockHash(),
-		Pubkey:        in.GetPubkey(),
-		BlockValue:    in.GetBlockValue(),
-		ServerMessage: in.GetMessage(),
+		FullPayloadResponse: nil, // we don't have this in the gRPC GetPayloadResponse
+		SszResponse:         in.GetSszVersionedExecutionPayload(),
+		Slot:                in.GetSlot(),
+		ParentHash:          in.GetParentHash(),
+		BlockHash:           in.GetBlockHash(),
+		Pubkey:              in.GetPubkey(),
+		BlockValue:          in.GetBlockValue(),
+		ServerMessage:       in.GetMessage(),
 	}
 }
 
-func (v *VersionedPayloadInfo) SetResponse(in []byte) {
+func (v *VersionedPayloadInfo) SetResponse(sszBytes []byte) {
 	if v != nil {
-		v.Response = in
+		v.SszResponse = sszBytes
 	}
 }
 
@@ -69,12 +61,21 @@ func (v *VersionedPayloadInfo) SetBlockValue(bv string) {
 		v.BlockValue = bv
 	}
 }
-func (v *VersionedPayloadInfo) GetResponse() []byte {
+
+func (v *VersionedPayloadInfo) GetFullPayloadResponse() *VersionedSubmitBlindedBlockResponse {
 	if v != nil {
-		return v.Response
+		return v.FullPayloadResponse
 	}
 	return nil
 }
+
+func (v *VersionedPayloadInfo) GetSszResponse() []byte {
+	if v != nil {
+		return v.SszResponse
+	}
+	return nil
+}
+
 func (v *VersionedPayloadInfo) GetSlot() uint64 {
 	if v != nil {
 		return v.Slot
@@ -114,15 +115,16 @@ func (v *VersionedPayloadInfo) Copy() *VersionedPayloadInfo {
 	if v == nil {
 		return nil
 	}
-	newResponse := make([]byte, len(v.Response))
-	copy(newResponse, v.Response)
+	newResponse := make([]byte, len(v.SszResponse))
+	copy(newResponse, v.SszResponse)
 	return &VersionedPayloadInfo{
-		Response:      newResponse,
-		Slot:          v.Slot,
-		ParentHash:    v.ParentHash,
-		BlockHash:     v.BlockHash,
-		Pubkey:        v.Pubkey,
-		BlockValue:    v.BlockValue,
-		ServerMessage: v.ServerMessage,
+		FullPayloadResponse: v.FullPayloadResponse,
+		SszResponse:         newResponse,
+		Slot:                v.Slot,
+		ParentHash:          v.ParentHash,
+		BlockHash:           v.BlockHash,
+		Pubkey:              v.Pubkey,
+		BlockValue:          v.BlockValue,
+		ServerMessage:       v.ServerMessage,
 	}
 }

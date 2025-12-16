@@ -153,7 +153,7 @@ func (s *Service) registerValidatorForClient(_ctx context.Context, req *relaygrp
 	}
 
 	if out.Code != uint32(codes.OK) {
-		return nil, toErrorResp(http.StatusBadRequest, "relay returned failure response code"+strconv.FormatUint(uint64(out.Code), 10))
+		return nil, toErrorResp(http.StatusBadRequest, "relay returned failure response code "+strconv.FormatUint(uint64(out.Code), 10))
 	}
 
 	return nil, toErrorResp(http.StatusInternalServerError, "no relay client available")
