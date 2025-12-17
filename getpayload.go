@@ -427,7 +427,19 @@ func (s *Service) sendPayloadStats(payload []byte, log *zerolog.Logger, isSuccee
 	} else {
 		log.Warn().Str("slotKey", k).Msg("no previous slot stats found, creating new record")
 	}
-	s.slotStatsEvent.Set(k, statsRecord, cache.DefaultExpiration) // replace with updated slot stats
+
+	if v, ok := s.slotStatsEvent.Get(k); ok {
+		if slice, success := v.([]SlotStatsRecord); success {
+			slice = append(slice, statsRecord)
+			s.slotStatsEvent.Set(k, slice, cache.DefaultExpiration)
+		} else {
+			newSlice := []SlotStatsRecord{statsRecord}
+			s.slotStatsEvent.Set(k, newSlice, cache.DefaultExpiration)
+		}
+	} else {
+		newSlice := []SlotStatsRecord{statsRecord}
+		s.slotStatsEvent.Set(k, newSlice, cache.DefaultExpiration)
+	}
 
 	if isRelayProxyWin {
 		log.Info().Str("slotKey", k).Msg("emit slot won event")
