@@ -223,13 +223,13 @@ func TestService_getPayload(t *testing.T) {
 			f: func(ctx context.Context, req *relaygrpc.GetPayloadRequest, opts ...grpc.CallOption) (*relaygrpc.GetPayloadResponse, error) {
 				return nil, fmt.Errorf("error")
 			},
-			expectedErr: toErrorResp(http.StatusInternalServerError, "relay returned error"),
+			expectedErr: toErrorResp(http.StatusBadRequest, "no execution payload for this request"),
 		},
 		"If getPayload returns empty output": {
 			f: func(ctx context.Context, req *relaygrpc.GetPayloadRequest, opts ...grpc.CallOption) (*relaygrpc.GetPayloadResponse, error) {
 				return nil, nil
 			},
-			expectedErr: toErrorResp(http.StatusInternalServerError, "empty response from relay"),
+			expectedErr: toErrorResp(http.StatusBadRequest, "no execution payload for this request"),
 		},
 	}
 	for testName, tt := range tests {
@@ -246,9 +246,62 @@ func TestService_getPayload(t *testing.T) {
 			svcOpts = append(svcOpts, WithSvcFluentD(fluentstats.NewStats(true, "0.0.0.0:24224")))
 
 			s := NewService(svcOpts...)
+			s.IDataService = &mockDataService{}
 			s.accountsLists = &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 				AccountNameToInfo: make(map[AccountName]*AccountInfo)}
-			got, err := s.GetPayload(context.Background(), &zerolog.Logger{}, &PayloadRequestParams{AuthHeader: TestAuthHeader})
+
+			// Create a minimal valid signed blinded beacon block payload
+			payload := []byte(`{
+				"message": {
+					"slot": "1",
+					"proposer_index": "1",
+					"parent_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+					"state_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+					"body": {
+						"randao_reveal": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+						"eth1_data": {
+							"deposit_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+							"deposit_count": "0",
+							"block_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+						},
+						"graffiti": "0x0000000000000000000000000000000000000000000000000000000000000000",
+						"proposer_slashings": [],
+						"attester_slashings": [],
+						"attestations": [],
+						"deposits": [],
+						"voluntary_exits": [],
+						"sync_aggregate": {
+							"sync_committee_bits": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+							"sync_committee_signature": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+						},
+						"execution_payload_header": {
+							"parent_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+							"fee_recipient": "0x0000000000000000000000000000000000000000",
+							"state_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+							"receipts_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+							"logs_bloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+							"prev_randao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+							"block_number": "0",
+							"gas_limit": "0",
+							"gas_used": "0",
+							"timestamp": "0",
+							"extra_data": "0x",
+							"base_fee_per_gas": "0",
+							"block_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+							"transactions_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+							"withdrawals_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
+						},
+						"blob_kzg_commitments": []
+					}
+				},
+				"signature": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+			}`)
+
+			got, err := s.GetPayload(context.Background(), &zerolog.Logger{}, &PayloadRequestParams{
+				AuthHeader: TestAuthHeader,
+				Payload:    payload,
+				ReceivedAt: time.Now(),
+			})
 			if err == nil {
 				assert.Equal(t, string(tt.expectedSuccess), string(got.GetSszResponse()))
 				return
@@ -1070,4 +1123,66 @@ func TestGetPayloadWithRetry(t *testing.T) {
 
 func TestVouch(t *testing.T) {
 	require.True(t, isVouch("Vouch/1.9.1"))
+}
+
+// mockFlowService is a mock of IFlowService
+type mockFlowService struct{}
+
+func (m *mockFlowService) RecordHeaderFlow(slot uint64, parentHash, blockHash, blockValue, proposerPubkey, nodeID string, ev HeaderFlowEvent) {
+}
+
+func (m *mockFlowService) RecordPrefetchStart(slot uint64, parentHash, blockHash, proposerPubkey, blockValue, nodeID string, ev PrefetchFlowEvent) {
+}
+
+func (m *mockFlowService) RecordPrefetchDone(slot uint64, parentHash, blockHash, proposerPubkey, reqID, getHeaderReqID string, success bool, durationMs int64, source FlowSource, serverURL, serverNodeID string, payloadSizeBytes int, errStr string) {
+}
+
+func (m *mockFlowService) RecordGetPayload(slot uint64, parentHash, blockHash, proposerPubkey, blockValue, nodeID string, ev GetPayloadFlowEvent) {
+}
+
+func (m *mockFlowService) GetAllFlowsSnapshot() map[string]*FlowRecord {
+	return nil
+}
+
+func (m *mockFlowService) GetFlowsBySlot(slot uint64) []*FlowRecord {
+	return nil
+}
+
+func (m *mockFlowService) GetFlowsBySlotAndBlock(slot uint64, blockHash string) []*FlowRecord {
+	return nil
+}
+
+// mockDataService is a mock of IDataService
+type mockDataService struct{}
+
+func (m *mockDataService) GetAccounts(ctx context.Context) map[string]any {
+	return nil
+}
+
+func (m *mockDataService) SetAccounts(ctx context.Context) {
+}
+
+func (m *mockDataService) SendAccount(accountID, validatorID string) {
+}
+
+func (m *mockDataService) GetDelaySettings(ctx context.Context) map[string]DelaySettings {
+	return nil
+}
+
+func (m *mockDataService) SetDelayForValidator(id string, delay, maxDelay int64) {
+}
+
+func (m *mockDataService) SetDelayForValidators(settings map[string]DelaySettings) {
+}
+
+func (m *mockDataService) DelayGetHeader(ctx context.Context, in DelayGetHeaderParams) (DelayGetHeaderResponse, error) {
+	return DelayGetHeaderResponse{}, nil
+}
+
+func (m *mockDataService) GetSlotDuty(slot uint64) (*common.MiniValidatorLatency, error) {
+	return nil, nil
+}
+
+func (m *mockDataService) GetFlowService() IFlowService {
+	return &mockFlowService{}
 }
