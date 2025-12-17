@@ -34,17 +34,17 @@ func TestPayloadResponseForProxyType(t *testing.T) {
 	p := &PayloadResponseForProxy{
 		PayloadResponse: payload,
 	}
-	require.Equal(t, len(p.MarshalledPayloadResponse), 0)
-	marshalledPayload, err := p.GetMarshalledResponse()
+	require.Equal(t, len(p.SszMarshalledPayloadResponse), 0)
+	marshalledPayload, err := p.GetSszMarshalledResponse()
 	require.NoError(t, err)
-	marshalledPayload2, err := payload.MarshalJSON()
+	marshalledPayload2, err := payload.MarshalSSZ()
 	require.NoError(t, err)
 	require.Equal(t, marshalledPayload, marshalledPayload2)
-	require.True(t, len(p.MarshalledPayloadResponse) > 0)
-	require.Equal(t, len(p.MarshalledPayloadResponse), len(marshalledPayload))
+	require.True(t, len(p.SszMarshalledPayloadResponse) > 0)
+	require.Equal(t, len(p.SszMarshalledPayloadResponse), len(marshalledPayload))
 
 	p2 := &PayloadResponseForProxy{
-		MarshalledPayloadResponse: marshalledPayload,
+		SszMarshalledPayloadResponse: marshalledPayload,
 	}
 
 	slot := uint64(12)
@@ -54,12 +54,11 @@ func TestPayloadResponseForProxyType(t *testing.T) {
 	versionedPayloadInfo2, err := p2.BuildVersionedPayloadInfo(slot, parentHash.String(), blockHash.String(), proposerPubkey.String())
 	require.NoError(t, err)
 
-	require.Equal(t, versionedPayloadInfo1.Response, versionedPayloadInfo2.Response)
+	require.Equal(t, versionedPayloadInfo1.SszResponse, versionedPayloadInfo2.SszResponse)
 	require.Equal(t, versionedPayloadInfo1.Slot, versionedPayloadInfo2.Slot)
 	require.Equal(t, versionedPayloadInfo1.ParentHash, versionedPayloadInfo2.ParentHash)
 	require.Equal(t, versionedPayloadInfo1.BlockHash, versionedPayloadInfo2.BlockHash)
 	require.Equal(t, versionedPayloadInfo1.Pubkey, versionedPayloadInfo2.Pubkey)
-
 }
 
 func TestCheckElectraEpochFork(t *testing.T) {

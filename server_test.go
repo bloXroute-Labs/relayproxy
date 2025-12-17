@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/bloXroute-Labs/relay-grpc/stat"
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -183,7 +184,16 @@ func TestServer_HandleRegistration(t *testing.T) {
 			}
 			rr := httptest.NewRecorder()
 			dataSvc := NewDataService()
-			server := &Server{svc: tc.mockService, logger: zerolog.Nop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
+			server := &Server{
+				svc:    tc.mockService,
+				logger: zerolog.Nop(),
+				tracer: noop.NewTracerProvider().Tracer("test"),
+				accountsLists: &AccountsLists{
+					AccountIDToInfo:   make(map[string]*AccountInfo),
+					AccountNameToInfo: make(map[AccountName]*AccountInfo),
+				},
+				performanceStats: stat.NewPerformanceStats(),
+			}
 			go dataSvc.SetAccounts(context.Background())
 			h := server.Middleware(http.HandlerFunc(server.HandleRegistration))
 			h.ServeHTTP(rr, req)
@@ -210,11 +220,11 @@ func TestServer_HandleGetHeader(t *testing.T) {
 				logger: zap.NewNop(),
 				GetHeaderFunc: func(ctx context.Context, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
 
-					return json.RawMessage("getHeader"), nil, nil
+					return json.RawMessage("{}"), nil, nil
 				},
 			},
 			expectedCode:   http.StatusOK,
-			expectedOutput: "getHeader",
+			expectedOutput: "{}",
 			ip:             "127.0.0.2",
 		},
 		"when getHeader failed": {
@@ -275,7 +285,16 @@ func TestServer_HandleGetHeader(t *testing.T) {
 			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 			req.Header.Add("X-Forwarded-For", tc.ip)
 			rr := httptest.NewRecorder()
-			server := &Server{svc: tc.mockService, logger: zerolog.Nop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
+			server := &Server{
+				svc:    tc.mockService,
+				logger: zerolog.Nop(),
+				tracer: noop.NewTracerProvider().Tracer("test"),
+				accountsLists: &AccountsLists{
+					AccountIDToInfo:   make(map[string]*AccountInfo),
+					AccountNameToInfo: make(map[AccountName]*AccountInfo),
+				},
+				performanceStats: stat.NewPerformanceStats(),
+			}
 
 			h := server.Middleware(http.HandlerFunc(server.HandleGetHeader))
 			h.ServeHTTP(rr, req)
@@ -330,7 +349,16 @@ func TestServer_HandleGetPayload(t *testing.T) {
 				t.Fatal(err)
 			}
 			rr := httptest.NewRecorder()
-			server := &Server{svc: tc.mockService, logger: zerolog.Nop(), tracer: noop.NewTracerProvider().Tracer("test"), accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo), AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
+			server := &Server{
+				svc:    tc.mockService,
+				logger: zerolog.Nop(),
+				tracer: noop.NewTracerProvider().Tracer("test"),
+				accountsLists: &AccountsLists{
+					AccountIDToInfo:   make(map[string]*AccountInfo),
+					AccountNameToInfo: make(map[AccountName]*AccountInfo),
+				},
+				performanceStats: stat.NewPerformanceStats(),
+			}
 			h := server.Middleware(http.HandlerFunc(server.HandleGetPayload))
 			h.ServeHTTP(rr, req)
 
@@ -432,6 +460,7 @@ func TestServer_HandleSetDelays(t *testing.T) {
 		})
 	}
 }
+
 func TestServer_Middleware(t *testing.T) {
 	testCases := map[string]struct {
 		setupRequest func() *http.Request
@@ -476,7 +505,7 @@ func TestServer_Middleware(t *testing.T) {
 					accessFilter: AccessFilter{
 						Accounts: AccessList{
 							AllowList: map[string]struct{}{},
-							BlockList: map[string]struct{}{"bf5c5d1b-7030-4f05-9ac3-217095e9d2b6": {}},
+							BlockList: map[string]struct{}{TestAccountID: {}},
 						},
 						IPs: AccessList{
 							AllowList: map[string]struct{}{},

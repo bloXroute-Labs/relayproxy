@@ -246,6 +246,26 @@ type VersionedSignedBlindedBeaconBlock struct {
 	eth2Api.VersionedSignedBlindedBeaconBlock
 }
 
+// IsEmpty returns true if there is no payload.
+func (r *VersionedSignedBlindedBeaconBlock) IsEmpty() bool {
+	switch r.Version {
+	case spec.DataVersionFulu:
+		return r.Fulu == nil ||
+			r.Fulu.Message == nil ||
+			r.Fulu.Message.Body == nil
+	case spec.DataVersionElectra:
+		return r.Electra == nil ||
+			r.Electra.Message == nil ||
+			r.Electra.Message.Body == nil
+	case spec.DataVersionDeneb:
+		return r.Deneb == nil ||
+			r.Deneb.Message == nil ||
+			r.Deneb.Message.Body == nil
+	default:
+		return true
+	}
+}
+
 func (r *VersionedSignedBlindedBeaconBlock) MarshalJSON() ([]byte, error) {
 	switch r.Version { //nolint:exhaustive
 	case spec.DataVersionFulu:
@@ -462,39 +482,40 @@ type DuplicateBlock struct {
 }
 
 type PayloadResponseForProxy struct {
-	MarshalledPayloadResponse []byte
-	PayloadResponse           VersionedSubmitBlindedBlockResponse
-	BlockValue                string
+	SszMarshalledPayloadResponse []byte
+	PayloadResponse              VersionedSubmitBlindedBlockResponse
+	BlockValue                   string
 }
 
-func (p *PayloadResponseForProxy) GetMarshalledResponse() ([]byte, error) {
-	if len(p.MarshalledPayloadResponse) != 0 {
-		return p.MarshalledPayloadResponse, nil
+func (p *PayloadResponseForProxy) GetSszMarshalledResponse() ([]byte, error) {
+	if len(p.SszMarshalledPayloadResponse) != 0 {
+		return p.SszMarshalledPayloadResponse, nil
 	}
 	if p.PayloadResponse.IsEmpty() {
 		return nil, errors.New("empty payload response")
 	}
-	marshaledResponse, err := p.PayloadResponse.MarshalJSON()
+	marshaledResponse, err := p.PayloadResponse.MarshalSSZ()
 	if err != nil {
 		return nil, err
 	}
-	p.MarshalledPayloadResponse = marshaledResponse
+	p.SszMarshalledPayloadResponse = marshaledResponse
 	return marshaledResponse, nil
 }
 
 // BuildVersionedPayloadInfo builds the VersionedPayloadInfo struct and sets it to the PayloadResponseForProxy struct
 func (p *PayloadResponseForProxy) BuildVersionedPayloadInfo(slot uint64, parentHash string, blockHash string, pubkey string) (*VersionedPayloadInfo, error) {
-	marshalledPayload, err := p.GetMarshalledResponse()
+	marshalledPayload, err := p.GetSszMarshalledResponse()
 	if err != nil {
 		return &VersionedPayloadInfo{}, err
 	}
 	versionedPayloadInfo := VersionedPayloadInfo{
-		Response:   marshalledPayload,
-		Slot:       slot,
-		ParentHash: parentHash,
-		BlockHash:  blockHash,
-		Pubkey:     pubkey,
-		BlockValue: p.BlockValue,
+		FullPayloadResponse: &p.PayloadResponse,
+		SszResponse:         marshalledPayload,
+		Slot:                slot,
+		ParentHash:          parentHash,
+		BlockHash:           blockHash,
+		Pubkey:              pubkey,
+		BlockValue:          p.BlockValue,
 	}
 	return &versionedPayloadInfo, nil
 }
@@ -550,9 +571,9 @@ type MiniValidatorLatency struct {
 }
 
 type PreFetchGetPayloadResponseHTTP struct {
-	Code                      uint32
-	Message                   string
-	VersionedExecutionPayload []byte
+	Code                         uint32
+	Message                      string
+	SszVersionedExecutionPayload []byte
 }
 
 type PreFetchGetPayloadRequestHTTP struct {
