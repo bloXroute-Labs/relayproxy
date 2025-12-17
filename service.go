@@ -86,13 +86,13 @@ type Service struct {
 	preFetchPayloadChan            chan preFetcherFields
 	performancestats               *stat.PerformanceStats
 
-	beaconGenesisTime  int64
-	secondsPerSlot     int64
-	slotStats          *cache.Cache
-	slotStatsEvent     *cache.Cache
-	duplicateSlotCache *cache.Cache
-	slotStatsEventCh   chan slotStatsEvent
-	ethNetworkDetails  *common.EthNetworkDetails
+	beaconGenesisTime     int64
+	secondsPerSlot        int64
+	slotStatsHeaderEvents *cache.Cache
+	slotStatsPayloadEvent *cache.Cache
+	duplicateSlotCache    *cache.Cache
+	slotStatsEventCh      chan slotStatsEvent
+	ethNetworkDetails     *common.EthNetworkDetails
 
 	clients                       []*common.ParentClient
 	streamingClients              []*common.ParentClient
@@ -150,8 +150,8 @@ func NewService(opts ...ServiceOption) *Service {
 
 	svc := &Service{
 		preFetchPayloadChan:           make(chan preFetcherFields, preFetchPayloadChanBufSize),
-		slotStats:                     cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
-		slotStatsEvent:                cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
+		slotStatsHeaderEvents:         cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
+		slotStatsPayloadEvent:         cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
 		duplicateSlotCache:            cache.New(duplicateSlotCacheCleanupInterval, duplicateSlotCacheCleanupInterval), // cache to avoid emitting duplicate stats
 		slotStatsEventCh:              make(chan slotStatsEvent, 100),
 		registrationRelayMutex:        sync.Mutex{},
@@ -614,7 +614,7 @@ func (s *Service) skipBidForOldBlockSequenceNumber(cacheKey string, builderPubke
 func (s *Service) EmitSlotStats(ctx context.Context) {
 	for {
 		select {
-		case event := <-s.slotStatsEventCh:
+		case event := <-s.slotStatsEventCh: // On getheader
 			go func() {
 				now := time.Now().UTC()
 				t := GetSlotStartTime(s.beaconGenesisTime, event.Slot, s.secondsPerSlot)
@@ -628,13 +628,14 @@ func (s *Service) EmitSlotStats(ctx context.Context) {
 				defer timer.Stop()
 				select {
 				case <-timer.C:
-					v, ok := s.slotStatsEvent.Get(event.SlotKey)
+					v, ok := s.slotStatsPayloadEvent.Get(event.SlotKey)
 					if ok { //Populated when getPayloadOnly is called
 						record, success := v.(SlotStatsRecord)
 						if success {
 							s.logRecord(record, event.SlotKey, event.UserAgent)
 						} else {
-							slotStats, found := s.slotStats.Get(event.SlotKey)
+							// For now this condition should not happen
+							slotStats, found := s.slotStatsHeaderEvents.Get(event.SlotKey)
 							if found {
 								if records, slotStatsSuccess := slotStats.([]SlotStatsRecord); slotStatsSuccess {
 									slotStatsRecord := records[len(records)-1]
@@ -643,7 +644,7 @@ func (s *Service) EmitSlotStats(ctx context.Context) {
 							}
 						}
 					} else {
-						slotStats, found := s.slotStats.Get(event.SlotKey)
+						slotStats, found := s.slotStatsHeaderEvents.Get(event.SlotKey)
 						if found {
 							if records, slotStatsSuccess := slotStats.([]SlotStatsRecord); slotStatsSuccess {
 								slotStatsRecord := records[len(records)-1]
@@ -963,7 +964,7 @@ func (s *Service) handleStreamBuilderInfoResponse(
 }
 
 func (s *Service) logRecord(record SlotStatsRecord, slotKey string, userAgent string) {
-	s.slotStats.Get(slotKey)
+	s.slotStatsHeaderEvents.Get(slotKey)
 	s.logger.Info().
 		Str("slotKey", slotKey).
 		Str("accountID", record.AccountID).
