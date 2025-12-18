@@ -429,11 +429,7 @@ func (s *Service) sendPayloadStats(payload []byte, log *zerolog.Logger, isSuccee
 	}
 	// Adds if stats record doesn't exsit or expired and return err otherwise
 	// As the result will cause always recording only 1st getpayload attempt
-	if err := s.slotStatsPayloadEvent.Add(k, statsRecord, cache.DefaultExpiration); err == nil {
-		log.Info().Str("slotKey", k).Msg("Slot stats payload event is added on 1st receiving")
-	} else {
-		log.Info().Str("slotKey", k).Msg("Slot stats payload event is already set, skipping adding")
-	}
+	_ = s.slotStatsPayloadEvent.Add(k, statsRecord, cache.DefaultExpiration)
 
 	if isRelayProxyWin {
 		log.Info().Str("slotKey", k).Msg("emit slot won event")
