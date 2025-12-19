@@ -312,7 +312,7 @@ func (s *Service) sendPayloadStats(payload []byte, log *zerolog.Logger, isSuccee
 	// 3 different scenario calling sendPayload stats
 	// case 1 : resp success
 	// case 2: Err case with resp
-	// case 2: Err case with no resp
+	// case 2: Err case with no resp (e.g. timeout)
 	out := resp.Copy()
 	if out.GetSlot() != 0 {
 		slotStartTime = GetSlotStartTime(s.beaconGenesisTime, int64(out.GetSlot()), s.secondsPerSlot)
@@ -406,14 +406,14 @@ func (s *Service) sendPayloadStats(payload []byte, log *zerolog.Logger, isSuccee
 		fallback SlotStatsRecord
 	)
 	k := fmt.Sprintf("slot-%v-parentHash-%v", out.GetSlot(), out.GetParentHash())
-	v, ok := s.slotStats.Get(k)
+	v, ok := s.slotStatsHeaderEvents.Get(k)
 	if ok {
 		if records, success := v.([]SlotStatsRecord); success {
 			for i, record := range records {
 				if i == len(records)-1 {
-					fallback = record
+					fallback = record // for non-matching header/payload
 				}
-				if record.HeaderDeliveredBlockHash == out.GetBlockHash() {
+				if record.HeaderDeliveredBlockHash == out.GetBlockHash() { // win
 					mergeSlotStats(&record, &statsRecord)
 					isRelayProxyWin = true
 					//isSlotUIDMatch = record.HeaderSlotUID == statsRecord.PayloadSlotUID
@@ -427,11 +427,13 @@ func (s *Service) sendPayloadStats(payload []byte, log *zerolog.Logger, isSuccee
 	} else {
 		log.Warn().Str("slotKey", k).Msg("no previous slot stats found, creating new record")
 	}
-	s.slotStatsEvent.Set(k, statsRecord, cache.DefaultExpiration) // replace with updated slot stats
+	// Adds if stats record doesn't exsit or expired and return err otherwise
+	// As the result will cause always recording only 1st getpayload attempt
+	_ = s.slotStatsPayloadEvent.Add(k, statsRecord, cache.DefaultExpiration)
 
 	if isRelayProxyWin {
 		log.Info().Str("slotKey", k).Msg("emit slot won event")
-		s.fluentD.LogToFluentD(fluentstats.Record{
+		s.fluentD.LogToFluentD(fluentstats.Record{ // Is not used atm
 			Type: TypeRelayProxySlotWon,
 			Data: statsRecord,
 		}, time.Now().UTC(), s.nodeID, StatsRelayProxySlotWon)
