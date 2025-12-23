@@ -452,6 +452,10 @@ func (s *Service) clientPreFetchGetPayloadHTTP(
 			attribute.String("proposerPubkey", fields.proposerPubKey),
 			attribute.String("builderPubkey", fields.builderPubKey),
 		)
+		if payloadUrls != nil {
+			fetchSpan.SetAttributes(attribute.StringSlice("payloadUrls", payloadUrls))
+		}
+
 		fetchSpan.End()
 	}()
 
