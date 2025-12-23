@@ -469,7 +469,12 @@ func (s *Service) clientPreFetchGetPayloadHTTP(
 
 	// Send request to all builders
 	for _, payloadUrl := range payloadUrls {
-		url := payloadUrl + common.PathGetPayloadV3
+		url := payloadUrl
+
+		// Add the proper path if it's not already included in the url
+		if !strings.HasSuffix(url, common.PathGetPayloadV3) {
+			url += common.PathGetPayloadV3
+		}
 
 		go func() {
 			result := new(common.VersionedSubmitBlockRequest)
