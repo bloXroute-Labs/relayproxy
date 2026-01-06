@@ -72,14 +72,16 @@ func (s *Service) RegisterValidator(ctx context.Context, log *zerolog.Logger, ou
 
 	ctx, spanWait := s.tracer.Start(ctx, "RegisterValidator-waitForResponse")
 	go func(_ctx context.Context, req *relaygrpc.RegisterValidatorRequest) {
+		defer spanWait.End(trace.WithTimestamp(time.Now()))
+
 		out, err := s.registerValidatorForClient(ctx, req)
 		if err != nil {
+			spanWait.SetAttributes(attribute.String("error", err.Error()))
 			errChan <- err
 			return
 		}
 		respChan <- out
 	}(ctx, req)
-	spanWait.End(trace.WithTimestamp(time.Now()))
 
 	ctx, spanSuccess := s.tracer.Start(ctx, "RegisterValidator-waitForSuccessfulResponse")
 	select {
@@ -90,7 +92,7 @@ func (s *Service) RegisterValidator(ctx context.Context, log *zerolog.Logger, ou
 	case <-respChan:
 		return struct{}{}, nil
 	case <-timer.C:
-		log.Error().Msg("timer hit: relay request timeout")
+		log.Warn().Dur("timeout", regRequestTimeout).Msg("timer hit: relay request timeout")
 		return struct{}{}, nil
 	}
 	spanSuccess.End(trace.WithTimestamp(time.Now()))
