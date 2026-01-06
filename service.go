@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	regRequestTimeout        = 3 * time.Second
+	regRequestTimeout        = 5 * time.Second
 	preFetcherRequestTimeout = 3 * time.Second
 
 	// cache
