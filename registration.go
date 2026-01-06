@@ -72,7 +72,7 @@ func (s *Service) RegisterValidator(ctx context.Context, log *zerolog.Logger, ou
 
 	ctx, spanWait := s.tracer.Start(ctx, "RegisterValidator-waitForResponse")
 	go func(_ctx context.Context, req *relaygrpc.RegisterValidatorRequest) {
-		defer spanWait.End(trace.WithTimestamp(time.Now()))
+		defer spanWait.End()
 
 		out, err := s.registerValidatorForClient(ctx, req)
 		if err != nil {
