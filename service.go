@@ -431,7 +431,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 		//	ParentHash:        header.GetParentHash(),
 		//	PubKey:            header.GetPubkey(),
 		//	BlockHash:         header.GetBlockHash(),
-		//	BlockValue:        WeiToEther(new(big.Int).SetBytes(header.GetValue())),
+		//	BlockValue:        weiToEther(new(big.Int).SetBytes(header.GetValue())),
 		//	BuilderPubKey:     header.GetBuilderPubkey(),
 		//	BuilderExtraData:  header.GetBuilderExtraData(),
 		//	PaidBLXR:          header.GetPaidBlxr(),

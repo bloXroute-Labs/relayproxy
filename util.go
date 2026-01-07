@@ -123,7 +123,7 @@ func CalculateCurrentSlot(beaconGenesisTime, secondsPerSlot int64) int64 {
 	return ((time.Now().UTC().Unix() - beaconGenesisTime) / secondsPerSlot) + 1
 }
 
-func WeiToEther(wei *big.Int) string {
+func weiToEther(wei *big.Int) string {
 	f := new(big.Float)
 	f.SetPrec(236) //  IEEE 754 octuple-precision binary floating-point format: binary256
 	f.SetMode(big.ToNearestEven)

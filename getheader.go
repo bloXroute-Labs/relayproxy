@@ -118,7 +118,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			blockHash:                         slotBestHeader.BlockHash,
 			proposerPubKey:                    in.PubKey,
 			builderPubKey:                     slotBestHeader.BuilderPubkey,
-			blockValue:                        WeiToEther(new(big.Int).SetBytes(slotBestHeader.Value)),
+			blockValue:                        weiToEther(new(big.Int).SetBytes(slotBestHeader.Value)),
 			client:                            slotBestHeader.Client,
 			payloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
 			slotStartTime:                     slotStartTime,
@@ -262,7 +262,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			HeaderMsIntoSlotWithDelay: msIntoSlotIncludingDelay,
 			HeaderSucceeded:           true,
 			HeaderDeliveredBlockHash:  slotBestHeader.BlockHash,
-			HeaderBlockValue:          WeiToEther(blockValue),
+			HeaderBlockValue:          weiToEther(blockValue),
 			HeaderUserAgent:           statsUserAgent,
 			HeaderStartTimeUnixMs:     in.GetHeaderStartTimeUnixMS,
 			Slot:                      _slot,
@@ -305,7 +305,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			BlockHash:                slotBestHeader.BlockHash,
 			ReqID:                    id,
 			ClientIP:                 in.ClientIP,
-			BlockValue:               WeiToEther(blockValue),
+			BlockValue:               weiToEther(blockValue),
 			Succeeded:                true,
 			NodeID:                   s.nodeID,
 			Slot:                     int64(_slot),
@@ -367,7 +367,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			}
 			if secondBestHeader != nil {
 				record.SecondPlaceBuilderBlockHash = secondBestHeader.BlockHash
-				record.SecondPlaceBuilderValue = WeiToEther(new(big.Int).SetBytes(secondBestHeader.Value))
+				record.SecondPlaceBuilderValue = weiToEther(new(big.Int).SetBytes(secondBestHeader.Value))
 				record.SecondPlaceBuilderBuilderPubkey = secondBestHeader.BuilderPubkey
 				record.SecondPlaceBuilderExtraData = secondBestHeader.BuilderExtraData
 			}
@@ -388,7 +388,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		blockHash:                         slotBestHeader.BlockHash,
 		proposerPubKey:                    in.PubKey,
 		builderPubKey:                     slotBestHeader.BuilderPubkey,
-		blockValue:                        WeiToEther(blockValue),
+		blockValue:                        weiToEther(blockValue),
 		client:                            slotBestHeader.Client,
 		payloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
 		slotStartTime:                     slotStartTime,
@@ -423,7 +423,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	if slotBestHeader.Client != nil {
 		relayURL = slotBestHeader.Client.String()
 	}
-	go s.IDataService.GetFlowService().RecordHeaderFlow(_slot, in.ParentHash, slotBestHeader.BlockHash, WeiToEther(blockValue), in.PubKey, s.nodeID, HeaderFlowEvent{
+	go s.IDataService.GetFlowService().RecordHeaderFlow(_slot, in.ParentHash, slotBestHeader.BlockHash, weiToEther(blockValue), in.PubKey, s.nodeID, HeaderFlowEvent{
 		FlowEventSentAt:      time.Now().UTC(),
 		ServedByThisNode:     true,
 		SlotStartTime:        slotStartTime,
@@ -434,7 +434,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		Source:               FlowSourceLocalBidCache, // adjust if needed
 		GetHeaderReqID:       id,
 		GetHeaderStartUnixMs: in.GetHeaderStartTimeUnixMS,
-		BlockValue:           WeiToEther(blockValue),
+		BlockValue:           weiToEther(blockValue),
 		BuilderPubkey:        slotBestHeader.BuilderPubkey,
 		BuilderExtraData:     slotBestHeader.BuilderExtraData,
 		BlockHashReceivedAt:  slotBestHeader.ReceivedAt,

@@ -98,7 +98,7 @@ func Test_WeiToEther(t *testing.T) {
 		{big.NewInt(46983840577085104), "0.046983840577085104"},
 	}
 	for _, tt := range tests {
-		result := WeiToEther(tt.wei)
+		result := weiToEther(tt.wei)
 		if result != tt.eth {
 			t.Errorf("For wei %v, expected %s, got %s", tt.wei, tt.eth, result)
 		}
