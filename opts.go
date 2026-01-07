@@ -170,9 +170,15 @@ func WithGetPayloadResponseForProxySlot(cache *cache.Cache) ServiceOption {
 	}
 }
 
-func WithPreFetchPayloadChan(ch chan PreFetcherFields) ServiceOption {
+func WithPreFetchPayloadChan(ch chan preFetcherFields) ServiceOption {
 	return func(s *Service) {
 		s.preFetchPayloadChan = ch
+	}
+}
+
+func WithOptimisticV3FetchedPayloadsChan(ch chan *common.VersionedSubmitBlockRequest) ServiceOption {
+	return func(s *Service) {
+		s.optimisticV3FetchedPayloadsChan = ch
 	}
 }
 

@@ -46,7 +46,8 @@ const (
 
 	maxGetPayloadRetry                = 3
 	getPayloadInterval                = 150 * time.Millisecond
-	PreFetchPayloadChanBufSize        = 1000
+	preFetchPayloadChanBufSize        = 1000
+	OptimisticV3FetchedPayloadsChan   = 1000
 	getPayloadRequestCutoffMs         = 4000
 	duplicateSlotCacheCleanupInterval = 180 * time.Second // 30 slots
 	reconnectTime                     = 6000
@@ -78,13 +79,14 @@ type Service struct {
 	authKey     string
 	secretToken string
 
-	tracer                         trace.Tracer
-	fluentD                        fluentstats.Stats
-	builderBidsForProxySlot        *cache.Cache
-	builderExistingBlockHash       *cache.Cache
-	getPayloadResponseForProxySlot *cache.Cache
-	preFetchPayloadChan            chan PreFetcherFields
-	performancestats               *stat.PerformanceStats
+	tracer                          trace.Tracer
+	fluentD                         fluentstats.Stats
+	builderBidsForProxySlot         *cache.Cache
+	builderExistingBlockHash        *cache.Cache
+	getPayloadResponseForProxySlot  *cache.Cache
+	preFetchPayloadChan             chan preFetcherFields
+	optimisticV3FetchedPayloadsChan chan *common.VersionedSubmitBlockRequest
+	performancestats                *stat.PerformanceStats
 
 	beaconGenesisTime     int64
 	secondsPerSlot        int64
@@ -129,27 +131,27 @@ type slotStatsEvent struct {
 	UserAgent string
 }
 
-type PreFetcherFields struct {
-	ClientIP        string
-	AuthHeader      string
-	Slot            uint64
-	ParentHash      string
-	BlockHash       string
-	ProposerPubKey  string
-	BuilderPubKey   string
-	BlockValue      string
-	Client          *common.ParentClient
-	PayloadFetchUrl string
+type preFetcherFields struct {
+	clientIP        string
+	authHeader      string
+	slot            uint64
+	parentHash      string
+	blockHash       string
+	proposerPubKey  string
+	builderPubKey   string
+	blockValue      string
+	client          *common.ParentClient
+	payloadFetchUrl string
 
-	SlotStartTime                     time.Time
-	MsIntoSlotGetHeaderIncludingDelay int64 // when getHeader was called + include delay
-	GetHeaderReqID                    string
+	slotStartTime                     time.Time
+	msIntoSlotGetHeaderIncludingDelay int64 // when getHeader was called + include delay
+	getHeaderReqID                    string
 }
 
 func NewService(opts ...ServiceOption) *Service {
 
 	svc := &Service{
-		preFetchPayloadChan:           make(chan PreFetcherFields, PreFetchPayloadChanBufSize),
+		preFetchPayloadChan:           make(chan preFetcherFields, preFetchPayloadChanBufSize),
 		slotStatsHeaderEvents:         cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
 		slotStatsPayloadEvent:         cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
 		duplicateSlotCache:            cache.New(duplicateSlotCacheCleanupInterval, duplicateSlotCacheCleanupInterval), // cache to avoid emitting duplicate stats
