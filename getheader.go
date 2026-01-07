@@ -242,7 +242,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			HeaderMsIntoSlotWithDelay: msIntoSlotIncludingDelay,
 			HeaderSucceeded:           true,
 			HeaderDeliveredBlockHash:  slotBestHeader.BlockHash,
-			HeaderBlockValue:          weiToEther(blockValue),
+			HeaderBlockValue:          WeiToEther(blockValue),
 			HeaderUserAgent:           statsUserAgent,
 			HeaderStartTimeUnixMs:     in.GetHeaderStartTimeUnixMS,
 			Slot:                      _slot,
@@ -285,7 +285,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			BlockHash:                slotBestHeader.BlockHash,
 			ReqID:                    id,
 			ClientIP:                 in.ClientIP,
-			BlockValue:               weiToEther(blockValue),
+			BlockValue:               WeiToEther(blockValue),
 			Succeeded:                true,
 			NodeID:                   s.nodeID,
 			Slot:                     int64(_slot),
@@ -347,7 +347,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			}
 			if secondBestHeader != nil {
 				record.SecondPlaceBuilderBlockHash = secondBestHeader.BlockHash
-				record.SecondPlaceBuilderValue = weiToEther(new(big.Int).SetBytes(secondBestHeader.Value))
+				record.SecondPlaceBuilderValue = WeiToEther(new(big.Int).SetBytes(secondBestHeader.Value))
 				record.SecondPlaceBuilderBuilderPubkey = secondBestHeader.BuilderPubkey
 				record.SecondPlaceBuilderExtraData = secondBestHeader.BuilderExtraData
 			}
@@ -360,20 +360,20 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	}()
 
 	// send in payload to pre fetcher event
-	s.preFetchPayloadChan <- preFetcherFields{
-		clientIP:                          in.ClientIP,
-		authHeader:                        in.AuthHeader,
-		slot:                              _slot,
-		parentHash:                        in.ParentHash,
-		blockHash:                         slotBestHeader.BlockHash,
-		proposerPubKey:                    in.PubKey,
-		builderPubKey:                     slotBestHeader.BuilderPubkey,
-		blockValue:                        weiToEther(blockValue),
-		client:                            slotBestHeader.Client,
-		payloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
-		slotStartTime:                     slotStartTime,
-		msIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
-		getHeaderReqID:                    id,
+	s.preFetchPayloadChan <- PreFetcherFields{
+		ClientIP:                          in.ClientIP,
+		AuthHeader:                        in.AuthHeader,
+		Slot:                              _slot,
+		ParentHash:                        in.ParentHash,
+		BlockHash:                         slotBestHeader.BlockHash,
+		ProposerPubKey:                    in.PubKey,
+		BuilderPubKey:                     slotBestHeader.BuilderPubkey,
+		BlockValue:                        WeiToEther(blockValue),
+		Client:                            slotBestHeader.Client,
+		PayloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
+		SlotStartTime:                     slotStartTime,
+		MsIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
+		GetHeaderReqID:                    id,
 	}
 
 	signedHeaderResponse, prevSigned, err := slotBestHeader.GetSignedHeaderResponse(s.secretKey, &s.publicKey, s.builderSigningDomain)
@@ -403,7 +403,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	if slotBestHeader.Client != nil {
 		relayURL = slotBestHeader.Client.String()
 	}
-	go s.IDataService.GetFlowService().RecordHeaderFlow(_slot, in.ParentHash, slotBestHeader.BlockHash, weiToEther(blockValue), in.PubKey, s.nodeID, HeaderFlowEvent{
+	go s.IDataService.GetFlowService().RecordHeaderFlow(_slot, in.ParentHash, slotBestHeader.BlockHash, WeiToEther(blockValue), in.PubKey, s.nodeID, HeaderFlowEvent{
 		FlowEventSentAt:      time.Now().UTC(),
 		ServedByThisNode:     true,
 		SlotStartTime:        slotStartTime,
@@ -414,7 +414,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		Source:               FlowSourceLocalBidCache, // adjust if needed
 		GetHeaderReqID:       id,
 		GetHeaderStartUnixMs: in.GetHeaderStartTimeUnixMS,
-		BlockValue:           weiToEther(blockValue),
+		BlockValue:           WeiToEther(blockValue),
 		BuilderPubkey:        slotBestHeader.BuilderPubkey,
 		BuilderExtraData:     slotBestHeader.BuilderExtraData,
 		BlockHashReceivedAt:  slotBestHeader.ReceivedAt,

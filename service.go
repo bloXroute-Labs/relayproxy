@@ -46,7 +46,7 @@ const (
 
 	maxGetPayloadRetry                = 3
 	getPayloadInterval                = 150 * time.Millisecond
-	preFetchPayloadChanBufSize        = 100
+	PreFetchPayloadChanBufSize        = 1000
 	getPayloadRequestCutoffMs         = 4000
 	duplicateSlotCacheCleanupInterval = 180 * time.Second // 30 slots
 	reconnectTime                     = 6000
@@ -83,7 +83,7 @@ type Service struct {
 	builderBidsForProxySlot        *cache.Cache
 	builderExistingBlockHash       *cache.Cache
 	getPayloadResponseForProxySlot *cache.Cache
-	preFetchPayloadChan            chan preFetcherFields
+	preFetchPayloadChan            chan PreFetcherFields
 	performancestats               *stat.PerformanceStats
 
 	beaconGenesisTime     int64
@@ -129,27 +129,27 @@ type slotStatsEvent struct {
 	UserAgent string
 }
 
-type preFetcherFields struct {
-	clientIP        string
-	authHeader      string
-	slot            uint64
-	parentHash      string
-	blockHash       string
-	proposerPubKey  string
-	builderPubKey   string
-	blockValue      string
-	client          *common.ParentClient
-	payloadFetchUrl string
+type PreFetcherFields struct {
+	ClientIP        string
+	AuthHeader      string
+	Slot            uint64
+	ParentHash      string
+	BlockHash       string
+	ProposerPubKey  string
+	BuilderPubKey   string
+	BlockValue      string
+	Client          *common.ParentClient
+	PayloadFetchUrl string
 
-	slotStartTime                     time.Time
-	msIntoSlotGetHeaderIncludingDelay int64 // when getHeader was called + include delay
-	getHeaderReqID                    string
+	SlotStartTime                     time.Time
+	MsIntoSlotGetHeaderIncludingDelay int64 // when getHeader was called + include delay
+	GetHeaderReqID                    string
 }
 
 func NewService(opts ...ServiceOption) *Service {
 
 	svc := &Service{
-		preFetchPayloadChan:           make(chan preFetcherFields, preFetchPayloadChanBufSize),
+		preFetchPayloadChan:           make(chan PreFetcherFields, PreFetchPayloadChanBufSize),
 		slotStatsHeaderEvents:         cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
 		slotStatsPayloadEvent:         cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
 		duplicateSlotCache:            cache.New(duplicateSlotCacheCleanupInterval, duplicateSlotCacheCleanupInterval), // cache to avoid emitting duplicate stats
@@ -429,7 +429,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 		//	ParentHash:        header.GetParentHash(),
 		//	PubKey:            header.GetPubkey(),
 		//	BlockHash:         header.GetBlockHash(),
-		//	BlockValue:        weiToEther(new(big.Int).SetBytes(header.GetValue())),
+		//	BlockValue:        WeiToEther(new(big.Int).SetBytes(header.GetValue())),
 		//	BuilderPubKey:     header.GetBuilderPubkey(),
 		//	BuilderExtraData:  header.GetBuilderExtraData(),
 		//	PaidBLXR:          header.GetPaidBlxr(),
