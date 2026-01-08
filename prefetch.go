@@ -980,7 +980,7 @@ func (s *Service) processGetPayloadV3Responses(
 				default:
 					log.Error().
 						Str("blockHash", fields.blockHash).
-						Msg("PreFetchPayloadV3 :: failed to send Optimistic V3 fetched payload for processing, channel is full")
+						Msg("PreFetchPayloadV3 :: failed to send Optimistic V3 block fetched payload for processing, channel is full")
 				}
 			}
 
