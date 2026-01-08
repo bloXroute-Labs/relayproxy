@@ -44,13 +44,13 @@ const (
 	slotStatsCleanupInterval        = 60 * time.Second // 5 slots
 	cacheKeySeparator               = "_"
 
-	maxGetPayloadRetry                = 3
-	getPayloadInterval                = 150 * time.Millisecond
-	preFetchPayloadChanBufSize        = 1000
-	OptimisticV3FetchedPayloadsChan   = 1000
-	getPayloadRequestCutoffMs         = 4000
-	duplicateSlotCacheCleanupInterval = 180 * time.Second // 30 slots
-	reconnectTime                     = 6000
+	maxGetPayloadRetry                     = 3
+	getPayloadInterval                     = 150 * time.Millisecond
+	preFetchPayloadChanBufSize             = 1000
+	OptimisticV3FetchedPayloadsChanBufSize = 1000
+	getPayloadRequestCutoffMs              = 4000
+	duplicateSlotCacheCleanupInterval      = 180 * time.Second // 30 slots
+	reconnectTime                          = 6000
 )
 
 var (
