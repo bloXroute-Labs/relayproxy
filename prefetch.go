@@ -974,7 +974,13 @@ func (s *Service) processGetPayloadV3Responses(
 			}
 
 			if s.optimisticV3FetchedPayloadsChan != nil {
-				s.optimisticV3FetchedPayloadsChan <- response
+				select {
+				case s.optimisticV3FetchedPayloadsChan <- response:
+				default:
+					log.Error().
+						Str("blockHash", fields.blockHash).
+						Msg("Failed to send Optimistic V3 fetched payload for processing, channel is full")
+				}
 			}
 
 			log.Info().Msg("PreFetchPayloadV3 :: HTTP builder prefetch succeeded")
