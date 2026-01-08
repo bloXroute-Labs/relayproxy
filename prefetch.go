@@ -973,6 +973,7 @@ func (s *Service) processGetPayloadV3Responses(
 				return true
 			}
 
+			// Send fetched Optimistic V3 block payload for processing
 			if s.optimisticV3FetchedPayloadsChan != nil {
 				select {
 				case s.optimisticV3FetchedPayloadsChan <- response:
