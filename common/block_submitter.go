@@ -18,7 +18,8 @@ import (
 )
 
 type BlockSubmitter interface {
-	UnmarshalSSZ(in []byte, out *VersionedSubmitBlockRequest) error
+	// TODO: implement/adjut unmarshalling
+	UnmarshalSSZ(in []byte, out *VersionedExtendedSubmitBlockRequest) error
 }
 
 type BlockSubmission struct {
