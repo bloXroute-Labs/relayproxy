@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	regRequestTimeout        = 5 * time.Second
+	regRequestTimeout        = 7 * time.Second // Corresponds to the recent stats where p90 was 1.3s and p99 6.68s
 	preFetcherRequestTimeout = 3 * time.Second
 
 	// cache
