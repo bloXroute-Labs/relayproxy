@@ -33,6 +33,8 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 )
 
+replace github.com/bloXroute-Labs/relay-grpc => ../../relay-grpc
+
 require (
 	github.com/bits-and-blooms/bitset v1.20.0 // indirect
 	github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 // indirect
