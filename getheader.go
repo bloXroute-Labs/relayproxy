@@ -44,6 +44,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		SlotWithParentHash:  k,
 		BoostSendTimeUnixMS: in.GetHeaderStartTimeUnixMS,
 		Latency:             in.Latency,
+		headerTimeoutMS:     in.HeaderTimeoutMs, // client timeout
 	})
 	delayGetHeaderSpan.End(trace.WithTimestamp(time.Now()))
 
