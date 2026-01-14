@@ -1,11 +1,12 @@
 package common // TODO: move to different package?
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"sync"
+	"time"
 
-	apideneb "github.com/attestantio/go-builder-client/api/deneb"
-	builderApiDeneb "github.com/attestantio/go-builder-client/api/deneb"
-	builderApiElectra "github.com/attestantio/go-builder-client/api/electra"
 	builderApiFulu "github.com/attestantio/go-builder-client/api/fulu"
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
 	builderSpec "github.com/attestantio/go-builder-client/spec"
@@ -17,43 +18,64 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	relayGRPC "github.com/bloXroute-Labs/relay-grpc"
 	"github.com/bloXroute-Labs/relay-grpc/bidadjustment"
+	ssz "github.com/ferranbt/fastssz"
 	"github.com/holiman/uint256"
+	"github.com/patrickmn/go-cache"
+	"github.com/pkg/errors"
 )
 
-// Extended models - full structures with standard fields + NewItems
-type ElectraHydrationBlobItem struct {
-	Proof      deneb.KZGProof      `ssz-size:"48"`
-	Commitment deneb.KZGCommitment `ssz-size:"48"`
-	Blob       deneb.Blob          `ssz-size:"131072"`
-}
-
-type ElectraExtendedBlobsBundle struct {
-	Commitments []deneb.KZGCommitment      `ssz-max:"4096"     ssz-size:"?,48"`
-	Proofs      []deneb.KZGProof           `ssz-max:"33554432" ssz-size:"?,48"`
-	Blobs       []deneb.Blob               `ssz-max:"4096"     ssz-size:"?,131072"`
-	NewItems    []ElectraHydrationBlobItem `ssz-max:"4096"     ssz-size:"?,131168"`
-}
-
-type ElectraExtendedSubmitBlockRequest struct {
-	Message           *apiv1.BidTrace
-	ExecutionPayload  *deneb.ExecutionPayload
-	BlobsBundle       *ElectraExtendedBlobsBundle
-	ExecutionRequests *electra.ExecutionRequests
-	Signature         phase0.BLSSignature `ssz-size:"96"`
-	AdjustmentData    *bidadjustment.AdjustmentData
-}
-
+// Extended models - full structures with standard fields + NewItems used for blobs hydration
 type FuluHydrationBlobItem struct {
-	Proofs     []deneb.KZGProof    `ssz-max:"4096" ssz-size:"?,48"`
+	Proof      []deneb.KZGProof    `ssz-max:"128" ssz-size:"?,48"`
 	Commitment deneb.KZGCommitment `ssz-size:"48"`
 	Blob       deneb.Blob          `ssz-size:"131072"`
+}
+
+// UnmarshalSSZ unmarshals FuluHydrationBlobItem from SSZ format
+func (item *FuluHydrationBlobItem) UnmarshalSSZ(buf []byte) error {
+	size := uint64(len(buf))
+	if size < 131124 {
+		return ssz.ErrSize
+	}
+
+	tail := buf
+	var o0 uint64
+
+	// Offset (0) 'Proofs'
+	if o0 = ssz.ReadOffset(buf[0:4]); o0 > size {
+		return ssz.ErrOffset
+	}
+	if o0 != 131124 {
+		return ssz.ErrInvalidVariableOffset
+	}
+
+	// Field (1) 'Commitment' - 48 bytes at [4:52]
+	copy(item.Commitment[:], buf[4:52])
+
+	// Field (2) 'Blob' - 131072 bytes at [52:131124]
+	copy(item.Blob[:], buf[52:131124])
+
+	// Field (0) 'Proofs' (variable) but in fact expected to be 128 always
+	{
+		seg := tail[o0:]
+		num, err := ssz.DivideInt2(len(seg), 48, 128)
+		if err != nil {
+			return err
+		}
+		item.Proof = make([]deneb.KZGProof, num)
+		for i := 0; i < num; i++ {
+			copy(item.Proof[i][:], seg[i*48:(i+1)*48])
+		}
+	}
+
+	return nil
 }
 
 type FuluExtendedBlobsBundle struct {
 	Commitments []deneb.KZGCommitment   `ssz-max:"4096" ssz-size:"?,48"`
-	Proofs      []deneb.KZGProof        `ssz-max:"4096" ssz-size:"?,48"`
+	Proofs      []deneb.KZGProof        `ssz-max:"33554432" ssz-size:"?,48"`
 	Blobs       []deneb.Blob            `ssz-max:"4096" ssz-size:"?,131072"`
-	NewItems    []FuluHydrationBlobItem `ssz-max:"4096" ssz-size:"?,131168"`
+	NewItems    []FuluHydrationBlobItem `ssz-max:"4096" ssz-size:"?,137268"`
 }
 
 type FuluExtendedSubmitBlockRequest struct {
@@ -67,58 +89,45 @@ type FuluExtendedSubmitBlockRequest struct {
 
 type VersionedExtendedSubmitBlockRequest struct {
 	Version consensusspec.DataVersion
-	Deneb   *builderApiDeneb.SubmitBlockRequest // No extension for Deneb
-	Electra *ElectraExtendedSubmitBlockRequest
 	Fulu    *FuluExtendedSubmitBlockRequest
 }
 
-func (r *VersionedExtendedSubmitBlockRequest) UnmarshalJSON(payloadBytes []byte) error {
-	// TODO: implement JSON unmarshal if needed
-	return nil
-}
-
-func (r *VersionedExtendedSubmitBlockRequest) UnmarshalSSZ(payloadBytes []byte) error {
-	// TODO: implement SSZ unmarshal if needed
-	return nil
-}
-
-// ConvertToBuilderSpec converts ExtendedVersionedSubmitBlockRequest to common.VersionedSubmitBlockRequest
-// NewItems data is lost in this conversion, AdjustmentData is returned separately
-func (e *VersionedExtendedSubmitBlockRequest) ConvertToSpec() (*VersionedSubmitBlockRequest, *bidadjustment.AdjustmentData) {
-	result := &VersionedSubmitBlockRequest{
-		VersionedSubmitBlockRequest: builderSpec.VersionedSubmitBlockRequest{
-			Version: e.Version,
-		},
-	}
-
-	var adjustmentData *bidadjustment.AdjustmentData
-
+func (e *VersionedExtendedSubmitBlockRequest) GetAdjustmentData() (*bidadjustment.AdjustmentData, error) {
 	switch e.Version {
-	case consensusspec.DataVersionDeneb:
-		result.Deneb = e.Deneb
-		// No AdjustmentData for Deneb in extended model
-
-	case consensusspec.DataVersionElectra:
-		if e.Electra != nil {
-			adjustmentData = e.Electra.AdjustmentData
-			result.Electra = &builderApiElectra.SubmitBlockRequest{
-				Message:           e.Electra.Message,
-				ExecutionPayload:  e.Electra.ExecutionPayload,
-				ExecutionRequests: e.Electra.ExecutionRequests,
-				Signature:         e.Electra.Signature,
-			}
-			if e.Electra.BlobsBundle != nil {
-				result.Electra.BlobsBundle = &apideneb.BlobsBundle{
-					Commitments: e.Electra.BlobsBundle.Commitments,
-					Proofs:      e.Electra.BlobsBundle.Proofs,
-					Blobs:       e.Electra.BlobsBundle.Blobs,
-				}
-			}
-		}
-
 	case consensusspec.DataVersionFulu:
 		if e.Fulu != nil {
-			adjustmentData = e.Fulu.AdjustmentData
+			return e.Fulu.AdjustmentData, nil
+		}
+		return nil, fmt.Errorf("fulu request is nil")
+	default:
+		return nil, fmt.Errorf("unsupported version %d for getting adjustment data", e.Version)
+	}
+}
+
+func (r *VersionedExtendedSubmitBlockRequest) UnmarshalJSON(input []byte) error {
+	if IsFulu {
+		r.Version = consensusspec.DataVersionFulu
+
+		fuluRequest := new(FuluExtendedSubmitBlockRequest)
+		if err := json.Unmarshal(input, fuluRequest); err != nil {
+			return errors.Wrap(err, "failed to unmarshal extended SubmitBlockRequest")
+		}
+		r.Fulu = fuluRequest
+		return nil
+	}
+	return fmt.Errorf("only fulu version is supported for extended SubmitBlockRequest")
+}
+
+// ConvertToBuilderSpec converts ExtendedVersionedSubmitBlockRequest to builderSpec.VersionedSubmitBlockRequest
+// NewItems data is lost in this conversion, AdjustmentData is returned separately
+func (e *VersionedExtendedSubmitBlockRequest) ConvertToSpec() (*builderSpec.VersionedSubmitBlockRequest, error) {
+	result := &builderSpec.VersionedSubmitBlockRequest{
+		Version: e.Version,
+	}
+
+	switch e.Version {
+	case consensusspec.DataVersionFulu:
+		if e.Fulu != nil {
 			result.Fulu = &builderApiFulu.SubmitBlockRequest{
 				Message:           e.Fulu.Message,
 				ExecutionPayload:  e.Fulu.ExecutionPayload,
@@ -133,9 +142,10 @@ func (e *VersionedExtendedSubmitBlockRequest) ConvertToSpec() (*VersionedSubmitB
 				}
 			}
 		}
+		return nil, fmt.Errorf("fulu request is nil")
+	default:
+		return nil, fmt.Errorf("unsupported version %d for conversion to builder spec", e.Version)
 	}
-
-	return result, adjustmentData
 }
 
 // ProtoRequestToVersionedExtendedRequest converts a gRPC SubmitBlockRequest to VersionedExtendedSubmitBlockRequest
@@ -195,7 +205,7 @@ func ProtoRequestToVersionedExtendedRequest(block *relayGRPC.SubmitBlockRequest)
 			copy(blob[:], item.Blob)
 
 			extendedBlobsBundle.NewItems[index] = FuluHydrationBlobItem{
-				Proofs:     proofs,
+				Proof:      proofs,
 				Commitment: commitment,
 				Blob:       blob,
 			}
@@ -326,4 +336,318 @@ func convertProtoToFuluExecutionRequest(protoExecutionRequests *relayGRPC.Execut
 		}
 	}
 	return executionRequests
+}
+
+type BlockSubmissionSSZFastUnmarshaller struct {
+	// Key: sha256(raw SSZ bytes of BlobsBundle) as binary string
+	// Val: *apideneb.BlobsBundle (immutable, cached)
+	blobCache *cache.Cache
+	// Fulu blobs
+	fuluBundlePool sync.Pool
+}
+
+func NewBlockSubmissionSSZFastUnmarshaller() *BlockSubmissionSSZFastUnmarshaller {
+	return &BlockSubmissionSSZFastUnmarshaller{
+		blobCache: cache.New(1*time.Minute, 1*time.Minute),
+		fuluBundlePool: sync.Pool{
+			New: func() any { return new(FuluExtendedBlobsBundle) },
+		},
+	}
+}
+
+func (u *BlockSubmissionSSZFastUnmarshaller) UnmarshalSSZ(input []byte, out *VersionedExtendedSubmitBlockRequest) error {
+	if IsFulu {
+		out.Version = consensusspec.DataVersionFulu
+		fuluExtendedRequest := new(FuluExtendedSubmitBlockRequest)
+		if err := u.unmarshalSSZFulu(fuluExtendedRequest, input); err != nil {
+			return fmt.Errorf("failed to unmarshal Fulu extended submit block request: %w", err)
+		}
+		out.Fulu = fuluExtendedRequest
+		return nil
+	}
+	return errors.New("only fulu version is supported for extended SubmitBlockRequest")
+}
+
+func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSubmitBlockRequest, buf []byte) error {
+	var err error
+	size := uint64(len(buf))
+	if size < 344 {
+		return ssz.ErrSize
+	}
+
+	tail := buf
+	var o1, o2, o3, o5 uint64
+
+	// Field (0) 'Message'
+	if r.Message == nil {
+		r.Message = new(apiv1.BidTrace)
+	}
+	if err = r.Message.UnmarshalSSZ(buf[0:236]); err != nil {
+		return err
+	}
+
+	// Offset (1) 'ExecutionPayload'
+	if o1 = ssz.ReadOffset(buf[236:240]); o1 > size {
+		return ssz.ErrOffset
+	}
+
+	// Offset (2) 'BlobsBundle'
+	if o2 = ssz.ReadOffset(buf[240:244]); o2 > size || o1 > o2 {
+		return ssz.ErrOffset
+	}
+
+	// Offset (3) 'ExecutionRequests'
+	if o3 = ssz.ReadOffset(buf[244:248]); o3 > size || o2 > o3 {
+		return ssz.ErrOffset
+	}
+
+	// Field (4) 'Signature' - always at [248:344]
+	copy(r.Signature[:], buf[248:344])
+
+	// Detect format: check if there's a 4th offset for AdjustmentData
+	// If o1 >= 348, the header must include the AdjustmentData offset at [344:348]
+	hasAdjustmentDataOffset := o1 >= 348
+
+	// Offset (5) 'AdjustmentData' (only if header contains it)
+	if hasAdjustmentDataOffset {
+		if o5 = ssz.ReadOffset(buf[344:348]); o5 > size || o3 > o5 {
+			return ssz.ErrOffset
+		}
+	} else {
+		// No AdjustmentData offset in header
+		o5 = size
+	}
+
+	// Field (1) 'ExecutionPayload'
+	{
+		buf = tail[o1:o2]
+		if r.ExecutionPayload == nil {
+			r.ExecutionPayload = new(deneb.ExecutionPayload)
+		}
+		if err = r.ExecutionPayload.UnmarshalSSZ(buf); err != nil {
+			return err
+		}
+	}
+
+	// Field (2) 'BlobsBundle' — zero-copy on cache hits
+	{
+		buf = tail[o2:o3]
+		key := u.hashByteKey(buf)
+
+		if val, ok := u.blobCache.Get(key); ok {
+			// Reuse cached immutable pointer (downstream code must not mutate)
+			r.BlobsBundle = val.(*FuluExtendedBlobsBundle)
+		} else {
+			// Parse into pooled scratch
+			tmp := u.getFuluBundle()
+			u.resetFuluBlobsBundle(tmp)
+
+			if err = u.unmarshalFuluBlobsBundleReuse(tmp, buf); err != nil {
+				u.putFuluBundle(tmp)
+				return err
+			}
+
+			// Clone once for immutable cache entry and reuse that pointer
+			cached := u.cloneFuluBlobsBundle(tmp)
+			u.blobCache.SetDefault(key, cached)
+			r.BlobsBundle = cached
+
+			u.putFuluBundle(tmp)
+		}
+	}
+
+	// Field (3) 'ExecutionRequests'
+	{
+		buf = tail[o3:o5]
+		if r.ExecutionRequests == nil {
+			r.ExecutionRequests = new(electra.ExecutionRequests)
+		}
+		if err = r.ExecutionRequests.UnmarshalSSZ(buf); err != nil {
+			return err
+		}
+	}
+
+	// Field (5) 'AdjustmentData' (optional)
+	// Only unmarshal if there's data beyond o5
+	if o5 < size {
+		buf = tail[o5:]
+		if r.AdjustmentData == nil {
+			r.AdjustmentData = new(bidadjustment.AdjustmentData)
+		}
+		if err = r.AdjustmentData.UnmarshalSSZ(buf); err != nil {
+			return err
+		}
+	} else {
+		// No adjustment data present
+		r.AdjustmentData = nil
+	}
+
+	return nil
+}
+
+func (u *BlockSubmissionSSZFastUnmarshaller) hashByteKey(b []byte) string {
+	sum := sha256.Sum256(b)
+	return string(sum[:])
+}
+
+func (u *BlockSubmissionSSZFastUnmarshaller) getFuluBundle() *FuluExtendedBlobsBundle {
+	return u.fuluBundlePool.Get().(*FuluExtendedBlobsBundle)
+}
+
+func (u *BlockSubmissionSSZFastUnmarshaller) putFuluBundle(b *FuluExtendedBlobsBundle) {
+	u.resetFuluBlobsBundle(b)
+	u.fuluBundlePool.Put(b)
+}
+
+func (u *BlockSubmissionSSZFastUnmarshaller) resetFuluBlobsBundle(b *FuluExtendedBlobsBundle) {
+	b.Commitments = b.Commitments[:0]
+	b.Proofs = b.Proofs[:0]
+	b.Blobs = b.Blobs[:0]
+	b.NewItems = b.NewItems[:0]
+}
+
+func (u *BlockSubmissionSSZFastUnmarshaller) cloneFuluBlobsBundle(src *FuluExtendedBlobsBundle) *FuluExtendedBlobsBundle {
+	if src == nil {
+		return nil
+	}
+	dst := &FuluExtendedBlobsBundle{
+		Commitments: make([]deneb.KZGCommitment, len(src.Commitments)),
+		Proofs:      make([]deneb.KZGProof, len(src.Proofs)),
+		Blobs:       make([]deneb.Blob, len(src.Blobs)),
+		NewItems:    make([]FuluHydrationBlobItem, len(src.NewItems)),
+	}
+	copy(dst.Commitments, src.Commitments)
+	copy(dst.Proofs, src.Proofs)
+	copy(dst.Blobs, src.Blobs)
+	copy(dst.NewItems, src.NewItems)
+	return dst
+}
+
+func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *FuluExtendedBlobsBundle, buf []byte) error {
+	size := uint64(len(buf))
+	if size < 12 {
+		return ssz.ErrSize
+	}
+
+	tail := buf
+	var o0, o1, o2, o3 uint64
+
+	// Detect format by reading first offset
+	// Offset (0) 'Commitments'
+	o0 = ssz.ReadOffset(buf[0:4])
+	if o0 != 12 && o0 != 8 { // 12 is for standard format and 8 is for dehydrated (with NewItems and no Proofs/Blobs)
+		return ssz.ErrInvalidVariableOffset
+	} else if o0 > size {
+		return ssz.ErrOffset
+	}
+	hasNewItems := o0 == 8
+	if !hasNewItems && size < 12 {
+		return ssz.ErrSize
+	}
+
+	if hasNewItems {
+		// Dehydrated format: only Commitments and NewItems offsets
+		if o3 = ssz.ReadOffset(buf[4:8]); o3 > size {
+			return ssz.ErrOffset
+		}
+		// For dehydrated format: Commitments[o0:o3], Proofs and Blobs are empty
+		o1 = o3 // Proofs start where Commitments end (empty segment)
+		o2 = o3 // Blobs start where Commitments end (empty segment)
+	} else {
+		// Standard format: read all offsets
+		// Offset (1) 'Proofs'
+		if o1 = ssz.ReadOffset(buf[4:8]); o1 > size || o0 > o1 {
+			return ssz.ErrOffset
+		}
+
+		// Offset (2) 'Blobs'
+		if o2 = ssz.ReadOffset(buf[8:12]); o2 > size || o1 > o2 {
+			return ssz.ErrOffset
+		}
+
+		o3 = size
+	}
+
+	// Field (0) 'Commitments'
+	{
+		seg := tail[o0:o1]
+		num, err := ssz.DivideInt2(len(seg), 48, 4096)
+		if err != nil {
+			return err
+		}
+		if num > 0 {
+			if cap(b.Commitments) >= num {
+				b.Commitments = b.Commitments[:num]
+			} else {
+				b.Commitments = make([]deneb.KZGCommitment, num)
+			}
+			for i := 0; i < num; i++ {
+				copy(b.Commitments[i][:], seg[i*48:(i+1)*48])
+			}
+		} else {
+			b.Commitments = b.Commitments[:0]
+		}
+	}
+
+	// Field (1) 'Proofs'
+	{
+		seg := tail[o1:o2]
+		// NOTE: max = 33554432 here, same as generated UnmarshalSSZ
+		num, err := ssz.DivideInt2(len(seg), 48, 33554432)
+		if err != nil {
+			return err
+		}
+		if num > 0 {
+			if cap(b.Proofs) >= num {
+				b.Proofs = b.Proofs[:num]
+			} else {
+				b.Proofs = make([]deneb.KZGProof, num)
+			}
+			for i := 0; i < num; i++ {
+				copy(b.Proofs[i][:], seg[i*48:(i+1)*48])
+			}
+		} else {
+			b.Proofs = b.Proofs[:0]
+		}
+	}
+
+	// Field (2) 'Blobs'
+	{
+		seg := tail[o2:o3]
+		num, err := ssz.DivideInt2(len(seg), 131072, 4096)
+		if err != nil {
+			return err
+		}
+		if num > 0 {
+			if cap(b.Blobs) >= num {
+				b.Blobs = b.Blobs[:num]
+			} else {
+				b.Blobs = make([]deneb.Blob, num)
+			}
+			for i := 0; i < num; i++ {
+				copy(b.Blobs[i][:], seg[i*131072:(i+1)*131072])
+			}
+		} else {
+			b.Blobs = b.Blobs[:0]
+		}
+	}
+
+	// Field (3) 'NewItems' (only if extended format)
+	if hasNewItems {
+		seg := tail[o3:]
+		num, err := ssz.DivideInt2(len(seg), 137268, 4096)
+		if err != nil {
+			return err
+		}
+		b.NewItems = make([]FuluHydrationBlobItem, num)
+		for i := 0; i < num; i++ {
+			if err = b.NewItems[i].UnmarshalSSZ(seg[i*137268 : (i+1)*137268]); err != nil {
+				return err
+			}
+		}
+	} else {
+		b.NewItems = nil
+	}
+
+	return nil
 }
