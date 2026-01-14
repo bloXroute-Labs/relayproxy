@@ -52,6 +52,8 @@ type HeaderRequestParams struct {
 	UserAgent string
 	//Unique id provided by MEVBoost for each request
 	SlotUID string
+	// Header which communicates timeout set by client. Used to tweak block creation delay together with Date-Milliseconds.
+	HeaderTimeoutMs uint64
 }
 
 // PayloadRequestParams holds the input parameters for getting payload data.
@@ -88,4 +90,5 @@ type DelayGetHeaderParams struct {
 	SlotWithParentHash  string
 	BoostSendTimeUnixMS string
 	Latency             int64
+	headerTimeoutMS     uint64 // client timeout
 }

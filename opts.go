@@ -433,7 +433,7 @@ func WithAccountImportLists(accountsLists *AccountsLists) DataServiceOption {
 	}
 }
 
-func WithPlugin(delayerPlugin func(accountID string, msIntoSlot int64, cluster string, userAgent string, latency int64, clientIP string, logger zerolog.Logger, getHeaderTimeout map[string]int64) (int64, int64, int64, error)) DataServiceOption {
+func WithPlugin(delayerPlugin func(accountID string, msIntoSlot int64, cluster string, userAgent string, latency int64, clientIP string, logger zerolog.Logger, getHeaderTimeout map[string]int64, clientTimeoutMS int64) (int64, int64, int64, error)) DataServiceOption {
 	return func(s *DataService) {
 		s.delayerPlugin = delayerPlugin
 	}
