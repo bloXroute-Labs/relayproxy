@@ -62,6 +62,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		Str("slotStartTime", slotStartTime.UTC().String()).
 		Int64("sleep", sleep).
 		Int64("maxSleep", maxSleep).
+		Uint64("headerTimeoutMS", in.HeaderTimeoutMs).
 		Logger()
 
 	log.Info().Msg("received getHeader")
