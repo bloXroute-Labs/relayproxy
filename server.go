@@ -38,6 +38,7 @@ const (
 
 	MEVBoostStartTimeUnixMS = "X-MEVBoost-StartTimeUnixMS"
 	HeaderDateMilliseconds  = "Date-Milliseconds"
+	HeaderTimeoutMS         = "X-Timeout-Ms"
 	HeaderKeySlotUID        = "X-MEVBoost-SlotID"
 	VouchCluster            = "setup"
 	statsNamePerformance    = "performanceStats"
@@ -651,6 +652,10 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	mevBoostSendTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
 	commitBoostSendTimeUnixMS := r.Header.Get(HeaderDateMilliseconds)
 	headerSlotUID := r.Header.Get(HeaderKeySlotUID)
+
+	headerTimeoutStr := r.Header.Get(HeaderTimeoutMS)
+	headerTimeout := getClientTimeout(headerTimeoutStr)
+
 	boostSendTime, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
 	cluster := r.Header.Get(VouchCluster)
 	userAgent := r.Header.Get("User-Agent")
@@ -687,6 +692,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 			attribute.String("key", "slot-"+slot+"-parentHash-"+parentHash),
 			attribute.Int64("receivedAt", receivedAt.Unix()),
 			attribute.String("slot", slot),
+			attribute.String("headerTimeoutStr", headerTimeoutStr),
 		)
 		if onHeaderDeliveredParams != nil {
 
@@ -729,6 +735,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		Str("method", getHeader).
 		Str("key", "slot-"+slot+"-parentHash-"+parentHash).
 		Str("slot", slot).
+		Str("headerTimeoutStr", headerTimeoutStr).
 		Logger()
 
 	span.AddEvent("handleGetHeader-svcGetHeader")
@@ -746,6 +753,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		Cluster:                  cluster,
 		UserAgent:                userAgent,
 		SlotUID:                  headerSlotUID,
+		HeaderTimeoutMs:          headerTimeout,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("Error in GetHeader")
@@ -832,6 +840,10 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	mevBoostSendTimeUnixMS := r.Header.Get(MEVBoostStartTimeUnixMS)
 	commitBoostSendTimeUnixMS := r.Header.Get(HeaderDateMilliseconds)
 	headerSlotUID := r.Header.Get(HeaderKeySlotUID)
+
+	headerTimeoutStr := r.Header.Get(HeaderTimeoutMS)
+	//headerTimeout := getClientTimeout(headerTimeoutStr)
+
 	boostSendTime, latency := getBoostSendTimeAndLatency(receivedAt, mevBoostSendTimeUnixMS, commitBoostSendTimeUnixMS)
 	cluster := r.Header.Get(VouchCluster)
 	userAgent := r.Header.Get("User-Agent")
@@ -862,6 +874,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		Bool("sszResponse", sszResponse).
 		Strs("headers", headers).
 		Str("slotUID", headerSlotUID).
+		Str("headerTimeoutStr", headerTimeoutStr).
 		Logger()
 
 	span.SetAttributes(
@@ -883,6 +896,7 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 		attribute.Bool("sszResponse", sszResponse),
 		attribute.StringSlice("headers", headers),
 		attribute.String("slotUID", headerSlotUID),
+		attribute.String("headerTimeoutStr", headerTimeoutStr),
 	)
 
 	bodyBytes, err := io.ReadAll(r.Body)
