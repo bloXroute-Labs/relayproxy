@@ -338,6 +338,8 @@ func convertProtoToFuluExecutionRequest(protoExecutionRequests *relayGRPC.Execut
 	return executionRequests
 }
 
+// SSZ Unmarshaller impl for VersionedExtendedSubmitBlockRequest with caching and object pooling.
+// It's capable of processing both standard and dehydrated formats for Fulu blobs bundle as well as optional AdjustmentData.
 type BlockSubmissionSSZFastUnmarshaller struct {
 	// Key: sha256(raw SSZ bytes of BlobsBundle) as binary string
 	// Val: *apideneb.BlobsBundle (immutable, cached)
