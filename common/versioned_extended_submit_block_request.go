@@ -35,7 +35,7 @@ type FuluHydrationBlobItem struct {
 func (item *FuluHydrationBlobItem) UnmarshalSSZ(buf []byte) error {
 	size := uint64(len(buf))
 	if size < 131124 {
-		return ssz.ErrSize
+		return fmt.Errorf("buffer too small, expected at least 131124 bytes, got %d: %w", size, ssz.ErrSize)
 	}
 
 	tail := buf
@@ -43,10 +43,10 @@ func (item *FuluHydrationBlobItem) UnmarshalSSZ(buf []byte) error {
 
 	// Offset (0) 'Proofs'
 	if o0 = ssz.ReadOffset(buf[0:4]); o0 > size {
-		return ssz.ErrOffset
+		return fmt.Errorf("failed to unmarshal field 'Proofs': offset %d exceeds buffer size %d: %w", o0, size, ssz.ErrOffset)
 	}
 	if o0 != 131124 {
-		return ssz.ErrInvalidVariableOffset
+		return fmt.Errorf("failed to unmarshal field 'Proofs': invalid offset %d, expected 131124: %w", o0, ssz.ErrInvalidVariableOffset)
 	}
 
 	// Field (1) 'Commitment' - 48 bytes at [4:52]
@@ -60,7 +60,7 @@ func (item *FuluHydrationBlobItem) UnmarshalSSZ(buf []byte) error {
 		seg := tail[o0:]
 		num, err := ssz.DivideInt2(len(seg), 48, 128)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to unmarshal field 'Proofs': invalid segment size %d: %w", len(seg), err)
 		}
 		item.Proof = make([]deneb.KZGProof, num)
 		for i := 0; i < num; i++ {
@@ -372,7 +372,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 	var err error
 	size := uint64(len(buf))
 	if size < 344 {
-		return ssz.ErrSize
+		return fmt.Errorf("buffer too small, expected at least 344 bytes, got %d: %w", size, ssz.ErrSize)
 	}
 
 	tail := buf
@@ -383,22 +383,22 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 		r.Message = new(apiv1.BidTrace)
 	}
 	if err = r.Message.UnmarshalSSZ(buf[0:236]); err != nil {
-		return err
+		return fmt.Errorf("failed to unmarshal field 'Message' (BidTrace): %w", err)
 	}
 
 	// Offset (1) 'ExecutionPayload'
 	if o1 = ssz.ReadOffset(buf[236:240]); o1 > size {
-		return ssz.ErrOffset
+		return fmt.Errorf("failed to unmarshal field 'ExecutionPayload': offset %d exceeds buffer size %d: %w", o1, size, ssz.ErrOffset)
 	}
 
 	// Offset (2) 'BlobsBundle'
 	if o2 = ssz.ReadOffset(buf[240:244]); o2 > size || o1 > o2 {
-		return ssz.ErrOffset
+		return fmt.Errorf("failed to unmarshal field 'BlobsBundle': invalid offset %d (previous offset: %d, size: %d): %w", o2, o1, size, ssz.ErrOffset)
 	}
 
 	// Offset (3) 'ExecutionRequests'
 	if o3 = ssz.ReadOffset(buf[244:248]); o3 > size || o2 > o3 {
-		return ssz.ErrOffset
+		return fmt.Errorf("failed to unmarshal field 'ExecutionRequests': invalid offset %d (previous offset: %d, size: %d): %w", o3, o2, size, ssz.ErrOffset)
 	}
 
 	// Field (4) 'Signature' - always at [248:344]
@@ -411,7 +411,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 	// Offset (5) 'AdjustmentData' (only if header contains it)
 	if hasAdjustmentDataOffset {
 		if o5 = ssz.ReadOffset(buf[344:348]); o5 > size || o3 > o5 {
-			return ssz.ErrOffset
+			return fmt.Errorf("failed to unmarshal field 'AdjustmentData': invalid offset %d (previous offset: %d, size: %d): %w", o5, o3, size, ssz.ErrOffset)
 		}
 	} else {
 		// No AdjustmentData offset in header
@@ -425,7 +425,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 			r.ExecutionPayload = new(deneb.ExecutionPayload)
 		}
 		if err = r.ExecutionPayload.UnmarshalSSZ(buf); err != nil {
-			return err
+			return fmt.Errorf("failed to unmarshal field 'ExecutionPayload': %w", err)
 		}
 	}
 
@@ -444,7 +444,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 
 			if err = u.unmarshalFuluBlobsBundleReuse(tmp, buf); err != nil {
 				u.putFuluBundle(tmp)
-				return err
+				return fmt.Errorf("failed to unmarshal field 'BlobsBundle': %w", err)
 			}
 
 			// Clone once for immutable cache entry and reuse that pointer
@@ -463,7 +463,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 			r.ExecutionRequests = new(electra.ExecutionRequests)
 		}
 		if err = r.ExecutionRequests.UnmarshalSSZ(buf); err != nil {
-			return err
+			return fmt.Errorf("failed to unmarshal field 'ExecutionRequests': %w", err)
 		}
 	}
 
@@ -475,7 +475,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 			r.AdjustmentData = new(bidadjustment.AdjustmentData)
 		}
 		if err = r.AdjustmentData.UnmarshalSSZ(buf); err != nil {
-			return err
+			return fmt.Errorf("failed to unmarshal field 'AdjustmentData': %w", err)
 		}
 	} else {
 		// No adjustment data present
@@ -526,7 +526,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) cloneFuluBlobsBundle(src *FuluExten
 func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *FuluExtendedBlobsBundle, buf []byte) error {
 	size := uint64(len(buf))
 	if size < 12 {
-		return ssz.ErrSize
+		return fmt.Errorf("buffer too small, expected at least 12 bytes, got %d: %w", size, ssz.ErrSize)
 	}
 
 	tail := buf
@@ -536,9 +536,9 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 	// Offset (0) 'Commitments'
 	o0 = ssz.ReadOffset(buf[0:4])
 	if o0 != 12 && o0 != 8 { // 12 is for standard format and 8 is for dehydrated (with NewItems and no Proofs/Blobs)
-		return ssz.ErrInvalidVariableOffset
+		return fmt.Errorf("failed to unmarshal field 'Commitments': invalid offset %d, expected 12 (standard) or 8 (dehydrated): %w", o0, ssz.ErrInvalidVariableOffset)
 	} else if o0 > size {
-		return ssz.ErrOffset
+		return fmt.Errorf("failed to unmarshal field 'Commitments': offset %d exceeds buffer size %d: %w", o0, size, ssz.ErrOffset)
 	}
 	hasNewItems := o0 == 8
 	if !hasNewItems && size < 12 {
@@ -548,7 +548,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 	if hasNewItems {
 		// Dehydrated format: only Commitments and NewItems offsets
 		if o3 = ssz.ReadOffset(buf[4:8]); o3 > size {
-			return ssz.ErrOffset
+			return fmt.Errorf("failed to unmarshal field 'NewItems' (dehydrated format): offset %d exceeds buffer size %d: %w", o3, size, ssz.ErrOffset)
 		}
 		// For dehydrated format: Commitments[o0:o3], Proofs and Blobs are empty
 		o1 = o3 // Proofs start where Commitments end (empty segment)
@@ -557,12 +557,12 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 		// Standard format: read all offsets
 		// Offset (1) 'Proofs'
 		if o1 = ssz.ReadOffset(buf[4:8]); o1 > size || o0 > o1 {
-			return ssz.ErrOffset
+			return fmt.Errorf("failed to unmarshal field 'Proofs': invalid offset %d (previous offset: %d, size: %d): %w", o1, o0, size, ssz.ErrOffset)
 		}
 
 		// Offset (2) 'Blobs'
 		if o2 = ssz.ReadOffset(buf[8:12]); o2 > size || o1 > o2 {
-			return ssz.ErrOffset
+			return fmt.Errorf("failed to unmarshal field 'Blobs': invalid offset %d (previous offset: %d, size: %d): %w", o2, o1, size, ssz.ErrOffset)
 		}
 
 		o3 = size
@@ -573,7 +573,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 		seg := tail[o0:o1]
 		num, err := ssz.DivideInt2(len(seg), 48, 4096)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to unmarshal field 'Commitments': invalid segment size %d: %w", len(seg), err)
 		}
 		if num > 0 {
 			if cap(b.Commitments) >= num {
@@ -595,7 +595,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 		// NOTE: max = 33554432 here, same as generated UnmarshalSSZ
 		num, err := ssz.DivideInt2(len(seg), 48, 33554432)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to unmarshal field 'Proofs': invalid segment size %d: %w", len(seg), err)
 		}
 		if num > 0 {
 			if cap(b.Proofs) >= num {
@@ -616,7 +616,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 		seg := tail[o2:o3]
 		num, err := ssz.DivideInt2(len(seg), 131072, 4096)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to unmarshal field 'Blobs': invalid segment size %d: %w", len(seg), err)
 		}
 		if num > 0 {
 			if cap(b.Blobs) >= num {
@@ -637,12 +637,12 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 		seg := tail[o3:]
 		num, err := ssz.DivideInt2(len(seg), 137268, 4096)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to unmarshal field 'NewItems': invalid segment size %d: %w", len(seg), err)
 		}
 		b.NewItems = make([]FuluHydrationBlobItem, num)
 		for i := 0; i < num; i++ {
 			if err = b.NewItems[i].UnmarshalSSZ(seg[i*137268 : (i+1)*137268]); err != nil {
-				return err
+				return fmt.Errorf("failed to unmarshal field 'NewItems' item %d: %w", i, err)
 			}
 		}
 	} else {
