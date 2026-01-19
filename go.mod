@@ -7,7 +7,7 @@ toolchain go1.24.2
 require (
 	github.com/attestantio/go-builder-client v0.7.2
 	github.com/attestantio/go-eth2-client v0.27.1
-	github.com/bloXroute-Labs/relay-grpc v0.0.68
+	github.com/bloXroute-Labs/relay-grpc v0.0.69-0.20260119140756-0c3eb2f8424c
 	github.com/ethereum/go-ethereum v1.16.3
 	github.com/ferranbt/fastssz v0.1.4
 	github.com/flashbots/go-boost-utils v1.9.0
@@ -32,8 +32,6 @@ require (
 	google.golang.org/protobuf v1.36.6
 	gopkg.in/yaml.v2 v2.4.0
 )
-
-replace github.com/bloXroute-Labs/relay-grpc => ../../relay-grpc
 
 require (
 	github.com/bits-and-blooms/bitset v1.20.0 // indirect
