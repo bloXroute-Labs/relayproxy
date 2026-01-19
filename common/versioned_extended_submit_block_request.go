@@ -141,6 +141,7 @@ func (e *VersionedExtendedSubmitBlockRequest) ConvertToSpec() (*builderSpec.Vers
 					Blobs:       e.Fulu.BlobsBundle.Blobs,
 				}
 			}
+			return result, nil
 		}
 		return nil, fmt.Errorf("fulu request is nil")
 	default:
