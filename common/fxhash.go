@@ -5,7 +5,7 @@ import (
 	"math/bits"
 )
 
-// FxHasher implements the Rust rustc-hash FxHasher algorithm (version 2.0+)
+// FxHasher implements the Rust rustc-hash FxHasher algorithm (version 2.0+) for 64-bit arch.
 // This is a polynomial hash with wyhash-inspired byte compression and rotation finalization
 // Compatible with: https://github.com/rust-lang/rustc-hash/blob/master/src/lib.rs
 type FxHasher struct {

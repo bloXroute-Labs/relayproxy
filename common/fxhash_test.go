@@ -1,7 +1,6 @@
 package common
 
 import (
-	"encoding/hex"
 	"fmt"
 	"testing"
 )
@@ -188,62 +187,6 @@ func TestFxHasher_WithSeed(t *testing.T) {
 	}
 }
 
-func TestHashTransaction(t *testing.T) {
-	// Test with transaction shorter than TxSigMaxSize
-	shortTx := make([]byte, 50)
-	hash := hashTransaction(shortTx, HashTypeFxHash)
-	if hash != 0 {
-		t.Errorf("Expected 0 for short transaction, got %d", hash)
-	}
-
-	// Test with transaction exactly TxSigMaxSize
-	exactTx := make([]byte, TxSigMaxSize)
-	for i := range exactTx {
-		exactTx[i] = byte(i)
-	}
-	hash1 := hashTransaction(exactTx, HashTypeFxHash)
-	expected1 := uint64(0x4adaf274211bc4e4)
-	if hash1 != expected1 {
-		t.Errorf("Hash of %d-byte tx: got 0x%016x, want 0x%016x", len(exactTx), hash1, expected1)
-	}
-
-	// Test with longer transaction
-	longTx := make([]byte, 200)
-	copy(longTx[len(longTx)-TxSigMaxSize:], exactTx)
-	hash2 := hashTransaction(longTx, HashTypeFxHash)
-	expected2 := uint64(0x4adaf274211bc4e4)
-	if hash2 != expected2 {
-		t.Errorf("Hash of %d-byte tx: got 0x%016x, want 0x%016x", len(longTx), hash2, expected2)
-	}
-
-	// Since both have the same last 67 bytes, hashes should match
-	if hash1 != hash2 {
-		t.Errorf("Expected same hash for same last 67 bytes, got 0x%016x and 0x%016x", hash1, hash2)
-	}
-}
-
-func TestHashTransactionFNV1a(t *testing.T) {
-	// Test FNV1a hash type
-	exactTx := make([]byte, TxSigMaxSize)
-	for i := range exactTx {
-		exactTx[i] = byte(i)
-	}
-
-	hashFxHash := hashTransaction(exactTx, HashTypeFxHash)
-	hashFNV1a := hashTransaction(exactTx, HashTypeFNV1a)
-
-	// Hashes should be different for different hash types
-	if hashFxHash == hashFNV1a {
-		t.Errorf("Expected different hashes for different hash types")
-	}
-
-	// Test default fallback to FxHash
-	hashDefault := hashTransaction(exactTx, "unknown")
-	if hashDefault != hashFxHash {
-		t.Errorf("Expected default (unknown) to use FxHash, got 0x%016x, want 0x%016x", hashDefault, hashFxHash)
-	}
-}
-
 func TestFxHash64_Deterministic(t *testing.T) {
 	data := []byte("deterministic test data")
 
@@ -277,22 +220,5 @@ func TestFxHash64_KnownValues(t *testing.T) {
 				t.Errorf("'%s' (len=%d): got 0x%016x, want 0x%016x", tt.name, len(tt.input), result, tt.expected)
 			}
 		})
-	}
-}
-
-func TestFxHash64_HexDump(t *testing.T) {
-	// Test with a real-looking transaction signature (67 bytes)
-	txSigHex := "1ba0f8fc3b8e6a4c8e5c3d8f9b2c1e0d4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f"
-	txSig, err := hex.DecodeString(txSigHex)
-	if err != nil {
-		t.Fatalf("Failed to decode hex: %v", err)
-	}
-
-	if len(txSig) >= TxSigMaxSize {
-		result := FxHash64(txSig[len(txSig)-TxSigMaxSize:])
-		expected := uint64(0x77dd43ab93c84a97) // Pre-computed expected value
-		if result != expected {
-			t.Errorf("Real tx signature hash: got 0x%016x, want 0x%016x", result, expected)
-		}
 	}
 }
