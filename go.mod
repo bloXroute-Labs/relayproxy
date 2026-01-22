@@ -7,7 +7,7 @@ toolchain go1.24.2
 require (
 	github.com/attestantio/go-builder-client v0.7.2
 	github.com/attestantio/go-eth2-client v0.27.1
-	github.com/bloXroute-Labs/relay-grpc v0.0.69-0.20260122164557-214eca5d23ee
+	github.com/bloXroute-Labs/relay-grpc v0.0.69-0.20260122172029-eb59e68f8864
 	github.com/ethereum/go-ethereum v1.16.3
 	github.com/ferranbt/fastssz v0.1.4
 	github.com/flashbots/go-boost-utils v1.9.0
