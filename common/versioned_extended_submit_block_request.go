@@ -84,6 +84,7 @@ type FuluExtendedSubmitBlockRequest struct {
 	BlobsBundle       *FuluExtendedBlobsBundle
 	ExecutionRequests *electra.ExecutionRequests
 	Signature         phase0.BLSSignature `ssz-size:"96"`
+	TxRoot            [32]byte
 	AdjustmentData    *bidadjustment.AdjustmentData
 }
 
@@ -264,6 +265,7 @@ func ProtoRequestToVersionedExtendedRequest(block *relayGRPC.SubmitBlockRequest)
 			BlobsBundle:       extendedBlobsBundle,
 			ExecutionRequests: convertProtoToFuluExecutionRequest(block.ExecutionRequests),
 			Signature:         b96(block.Signature),
+			TxRoot:            [32]byte{}, // TxRoot not present in gRPC proto, defaults to zero
 			AdjustmentData:    adjustmentData,
 		},
 	}, nil
@@ -407,18 +409,57 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 	// Field (4) 'Signature' - always at [248:344]
 	copy(r.Signature[:], buf[248:344])
 
-	// Detect format: check if there's a 4th offset for AdjustmentData
-	// If o1 >= 348, the header must include the AdjustmentData offset at [344:348]
-	hasAdjustmentDataOffset := o1 >= 348
+	// Detect optional fields based on where ExecutionPayload offset points
+	// o1 is the ExecutionPayload offset read from [236:240]
+	// Possible layouts after Signature (position 344):
+	// 1. o1 == 344: No optional fields (ExecutionPayload starts immediately)
+	// 2. o1 == 348: Only AdjustmentData offset [344:348]
+	// 3. o1 == 376: Only TxRoot [344:376] (32 bytes, no AdjustmentData)
+	// 4. o1 == 380: Both TxRoot [344:376] and AdjustmentData offset [376:380]
+	
+	hasTxRoot := false
+	hasAdjustmentDataOffset := false
+	var txRootEnd uint64 = 344
+	var adjustmentDataOffsetPos uint64 = 344
 
-	// Offset (5) 'AdjustmentData' (only if header contains it)
+	if o1 == 344 {
+		// No optional fields
+		o5 = size
+	} else if o1 == 348 {
+		// Only AdjustmentData offset (legacy format)
+		hasAdjustmentDataOffset = true
+		adjustmentDataOffsetPos = 344
+	} else if o1 == 376 {
+		// Only TxRoot, no AdjustmentData
+		hasTxRoot = true
+		txRootEnd = 376
+		o5 = size
+	} else if o1 == 380 {
+		// Both TxRoot and AdjustmentData offset
+		hasTxRoot = true
+		hasAdjustmentDataOffset = true
+		txRootEnd = 376
+		adjustmentDataOffsetPos = 376
+	} else {
+		return fmt.Errorf("invalid header layout: ExecutionPayload offset %d not recognized (expected 344, 348, 376, or 380)", o1)
+	}
+
+	// Field (5) 'TxRoot' - optional 32-byte field at [344:376]
+	if hasTxRoot {
+		if size < txRootEnd {
+			return fmt.Errorf("buffer too small for TxRoot: expected at least %d bytes, got %d", txRootEnd, size)
+		}
+		copy(r.TxRoot[:], buf[344:376])
+	} else {
+		// Zero out TxRoot if not present
+		r.TxRoot = [32]byte{}
+	}
+
+	// Offset (6) 'AdjustmentData' (only if header contains it)
 	if hasAdjustmentDataOffset {
-		if o5 = ssz.ReadOffset(buf[344:348]); o5 > size || o3 > o5 {
+		if o5 = ssz.ReadOffset(buf[adjustmentDataOffsetPos : adjustmentDataOffsetPos+4]); o5 > size || o3 > o5 {
 			return fmt.Errorf("failed to unmarshal field 'AdjustmentData': invalid offset %d (previous offset: %d, size: %d): %w", o5, o3, size, ssz.ErrOffset)
 		}
-	} else {
-		// No AdjustmentData offset in header
-		o5 = size
 	}
 
 	// Field (1) 'ExecutionPayload'
@@ -470,9 +511,9 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 		}
 	}
 
-	// Field (5) 'AdjustmentData' (optional)
+	// Field (6) 'AdjustmentData' (optional)
 	// Only unmarshal if there's data beyond o5
-	if o5 < size {
+	if hasAdjustmentDataOffset && o5 < size {
 		buf = tail[o5:]
 		if r.AdjustmentData == nil {
 			r.AdjustmentData = new(bidadjustment.AdjustmentData)

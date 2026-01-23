@@ -1097,3 +1097,350 @@ func TestProtoRequestToVersionedExtendedRequest_InvalidAdjustmentData(t *testing
 	require.Nil(t, extendedRequest)
 	require.Contains(t, err.Error(), "failed to unmarshal adjustment data")
 }
+
+// TestBlockSubmissionSSZFastUnmarshaller_WithTxRootOnly tests unmarshaling with only TxRoot (no AdjustmentData)
+// Expected offset: 376 (344 + 32)
+func TestBlockSubmissionSSZFastUnmarshaller_WithTxRootOnly(t *testing.T) {
+	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller()
+
+	blockHash := GenerateRandomEthHash()
+	builderPubkey := GenerateRandomPublicKey()
+	parentHash := GenerateRandomEthHash()
+	proposerPubkey := GenerateRandomPublicKey()
+	blockValue := big.NewInt(5000000)
+	feeRecipient := bellatrix.ExecutionAddress{11, 12, 13}
+
+	baseRequest := NewFuluBuilderSubmitBlockRequest(
+		999, // slot
+		proposerPubkey,
+		builderPubkey,
+		parentHash,
+		blockHash,
+		blockValue,
+		feeRecipient,
+		[]byte{0x11, 0x12, 0x13},
+	)
+
+	// Add simple blob
+	commitment1 := deneb.KZGCommitment{}
+	commitment1[0] = 0xDD
+	proof1 := deneb.KZGProof{}
+	proof1[0] = 0xEE
+	blob1 := deneb.Blob{}
+	blob1[0] = 0xFF
+
+	baseRequest.BlobsBundle = &builderApiFulu.BlobsBundle{
+		Commitments: []deneb.KZGCommitment{commitment1},
+		Proofs:      []deneb.KZGProof{proof1},
+		Blobs:       []deneb.Blob{blob1},
+	}
+
+	// Marshal components
+	messageSSZ, err := baseRequest.Message.MarshalSSZ()
+	require.NoError(t, err)
+
+	execPayloadSSZ, err := baseRequest.ExecutionPayload.MarshalSSZ()
+	require.NoError(t, err)
+
+	blobsBundleSSZ, err := baseRequest.BlobsBundle.MarshalSSZ()
+	require.NoError(t, err)
+
+	execRequestsSSZ, err := baseRequest.ExecutionRequests.MarshalSSZ()
+	require.NoError(t, err)
+
+	// Create TxRoot
+	txRoot := [32]byte{}
+	for i := range txRoot {
+		txRoot[i] = byte(i + 50)
+	}
+
+	// Build SSZ with TxRoot but no AdjustmentData (376-byte header)
+	// Layout: Message(236) + 3 offsets(12) + Signature(96) + TxRoot(32) + variable data
+	totalSize := 236 + 12 + 96 + 32 + len(execPayloadSSZ) + len(blobsBundleSSZ) + len(execRequestsSSZ)
+	sszData := make([]byte, totalSize)
+
+	copy(sszData[0:236], messageSSZ)
+
+	headerEnd := uint64(376) // 236 + 12 + 96 + 32
+	o1 := headerEnd
+	o2 := o1 + uint64(len(execPayloadSSZ))
+	o3 := o2 + uint64(len(blobsBundleSSZ))
+
+	// Write 3 offsets
+	binary.LittleEndian.PutUint32(sszData[236:240], uint32(o1))
+	binary.LittleEndian.PutUint32(sszData[240:244], uint32(o2))
+	binary.LittleEndian.PutUint32(sszData[244:248], uint32(o3))
+
+	// Signature at [248:344]
+	copy(sszData[248:344], baseRequest.Signature[:])
+
+	// TxRoot at [344:376]
+	copy(sszData[344:376], txRoot[:])
+
+	// Copy variable data
+	copy(sszData[o1:o2], execPayloadSSZ)
+	copy(sszData[o2:o3], blobsBundleSSZ)
+	copy(sszData[o3:], execRequestsSSZ)
+
+	// Verify o1 indicates TxRoot present (376)
+	o1Check := ssz.ReadOffset(sszData[236:240])
+	require.Equal(t, uint64(376), o1Check, "With TxRoot only, first offset should be 376")
+
+	// Unmarshal
+	result := &VersionedExtendedSubmitBlockRequest{}
+	err = unmarshaller.UnmarshalSSZ(sszData, result)
+	require.NoError(t, err)
+
+	// Verify TxRoot is present and correct
+	require.Equal(t, txRoot, result.Fulu.TxRoot)
+
+	// Verify AdjustmentData is nil
+	require.Nil(t, result.Fulu.AdjustmentData)
+
+	// Verify other fields
+	require.Equal(t, uint64(999), result.Fulu.Message.Slot)
+	require.Len(t, result.Fulu.BlobsBundle.Commitments, 1)
+}
+
+// TestBlockSubmissionSSZFastUnmarshaller_WithTxRootAndAdjustmentData tests unmarshaling with both TxRoot and AdjustmentData
+// Expected offset: 380 (344 + 32 + 4)
+func TestBlockSubmissionSSZFastUnmarshaller_WithTxRootAndAdjustmentData(t *testing.T) {
+	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller()
+
+	blockHash := GenerateRandomEthHash()
+	builderPubkey := GenerateRandomPublicKey()
+	parentHash := GenerateRandomEthHash()
+	proposerPubkey := GenerateRandomPublicKey()
+	blockValue := big.NewInt(7000000)
+	feeRecipient := bellatrix.ExecutionAddress{21, 22, 23}
+
+	baseRequest := NewFuluBuilderSubmitBlockRequest(
+		1234, // slot
+		proposerPubkey,
+		builderPubkey,
+		parentHash,
+		blockHash,
+		blockValue,
+		feeRecipient,
+		[]byte{0x21, 0x22, 0x23},
+	)
+
+	// Add simple blob
+	commitment1 := deneb.KZGCommitment{}
+	commitment1[0] = 0x99
+	proof1 := deneb.KZGProof{}
+	proof1[0] = 0x88
+	blob1 := deneb.Blob{}
+	blob1[0] = 0x77
+
+	baseRequest.BlobsBundle = &builderApiFulu.BlobsBundle{
+		Commitments: []deneb.KZGCommitment{commitment1},
+		Proofs:      []deneb.KZGProof{proof1},
+		Blobs:       []deneb.Blob{blob1},
+	}
+
+	// Create AdjustmentData
+	adjustmentData := &bidadjustment.AdjustmentData{
+		StateRoot:           [32]byte{0x11},
+		TransactionsRoot:    [32]byte{0x22},
+		ReceiptsRoot:        [32]byte{0x33},
+		BuilderAddress:      [20]byte{0x44},
+		FeeRecipientAddress: [20]byte{0x55},
+		FeePayerAddress:     [20]byte{0x66},
+		BuilderProof:        [][]byte{{0x77}},
+		FeeRecipientProof:   [][]byte{{0x88}},
+		FeePayerProof:       [][]byte{{0x99}},
+		PlaceholderTxProof:  [][]byte{{0xAA}},
+	}
+	adjustmentSSZ, err := adjustmentData.MarshalSSZ()
+	require.NoError(t, err)
+
+	// Marshal components
+	messageSSZ, err := baseRequest.Message.MarshalSSZ()
+	require.NoError(t, err)
+
+	execPayloadSSZ, err := baseRequest.ExecutionPayload.MarshalSSZ()
+	require.NoError(t, err)
+
+	blobsBundleSSZ, err := baseRequest.BlobsBundle.MarshalSSZ()
+	require.NoError(t, err)
+
+	execRequestsSSZ, err := baseRequest.ExecutionRequests.MarshalSSZ()
+	require.NoError(t, err)
+
+	// Create TxRoot
+	txRoot := [32]byte{}
+	for i := range txRoot {
+		txRoot[i] = byte(i + 100)
+	}
+
+	// Build SSZ with both TxRoot and AdjustmentData (380-byte header)
+	// Layout: Message(236) + 3 offsets(12) + Signature(96) + TxRoot(32) + AdjustmentData offset(4) + variable data
+	totalSize := 236 + 12 + 96 + 32 + 4 + len(execPayloadSSZ) + len(blobsBundleSSZ) + len(execRequestsSSZ) + len(adjustmentSSZ)
+	sszData := make([]byte, totalSize)
+
+	copy(sszData[0:236], messageSSZ)
+
+	headerEnd := uint64(380) // 236 + 12 + 96 + 32 + 4
+	o1 := headerEnd
+	o2 := o1 + uint64(len(execPayloadSSZ))
+	o3 := o2 + uint64(len(blobsBundleSSZ))
+	o5 := o3 + uint64(len(execRequestsSSZ))
+
+	// Write first 3 offsets
+	binary.LittleEndian.PutUint32(sszData[236:240], uint32(o1))
+	binary.LittleEndian.PutUint32(sszData[240:244], uint32(o2))
+	binary.LittleEndian.PutUint32(sszData[244:248], uint32(o3))
+
+	// Signature at [248:344]
+	copy(sszData[248:344], baseRequest.Signature[:])
+
+	// TxRoot at [344:376]
+	copy(sszData[344:376], txRoot[:])
+
+	// AdjustmentData offset at [376:380]
+	binary.LittleEndian.PutUint32(sszData[376:380], uint32(o5))
+
+	// Copy variable data
+	copy(sszData[o1:o2], execPayloadSSZ)
+	copy(sszData[o2:o3], blobsBundleSSZ)
+	copy(sszData[o3:o5], execRequestsSSZ)
+	copy(sszData[o5:], adjustmentSSZ)
+
+	// Verify o1 indicates both TxRoot and AdjustmentData present (380)
+	o1Check := ssz.ReadOffset(sszData[236:240])
+	require.Equal(t, uint64(380), o1Check, "With TxRoot and AdjustmentData, first offset should be 380")
+
+	// Unmarshal
+	result := &VersionedExtendedSubmitBlockRequest{}
+	err = unmarshaller.UnmarshalSSZ(sszData, result)
+	require.NoError(t, err)
+
+	// Verify TxRoot is present and correct
+	require.Equal(t, txRoot, result.Fulu.TxRoot)
+
+	// Verify AdjustmentData is present and correct
+	require.NotNil(t, result.Fulu.AdjustmentData)
+	require.Equal(t, adjustmentData.StateRoot, result.Fulu.AdjustmentData.StateRoot)
+	require.Equal(t, adjustmentData.TransactionsRoot, result.Fulu.AdjustmentData.TransactionsRoot)
+	require.Equal(t, adjustmentData.BuilderAddress, result.Fulu.AdjustmentData.BuilderAddress)
+
+	// Verify other fields
+	require.Equal(t, uint64(1234), result.Fulu.Message.Slot)
+	require.Len(t, result.Fulu.BlobsBundle.Commitments, 1)
+}
+
+// TestBlockSubmissionSSZFastUnmarshaller_InvalidOffset tests error handling for invalid offset values
+func TestBlockSubmissionSSZFastUnmarshaller_InvalidOffset(t *testing.T) {
+	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller()
+
+	blockHash := GenerateRandomEthHash()
+	builderPubkey := GenerateRandomPublicKey()
+	parentHash := GenerateRandomEthHash()
+	proposerPubkey := GenerateRandomPublicKey()
+	blockValue := big.NewInt(2000000)
+	feeRecipient := bellatrix.ExecutionAddress{41, 42, 43}
+
+	baseRequest := NewFuluBuilderSubmitBlockRequest(
+		777, // slot
+		proposerPubkey,
+		builderPubkey,
+		parentHash,
+		blockHash,
+		blockValue,
+		feeRecipient,
+		[]byte{0x41, 0x42, 0x43},
+	)
+
+	// Marshal to get a valid base
+	sszData, err := baseRequest.MarshalSSZ()
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		o1Value     uint32
+		expectError bool
+	}{
+		{
+			name:        "Invalid offset 345 - between valid values",
+			o1Value:     345,
+			expectError: true,
+		},
+		{
+			name:        "Invalid offset 350 - between valid values",
+			o1Value:     350,
+			expectError: true,
+		},
+		{
+			name:        "Invalid offset 377 - between valid values",
+			o1Value:     377,
+			expectError: true,
+		},
+		{
+			name:        "Invalid offset 100 - way off",
+			o1Value:     100,
+			expectError: true,
+		},
+		{
+			name:        "Invalid offset 500 - too large",
+			o1Value:     500,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Modify the offset in the SSZ data
+			testData := make([]byte, len(sszData))
+			copy(testData, sszData)
+			binary.LittleEndian.PutUint32(testData[236:240], tt.o1Value)
+
+			result := &VersionedExtendedSubmitBlockRequest{}
+			err := unmarshaller.UnmarshalSSZ(testData, result)
+			
+			if tt.expectError {
+				require.Error(t, err, "Expected error for offset %d", tt.o1Value)
+			} else {
+				require.NoError(t, err, "Expected no error for offset %d", tt.o1Value)
+			}
+		})
+	}
+}
+
+// TestBlockSubmissionSSZFastUnmarshaller_TxRootZeroValue tests that TxRoot is properly zeroed when not present
+func TestBlockSubmissionSSZFastUnmarshaller_TxRootZeroValue(t *testing.T) {
+	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller()
+
+	blockHash := GenerateRandomEthHash()
+	builderPubkey := GenerateRandomPublicKey()
+	parentHash := GenerateRandomEthHash()
+	proposerPubkey := GenerateRandomPublicKey()
+	blockValue := big.NewInt(2000000)
+	feeRecipient := bellatrix.ExecutionAddress{31, 32, 33}
+
+	baseRequest := NewFuluBuilderSubmitBlockRequest(
+		555, // slot
+		proposerPubkey,
+		builderPubkey,
+		parentHash,
+		blockHash,
+		blockValue,
+		feeRecipient,
+		[]byte{0x31, 0x32, 0x33},
+	)
+
+	// Standard format - no TxRoot
+	sszData, err := baseRequest.MarshalSSZ()
+	require.NoError(t, err)
+
+	// Unmarshal
+	result := &VersionedExtendedSubmitBlockRequest{}
+	err = unmarshaller.UnmarshalSSZ(sszData, result)
+	require.NoError(t, err)
+
+	// Verify TxRoot is zero
+	require.Equal(t, [32]byte{}, result.Fulu.TxRoot, "TxRoot should be zero when not present")
+
+	// Verify other fields work correctly
+	require.Equal(t, uint64(555), result.Fulu.Message.Slot)
+}
