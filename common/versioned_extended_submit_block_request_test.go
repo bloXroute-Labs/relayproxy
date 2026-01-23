@@ -1397,7 +1397,7 @@ func TestBlockSubmissionSSZFastUnmarshaller_InvalidOffset(t *testing.T) {
 
 			result := &VersionedExtendedSubmitBlockRequest{}
 			err := unmarshaller.UnmarshalSSZ(testData, result)
-			
+
 			if tt.expectError {
 				require.Error(t, err, "Expected error for offset %d", tt.o1Value)
 			} else {

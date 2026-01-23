@@ -416,7 +416,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 	// 2. o1 == 348: Only AdjustmentData offset [344:348]
 	// 3. o1 == 376: Only TxRoot [344:376] (32 bytes, no AdjustmentData)
 	// 4. o1 == 380: Both TxRoot [344:376] and AdjustmentData offset [376:380]
-	
+
 	hasTxRoot := false
 	hasAdjustmentDataOffset := false
 	var txRootEnd uint64 = 344
