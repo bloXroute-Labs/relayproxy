@@ -1098,8 +1098,8 @@ func TestProtoRequestToVersionedExtendedRequest_InvalidAdjustmentData(t *testing
 	require.Contains(t, err.Error(), "failed to unmarshal adjustment data")
 }
 
-// TestBlockSubmissionSSZFastUnmarshaller_WithTxRootOnly tests unmarshaling with only TxRoot (no AdjustmentData)
-// Expected offset: 376 (344 + 32)
+// TestBlockSubmissionSSZFastUnmarshaller_WithTxRootOnly tests unmarshaling with only TxRoot=Some (no AdjustmentData)
+// Expected offset: 377 (344 + 1 selector + 32 bytes)
 func TestBlockSubmissionSSZFastUnmarshaller_WithTxRootOnly(t *testing.T) {
 	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller()
 
@@ -1154,14 +1154,14 @@ func TestBlockSubmissionSSZFastUnmarshaller_WithTxRootOnly(t *testing.T) {
 		txRoot[i] = byte(i + 50)
 	}
 
-	// Build SSZ with TxRoot but no AdjustmentData (376-byte header)
-	// Layout: Message(236) + 3 offsets(12) + Signature(96) + TxRoot(32) + variable data
-	totalSize := 236 + 12 + 96 + 32 + len(execPayloadSSZ) + len(blobsBundleSSZ) + len(execRequestsSSZ)
+	// Build SSZ with TxRoot=Some but no AdjustmentData (377-byte header)
+	// Layout: Message(236) + 3 offsets(12) + Signature(96) + TxRoot(1 selector + 32 bytes) + variable data
+	totalSize := 236 + 12 + 96 + 33 + len(execPayloadSSZ) + len(blobsBundleSSZ) + len(execRequestsSSZ)
 	sszData := make([]byte, totalSize)
 
 	copy(sszData[0:236], messageSSZ)
 
-	headerEnd := uint64(376) // 236 + 12 + 96 + 32
+	headerEnd := uint64(377) // 236 + 12 + 96 + 33
 	o1 := headerEnd
 	o2 := o1 + uint64(len(execPayloadSSZ))
 	o3 := o2 + uint64(len(blobsBundleSSZ))
@@ -1174,17 +1174,18 @@ func TestBlockSubmissionSSZFastUnmarshaller_WithTxRootOnly(t *testing.T) {
 	// Signature at [248:344]
 	copy(sszData[248:344], baseRequest.Signature[:])
 
-	// TxRoot at [344:376]
-	copy(sszData[344:376], txRoot[:])
+	// TxRoot at [344:377] - selector byte (1) + 32 bytes
+	sszData[344] = 1 // selector = Some
+	copy(sszData[345:377], txRoot[:])
 
 	// Copy variable data
 	copy(sszData[o1:o2], execPayloadSSZ)
 	copy(sszData[o2:o3], blobsBundleSSZ)
 	copy(sszData[o3:], execRequestsSSZ)
 
-	// Verify o1 indicates TxRoot present (376)
+	// Verify o1 indicates TxRoot=Some present (377)
 	o1Check := ssz.ReadOffset(sszData[236:240])
-	require.Equal(t, uint64(376), o1Check, "With TxRoot only, first offset should be 376")
+	require.Equal(t, uint64(377), o1Check, "With TxRoot=Some only, first offset should be 377")
 
 	// Unmarshal
 	result := &VersionedExtendedSubmitBlockRequest{}
@@ -1192,7 +1193,8 @@ func TestBlockSubmissionSSZFastUnmarshaller_WithTxRootOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify TxRoot is present and correct
-	require.Equal(t, txRoot, result.Fulu.TxRoot)
+	require.NotNil(t, result.Fulu.TxRoot, "TxRoot should not be nil")
+	require.Equal(t, txRoot, *result.Fulu.TxRoot)
 
 	// Verify AdjustmentData is nil
 	require.Nil(t, result.Fulu.AdjustmentData)
@@ -1202,8 +1204,8 @@ func TestBlockSubmissionSSZFastUnmarshaller_WithTxRootOnly(t *testing.T) {
 	require.Len(t, result.Fulu.BlobsBundle.Commitments, 1)
 }
 
-// TestBlockSubmissionSSZFastUnmarshaller_WithTxRootAndAdjustmentData tests unmarshaling with both TxRoot and AdjustmentData
-// Expected offset: 380 (344 + 32 + 4)
+// TestBlockSubmissionSSZFastUnmarshaller_WithTxRootAndAdjustmentData tests unmarshaling with both TxRoot=Some and AdjustmentData
+// Expected offset: 381 (344 + 1 selector + 32 bytes + 4 offset)
 func TestBlockSubmissionSSZFastUnmarshaller_WithTxRootAndAdjustmentData(t *testing.T) {
 	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller()
 
@@ -1274,14 +1276,14 @@ func TestBlockSubmissionSSZFastUnmarshaller_WithTxRootAndAdjustmentData(t *testi
 		txRoot[i] = byte(i + 100)
 	}
 
-	// Build SSZ with both TxRoot and AdjustmentData (380-byte header)
-	// Layout: Message(236) + 3 offsets(12) + Signature(96) + TxRoot(32) + AdjustmentData offset(4) + variable data
-	totalSize := 236 + 12 + 96 + 32 + 4 + len(execPayloadSSZ) + len(blobsBundleSSZ) + len(execRequestsSSZ) + len(adjustmentSSZ)
+	// Build SSZ with both TxRoot=Some and AdjustmentData (381-byte header)
+	// Layout: Message(236) + 3 offsets(12) + Signature(96) + TxRoot(1 selector + 32 bytes) + AdjustmentData offset(4) + variable data
+	totalSize := 236 + 12 + 96 + 33 + 4 + len(execPayloadSSZ) + len(blobsBundleSSZ) + len(execRequestsSSZ) + len(adjustmentSSZ)
 	sszData := make([]byte, totalSize)
 
 	copy(sszData[0:236], messageSSZ)
 
-	headerEnd := uint64(380) // 236 + 12 + 96 + 32 + 4
+	headerEnd := uint64(381) // 236 + 12 + 96 + 33 + 4
 	o1 := headerEnd
 	o2 := o1 + uint64(len(execPayloadSSZ))
 	o3 := o2 + uint64(len(blobsBundleSSZ))
@@ -1295,11 +1297,12 @@ func TestBlockSubmissionSSZFastUnmarshaller_WithTxRootAndAdjustmentData(t *testi
 	// Signature at [248:344]
 	copy(sszData[248:344], baseRequest.Signature[:])
 
-	// TxRoot at [344:376]
-	copy(sszData[344:376], txRoot[:])
+	// TxRoot at [344:377] - selector byte (1) + 32 bytes
+	sszData[344] = 1 // selector = Some
+	copy(sszData[345:377], txRoot[:])
 
-	// AdjustmentData offset at [376:380]
-	binary.LittleEndian.PutUint32(sszData[376:380], uint32(o5))
+	// AdjustmentData offset at [377:381]
+	binary.LittleEndian.PutUint32(sszData[377:381], uint32(o5))
 
 	// Copy variable data
 	copy(sszData[o1:o2], execPayloadSSZ)
@@ -1307,9 +1310,9 @@ func TestBlockSubmissionSSZFastUnmarshaller_WithTxRootAndAdjustmentData(t *testi
 	copy(sszData[o3:o5], execRequestsSSZ)
 	copy(sszData[o5:], adjustmentSSZ)
 
-	// Verify o1 indicates both TxRoot and AdjustmentData present (380)
+	// Verify o1 indicates both TxRoot=Some and AdjustmentData present (381)
 	o1Check := ssz.ReadOffset(sszData[236:240])
-	require.Equal(t, uint64(380), o1Check, "With TxRoot and AdjustmentData, first offset should be 380")
+	require.Equal(t, uint64(381), o1Check, "With TxRoot=Some and AdjustmentData, first offset should be 381")
 
 	// Unmarshal
 	result := &VersionedExtendedSubmitBlockRequest{}
@@ -1317,7 +1320,8 @@ func TestBlockSubmissionSSZFastUnmarshaller_WithTxRootAndAdjustmentData(t *testi
 	require.NoError(t, err)
 
 	// Verify TxRoot is present and correct
-	require.Equal(t, txRoot, result.Fulu.TxRoot)
+	require.NotNil(t, result.Fulu.TxRoot, "TxRoot should not be nil")
+	require.Equal(t, txRoot, *result.Fulu.TxRoot)
 
 	// Verify AdjustmentData is present and correct
 	require.NotNil(t, result.Fulu.AdjustmentData)
@@ -1362,8 +1366,8 @@ func TestBlockSubmissionSSZFastUnmarshaller_InvalidOffset(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name:        "Invalid offset 345 - between valid values",
-			o1Value:     345,
+			name:        "Invalid offset 346 - between valid values",
+			o1Value:     346,
 			expectError: true,
 		},
 		{
@@ -1372,8 +1376,13 @@ func TestBlockSubmissionSSZFastUnmarshaller_InvalidOffset(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name:        "Invalid offset 377 - between valid values",
-			o1Value:     377,
+			name:        "Invalid offset 370 - between valid values",
+			o1Value:     370,
+			expectError: true,
+		},
+		{
+			name:        "Invalid offset 378 - between valid values",
+			o1Value:     378,
 			expectError: true,
 		},
 		{
@@ -1407,7 +1416,7 @@ func TestBlockSubmissionSSZFastUnmarshaller_InvalidOffset(t *testing.T) {
 	}
 }
 
-// TestBlockSubmissionSSZFastUnmarshaller_TxRootZeroValue tests that TxRoot is properly zeroed when not present
+// TestBlockSubmissionSSZFastUnmarshaller_TxRootZeroValue tests that TxRoot is nil when not present
 func TestBlockSubmissionSSZFastUnmarshaller_TxRootZeroValue(t *testing.T) {
 	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller()
 
@@ -1438,9 +1447,229 @@ func TestBlockSubmissionSSZFastUnmarshaller_TxRootZeroValue(t *testing.T) {
 	err = unmarshaller.UnmarshalSSZ(sszData, result)
 	require.NoError(t, err)
 
-	// Verify TxRoot is zero
-	require.Equal(t, [32]byte{}, result.Fulu.TxRoot, "TxRoot should be zero when not present")
+	// Verify TxRoot is nil
+	require.Nil(t, result.Fulu.TxRoot, "TxRoot should be nil when not present")
 
 	// Verify other fields work correctly
 	require.Equal(t, uint64(555), result.Fulu.Message.Slot)
+}
+
+// TestBlockSubmissionSSZFastUnmarshaller_WithTxRootNone tests unmarshaling with TxRoot=None (selector=0, 1 byte)
+// Expected offset: 345 (344 + 1 selector byte)
+func TestBlockSubmissionSSZFastUnmarshaller_WithTxRootNone(t *testing.T) {
+	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller()
+
+	blockHash := GenerateRandomEthHash()
+	builderPubkey := GenerateRandomPublicKey()
+	parentHash := GenerateRandomEthHash()
+	proposerPubkey := GenerateRandomPublicKey()
+	blockValue := big.NewInt(3000000)
+	feeRecipient := bellatrix.ExecutionAddress{51, 52, 53}
+
+	baseRequest := NewFuluBuilderSubmitBlockRequest(
+		888, // slot
+		proposerPubkey,
+		builderPubkey,
+		parentHash,
+		blockHash,
+		blockValue,
+		feeRecipient,
+		[]byte{0x51, 0x52, 0x53},
+	)
+
+	// Add simple blob
+	commitment1 := deneb.KZGCommitment{}
+	commitment1[0] = 0xAA
+	proof1 := deneb.KZGProof{}
+	proof1[0] = 0xBB
+	blob1 := deneb.Blob{}
+	blob1[0] = 0xCC
+
+	baseRequest.BlobsBundle = &builderApiFulu.BlobsBundle{
+		Commitments: []deneb.KZGCommitment{commitment1},
+		Proofs:      []deneb.KZGProof{proof1},
+		Blobs:       []deneb.Blob{blob1},
+	}
+
+	// Marshal components
+	messageSSZ, err := baseRequest.Message.MarshalSSZ()
+	require.NoError(t, err)
+
+	execPayloadSSZ, err := baseRequest.ExecutionPayload.MarshalSSZ()
+	require.NoError(t, err)
+
+	blobsBundleSSZ, err := baseRequest.BlobsBundle.MarshalSSZ()
+	require.NoError(t, err)
+
+	execRequestsSSZ, err := baseRequest.ExecutionRequests.MarshalSSZ()
+	require.NoError(t, err)
+
+	// Build SSZ with TxRoot=None (345-byte header)
+	// Layout: Message(236) + 3 offsets(12) + Signature(96) + TxRoot selector(1) + variable data
+	totalSize := 236 + 12 + 96 + 1 + len(execPayloadSSZ) + len(blobsBundleSSZ) + len(execRequestsSSZ)
+	sszData := make([]byte, totalSize)
+
+	copy(sszData[0:236], messageSSZ)
+
+	headerEnd := uint64(345) // 236 + 12 + 96 + 1
+	o1 := headerEnd
+	o2 := o1 + uint64(len(execPayloadSSZ))
+	o3 := o2 + uint64(len(blobsBundleSSZ))
+
+	// Write 3 offsets
+	binary.LittleEndian.PutUint32(sszData[236:240], uint32(o1))
+	binary.LittleEndian.PutUint32(sszData[240:244], uint32(o2))
+	binary.LittleEndian.PutUint32(sszData[244:248], uint32(o3))
+
+	// Signature at [248:344]
+	copy(sszData[248:344], baseRequest.Signature[:])
+
+	// TxRoot at [344:345] - selector byte only (0 = None)
+	sszData[344] = 0 // selector = None
+
+	// Copy variable data
+	copy(sszData[o1:o2], execPayloadSSZ)
+	copy(sszData[o2:o3], blobsBundleSSZ)
+	copy(sszData[o3:], execRequestsSSZ)
+
+	// Verify o1 indicates TxRoot=None present (345)
+	o1Check := ssz.ReadOffset(sszData[236:240])
+	require.Equal(t, uint64(345), o1Check, "With TxRoot=None, first offset should be 345")
+
+	// Unmarshal
+	result := &VersionedExtendedSubmitBlockRequest{}
+	err = unmarshaller.UnmarshalSSZ(sszData, result)
+	require.NoError(t, err)
+
+	// Verify TxRoot is nil (None)
+	require.Nil(t, result.Fulu.TxRoot, "TxRoot should be nil when selector=0")
+
+	// Verify AdjustmentData is nil
+	require.Nil(t, result.Fulu.AdjustmentData)
+
+	// Verify other fields
+	require.Equal(t, uint64(888), result.Fulu.Message.Slot)
+	require.Len(t, result.Fulu.BlobsBundle.Commitments, 1)
+}
+
+// TestBlockSubmissionSSZFastUnmarshaller_WithTxRootNoneAndAdjustmentData tests TxRoot=None + AdjustmentData
+// Expected offset: 349 (344 + 1 selector + 4 offset)
+func TestBlockSubmissionSSZFastUnmarshaller_WithTxRootNoneAndAdjustmentData(t *testing.T) {
+	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller()
+
+	blockHash := GenerateRandomEthHash()
+	builderPubkey := GenerateRandomPublicKey()
+	parentHash := GenerateRandomEthHash()
+	proposerPubkey := GenerateRandomPublicKey()
+	blockValue := big.NewInt(4000000)
+	feeRecipient := bellatrix.ExecutionAddress{61, 62, 63}
+
+	baseRequest := NewFuluBuilderSubmitBlockRequest(
+		2222, // slot
+		proposerPubkey,
+		builderPubkey,
+		parentHash,
+		blockHash,
+		blockValue,
+		feeRecipient,
+		[]byte{0x61, 0x62, 0x63},
+	)
+
+	// Add simple blob
+	commitment1 := deneb.KZGCommitment{}
+	commitment1[0] = 0xEE
+	proof1 := deneb.KZGProof{}
+	proof1[0] = 0xDD
+	blob1 := deneb.Blob{}
+	blob1[0] = 0xCC
+
+	baseRequest.BlobsBundle = &builderApiFulu.BlobsBundle{
+		Commitments: []deneb.KZGCommitment{commitment1},
+		Proofs:      []deneb.KZGProof{proof1},
+		Blobs:       []deneb.Blob{blob1},
+	}
+
+	// Create AdjustmentData
+	adjustmentData := &bidadjustment.AdjustmentData{
+		StateRoot:           [32]byte{0xAA},
+		TransactionsRoot:    [32]byte{0xBB},
+		ReceiptsRoot:        [32]byte{0xCC},
+		BuilderAddress:      [20]byte{0xDD},
+		FeeRecipientAddress: [20]byte{0xEE},
+		FeePayerAddress:     [20]byte{0xFF},
+		BuilderProof:        [][]byte{{0x11}},
+		FeeRecipientProof:   [][]byte{{0x22}},
+		FeePayerProof:       [][]byte{{0x33}},
+		PlaceholderTxProof:  [][]byte{{0x44}},
+	}
+	adjustmentSSZ, err := adjustmentData.MarshalSSZ()
+	require.NoError(t, err)
+
+	// Marshal components
+	messageSSZ, err := baseRequest.Message.MarshalSSZ()
+	require.NoError(t, err)
+
+	execPayloadSSZ, err := baseRequest.ExecutionPayload.MarshalSSZ()
+	require.NoError(t, err)
+
+	blobsBundleSSZ, err := baseRequest.BlobsBundle.MarshalSSZ()
+	require.NoError(t, err)
+
+	execRequestsSSZ, err := baseRequest.ExecutionRequests.MarshalSSZ()
+	require.NoError(t, err)
+
+	// Build SSZ with TxRoot=None + AdjustmentData (349-byte header)
+	// Layout: Message(236) + 3 offsets(12) + Signature(96) + TxRoot selector(1) + AdjustmentData offset(4) + variable data
+	totalSize := 236 + 12 + 96 + 1 + 4 + len(execPayloadSSZ) + len(blobsBundleSSZ) + len(execRequestsSSZ) + len(adjustmentSSZ)
+	sszData := make([]byte, totalSize)
+
+	copy(sszData[0:236], messageSSZ)
+
+	headerEnd := uint64(349) // 236 + 12 + 96 + 1 + 4
+	o1 := headerEnd
+	o2 := o1 + uint64(len(execPayloadSSZ))
+	o3 := o2 + uint64(len(blobsBundleSSZ))
+	o5 := o3 + uint64(len(execRequestsSSZ))
+
+	// Write first 3 offsets
+	binary.LittleEndian.PutUint32(sszData[236:240], uint32(o1))
+	binary.LittleEndian.PutUint32(sszData[240:244], uint32(o2))
+	binary.LittleEndian.PutUint32(sszData[244:248], uint32(o3))
+
+	// Signature at [248:344]
+	copy(sszData[248:344], baseRequest.Signature[:])
+
+	// TxRoot at [344:345] - selector byte only (0 = None)
+	sszData[344] = 0 // selector = None
+
+	// AdjustmentData offset at [345:349]
+	binary.LittleEndian.PutUint32(sszData[345:349], uint32(o5))
+
+	// Copy variable data
+	copy(sszData[o1:o2], execPayloadSSZ)
+	copy(sszData[o2:o3], blobsBundleSSZ)
+	copy(sszData[o3:o5], execRequestsSSZ)
+	copy(sszData[o5:], adjustmentSSZ)
+
+	// Verify o1 indicates TxRoot=None + AdjustmentData (349)
+	o1Check := ssz.ReadOffset(sszData[236:240])
+	require.Equal(t, uint64(349), o1Check, "With TxRoot=None and AdjustmentData, first offset should be 349")
+
+	// Unmarshal
+	result := &VersionedExtendedSubmitBlockRequest{}
+	err = unmarshaller.UnmarshalSSZ(sszData, result)
+	require.NoError(t, err)
+
+	// Verify TxRoot is nil (None)
+	require.Nil(t, result.Fulu.TxRoot, "TxRoot should be nil when selector=0")
+
+	// Verify AdjustmentData is present and correct
+	require.NotNil(t, result.Fulu.AdjustmentData)
+	require.Equal(t, adjustmentData.StateRoot, result.Fulu.AdjustmentData.StateRoot)
+	require.Equal(t, adjustmentData.TransactionsRoot, result.Fulu.AdjustmentData.TransactionsRoot)
+	require.Equal(t, adjustmentData.BuilderAddress, result.Fulu.AdjustmentData.BuilderAddress)
+
+	// Verify other fields
+	require.Equal(t, uint64(2222), result.Fulu.Message.Slot)
+	require.Len(t, result.Fulu.BlobsBundle.Commitments, 1)
 }

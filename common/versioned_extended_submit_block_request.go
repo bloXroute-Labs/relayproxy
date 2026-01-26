@@ -1,4 +1,4 @@
-package common // TODO: move to different package?
+package common
 
 import (
 	"crypto/sha256"
@@ -84,7 +84,7 @@ type FuluExtendedSubmitBlockRequest struct {
 	BlobsBundle       *FuluExtendedBlobsBundle
 	ExecutionRequests *electra.ExecutionRequests
 	Signature         phase0.BLSSignature `ssz-size:"96"`
-	TxRoot            [32]byte
+	TxRoot            *[32]byte           // Optional: encoded with 1-byte selector (0=None/1 byte, 1=Some/33 bytes). This is ported from Rust hydration impl.
 	AdjustmentData    *bidadjustment.AdjustmentData
 }
 
@@ -265,7 +265,7 @@ func ProtoRequestToVersionedExtendedRequest(block *relayGRPC.SubmitBlockRequest)
 			BlobsBundle:       extendedBlobsBundle,
 			ExecutionRequests: convertProtoToFuluExecutionRequest(block.ExecutionRequests),
 			Signature:         b96(block.Signature),
-			TxRoot:            [32]byte{}, // TxRoot not present in gRPC proto, defaults to zero
+			TxRoot:            nil, // TxRoot not present in gRPC proto
 			AdjustmentData:    adjustmentData,
 		},
 	}, nil
@@ -411,48 +411,82 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 
 	// Detect optional fields based on where ExecutionPayload offset points
 	// o1 is the ExecutionPayload offset read from [236:240]
+	// TxRoot in Rust is encoded as Option<B256> with 1-byte selector:
+	//   - selector = 0: None (1 byte total)
+	//   - selector = 1: Some (1 byte selector + 32 bytes data = 33 bytes total)
+	//
 	// Possible layouts after Signature (position 344):
-	// 1. o1 == 344: No optional fields (ExecutionPayload starts immediately)
-	// 2. o1 == 348: Only AdjustmentData offset [344:348]
-	// 3. o1 == 376: Only TxRoot [344:376] (32 bytes, no AdjustmentData)
-	// 4. o1 == 380: Both TxRoot [344:376] and AdjustmentData offset [376:380]
+	// 1. o1 == 344: No optional fields
+	// 2. o1 == 345: Only TxRoot=None (1 byte selector)
+	// 3. o1 == 348: Only AdjustmentData offset (legacy format, 4 bytes)
+	// 4. o1 == 349: TxRoot=None + AdjustmentData (1 byte + 4 bytes offset)
+	// 5. o1 == 377: Only TxRoot=Some (1 byte selector + 32 bytes)
+	// 6. o1 == 381: TxRoot=Some + AdjustmentData (1 byte + 32 bytes + 4 bytes offset)
 
-	hasTxRoot := false
-	hasAdjustmentDataOffset := false
-	var txRootEnd uint64 = 344
+	var txRootPos uint64 = 344
+	var txRootSize uint64 = 0 // 0 = not present, 1 = None, 33 = Some
 	var adjustmentDataOffsetPos uint64 = 344
+	hasAdjustmentDataOffset := false
 
-	if o1 == 344 {
+	switch o1 {
+	case 344:
 		// No optional fields
 		o5 = size
-	} else if o1 == 348 {
+	case 345:
+		// Only TxRoot=None (1 byte selector)
+		txRootSize = 1
+		o5 = size
+	case 348:
 		// Only AdjustmentData offset (legacy format)
 		hasAdjustmentDataOffset = true
 		adjustmentDataOffsetPos = 344
-	} else if o1 == 376 {
-		// Only TxRoot, no AdjustmentData
-		hasTxRoot = true
-		txRootEnd = 376
-		o5 = size
-	} else if o1 == 380 {
-		// Both TxRoot and AdjustmentData offset
-		hasTxRoot = true
+	case 349:
+		// TxRoot=None (1 byte) + AdjustmentData offset (4 bytes)
+		txRootSize = 1
 		hasAdjustmentDataOffset = true
-		txRootEnd = 376
-		adjustmentDataOffsetPos = 376
-	} else {
-		return fmt.Errorf("invalid header layout: ExecutionPayload offset %d not recognized (expected 344, 348, 376, or 380)", o1)
+		adjustmentDataOffsetPos = 345
+	case 377:
+		// Only TxRoot=Some (1 byte selector + 32 bytes data)
+		txRootSize = 33
+		o5 = size
+	case 381:
+		// TxRoot=Some (33 bytes) + AdjustmentData offset (4 bytes)
+		txRootSize = 33
+		hasAdjustmentDataOffset = true
+		adjustmentDataOffsetPos = 377
+	default:
+		return fmt.Errorf("invalid header layout: ExecutionPayload offset %d not recognized (expected 344, 345, 348, 349, 377, or 381)", o1)
 	}
 
-	// Field (5) 'TxRoot' - optional 32-byte field at [344:376]
-	if hasTxRoot {
-		if size < txRootEnd {
-			return fmt.Errorf("buffer too small for TxRoot: expected at least %d bytes, got %d", txRootEnd, size)
+	// Field (5) 'TxRoot' - optional field with 1-byte selector
+	if txRootSize > 0 {
+		if size < txRootPos+txRootSize {
+			return fmt.Errorf("buffer too small for TxRoot: expected at least %d bytes, got %d", txRootPos+txRootSize, size)
 		}
-		copy(r.TxRoot[:], buf[344:376])
+
+		// Read selector byte
+		selector := buf[txRootPos]
+		switch selector {
+		case 0:
+			// None: TxRoot is not present
+			if txRootSize != 1 {
+				return fmt.Errorf("TxRoot selector is 0 (None) but size is %d, expected 1", txRootSize)
+			}
+			r.TxRoot = nil
+		case 1:
+			// Some: Read 32 bytes of data
+			if txRootSize != 33 {
+				return fmt.Errorf("TxRoot selector is 1 (Some) but size is %d, expected 33", txRootSize)
+			}
+			txRoot := new([32]byte)
+			copy(txRoot[:], buf[txRootPos+1:txRootPos+33])
+			r.TxRoot = txRoot
+		default:
+			return fmt.Errorf("invalid TxRoot selector byte: %d (expected 0 or 1)", selector)
+		}
 	} else {
-		// Zero out TxRoot if not present
-		r.TxRoot = [32]byte{}
+		// TxRoot field not present in this layout
+		r.TxRoot = nil
 	}
 
 	// Offset (6) 'AdjustmentData' (only if header contains it)
