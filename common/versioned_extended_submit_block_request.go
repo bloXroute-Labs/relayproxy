@@ -26,9 +26,9 @@ import (
 
 // Extended models - full structures with standard fields + NewItems used for blobs hydration
 type FuluHydrationBlobItem struct {
-	Proof      []deneb.KZGProof    `ssz-max:"128" ssz-size:"?,48"`
-	Commitment deneb.KZGCommitment `ssz-size:"48"`
-	Blob       deneb.Blob          `ssz-size:"131072"`
+	Proof      []deneb.KZGProof    `json:"proof" ssz-max:"128" ssz-size:"?,48"`
+	Commitment deneb.KZGCommitment `json:"commitment" ssz-size:"48"`
+	Blob       deneb.Blob          `json:"blob" ssz-size:"131072"`
 }
 
 // UnmarshalSSZ unmarshals FuluHydrationBlobItem from SSZ format
@@ -72,25 +72,25 @@ func (item *FuluHydrationBlobItem) UnmarshalSSZ(buf []byte) error {
 }
 
 type FuluExtendedBlobsBundle struct {
-	Commitments []deneb.KZGCommitment   `ssz-max:"4096" ssz-size:"?,48"`
-	Proofs      []deneb.KZGProof        `ssz-max:"33554432" ssz-size:"?,48"`
-	Blobs       []deneb.Blob            `ssz-max:"4096" ssz-size:"?,131072"`
-	NewItems    []FuluHydrationBlobItem `ssz-max:"4096" ssz-size:"?,137268"`
+	Commitments []deneb.KZGCommitment   `json:"commitments" ssz-max:"4096" ssz-size:"?,48"`
+	Proofs      []deneb.KZGProof        `json:"proofs" ssz-max:"33554432" ssz-size:"?,48"`
+	Blobs       []deneb.Blob            `json:"blobs" ssz-max:"4096" ssz-size:"?,131072"`
+	NewItems    []FuluHydrationBlobItem `json:"new_items" ssz-max:"4096" ssz-size:"?,137268"`
 }
 
 type FuluExtendedSubmitBlockRequest struct {
-	Message           *apiv1.BidTrace
-	ExecutionPayload  *deneb.ExecutionPayload
-	BlobsBundle       *FuluExtendedBlobsBundle
-	ExecutionRequests *electra.ExecutionRequests
-	Signature         phase0.BLSSignature `ssz-size:"96"`
-	TxRoot            *[32]byte           // Optional: encoded with 1-byte selector (0=None/1 byte, 1=Some/33 bytes). This is ported from Rust hydration impl.
-	AdjustmentData    *bidadjustment.AdjustmentData
+	Message           *apiv1.BidTrace               `json:"message"`
+	ExecutionPayload  *deneb.ExecutionPayload       `json:"execution_payload"`
+	BlobsBundle       *FuluExtendedBlobsBundle      `json:"blobs_bundle"`
+	ExecutionRequests *electra.ExecutionRequests    `json:"execution_requests"`
+	Signature         phase0.BLSSignature           `json:"signature" ssz-size:"96"`
+	TxRoot            *[32]byte                     `json:"tx_root,omitempty"` // Optional: encoded with 1-byte selector (0=None/1 byte, 1=Some/33 bytes). This is ported from Rust hydration impl.
+	AdjustmentData    *bidadjustment.AdjustmentData `json:"adjustment_data,omitempty"`
 }
 
 type VersionedExtendedSubmitBlockRequest struct {
-	Version consensusspec.DataVersion
-	Fulu    *FuluExtendedSubmitBlockRequest
+	Version consensusspec.DataVersion       `json:"version"`
+	Fulu    *FuluExtendedSubmitBlockRequest `json:"fulu,omitempty"`
 }
 
 func (e *VersionedExtendedSubmitBlockRequest) GetAdjustmentData() (*bidadjustment.AdjustmentData, error) {
