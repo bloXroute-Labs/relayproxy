@@ -72,10 +72,10 @@ func (item *FuluHydrationBlobItem) UnmarshalSSZ(buf []byte) error {
 }
 
 type FuluExtendedBlobsBundle struct {
-	Commitments []deneb.KZGCommitment   `json:"commitments" ssz-max:"4096" ssz-size:"?,48"`
-	Proofs      []deneb.KZGProof        `json:"proofs" ssz-max:"33554432" ssz-size:"?,48"`
-	Blobs       []deneb.Blob            `json:"blobs" ssz-max:"4096" ssz-size:"?,131072"`
-	NewItems    []FuluHydrationBlobItem `json:"new_items" ssz-max:"4096" ssz-size:"?,137268"`
+	Commitments []deneb.KZGCommitment    `json:"commitments" ssz-max:"4096" ssz-size:"?,48"`
+	Proofs      []deneb.KZGProof         `json:"proofs" ssz-max:"33554432" ssz-size:"?,48"`
+	Blobs       []deneb.Blob             `json:"blobs" ssz-max:"4096" ssz-size:"?,131072"`
+	NewItems    []*FuluHydrationBlobItem `json:"new_items" ssz-max:"4096" ssz-size:"?,137268"`
 }
 
 type FuluExtendedSubmitBlockRequest struct {
@@ -190,7 +190,7 @@ func ProtoRequestToVersionedExtendedRequest(block *relayGRPC.SubmitBlockRequest)
 
 	// Convert NewItems if present
 	if len(block.BlobsBundle.NewItems) > 0 {
-		extendedBlobsBundle.NewItems = make([]FuluHydrationBlobItem, len(block.BlobsBundle.NewItems))
+		extendedBlobsBundle.NewItems = make([]*FuluHydrationBlobItem, len(block.BlobsBundle.NewItems))
 		for index, item := range block.BlobsBundle.NewItems {
 			// Convert commitment
 			var commitment deneb.KZGCommitment
@@ -206,7 +206,7 @@ func ProtoRequestToVersionedExtendedRequest(block *relayGRPC.SubmitBlockRequest)
 			var blob deneb.Blob
 			copy(blob[:], item.Blob)
 
-			extendedBlobsBundle.NewItems[index] = FuluHydrationBlobItem{
+			extendedBlobsBundle.NewItems[index] = &FuluHydrationBlobItem{
 				Proof:      proofs,
 				Commitment: commitment,
 				Blob:       blob,
@@ -592,7 +592,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) cloneFuluBlobsBundle(src *FuluExten
 		Commitments: make([]deneb.KZGCommitment, len(src.Commitments)),
 		Proofs:      make([]deneb.KZGProof, len(src.Proofs)),
 		Blobs:       make([]deneb.Blob, len(src.Blobs)),
-		NewItems:    make([]FuluHydrationBlobItem, len(src.NewItems)),
+		NewItems:    make([]*FuluHydrationBlobItem, len(src.NewItems)),
 	}
 	copy(dst.Commitments, src.Commitments)
 	copy(dst.Proofs, src.Proofs)
@@ -717,8 +717,9 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal field 'NewItems': invalid segment size %d: %w", len(seg), err)
 		}
-		b.NewItems = make([]FuluHydrationBlobItem, num)
+		b.NewItems = make([]*FuluHydrationBlobItem, num)
 		for i := 0; i < num; i++ {
+			b.NewItems[i] = &FuluHydrationBlobItem{}
 			if err = b.NewItems[i].UnmarshalSSZ(seg[i*137268 : (i+1)*137268]); err != nil {
 				return fmt.Errorf("failed to unmarshal field 'NewItems' item %d: %w", i, err)
 			}
