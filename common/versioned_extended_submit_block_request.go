@@ -88,6 +88,50 @@ type FuluExtendedSubmitBlockRequest struct {
 	AdjustmentData    *bidadjustment.AdjustmentData `json:"adjustment_data,omitempty"`
 }
 
+const (
+	maxTransactionsPerPayload = 1048576    // 2^20
+	maxBytesPerTransaction    = 1073741824 // 2^30
+)
+
+func (r *FuluExtendedSubmitBlockRequest) ComputeTransactionsRoot() ([32]byte, error) {
+	txs := r.ExecutionPayload.Transactions
+
+	// Get hasher for the transaction list
+	hh := ssz.DefaultHasherPool.Get()
+	defer ssz.DefaultHasherPool.Put(hh)
+
+	subIndx := hh.Index()
+
+	// Compute tree hash root for EACH transaction and append
+	for _, tx := range txs {
+		// Each transaction is a List<u8> - compute its SSZ tree hash root
+		txRoot, err := computeTransactionRoot(tx)
+		if err != nil {
+			return [32]byte{}, fmt.Errorf("failed to hash transaction: %w", err)
+		}
+		hh.Append(txRoot[:])
+	}
+
+	// Merkleize the list of transaction roots with list length
+	hh.MerkleizeWithMixin(subIndx, uint64(len(txs)), maxTransactionsPerPayload)
+
+	return hh.HashRoot()
+}
+
+// computeTransactionRoot computes SSZ tree hash for a single transaction (List<u8>)
+func computeTransactionRoot(tx []byte) ([32]byte, error) {
+	// Get a separate hasher for this transaction
+	txHasher := ssz.DefaultHasherPool.Get()
+	defer ssz.DefaultHasherPool.Put(txHasher)
+
+	// Record index, chunk bytes into 32-byte pieces, then merkleize with length mixin
+	indx := txHasher.Index()
+	txHasher.AppendBytes32(tx) // Chunk into 32-byte pieces
+	txHasher.MerkleizeWithMixin(indx, uint64(len(tx)), maxBytesPerTransaction)
+
+	return txHasher.HashRoot()
+}
+
 type VersionedExtendedSubmitBlockRequest struct {
 	Version consensusspec.DataVersion       `json:"version"`
 	Fulu    *FuluExtendedSubmitBlockRequest `json:"fulu,omitempty"`
@@ -546,14 +590,21 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 	}
 
 	// Field (6) 'AdjustmentData' (optional)
-	// Only unmarshal if there's data beyond o5
+	// Only unmarshal if there's data beyond o5 and buffer is large enough
 	if hasAdjustmentDataOffset && o5 < size {
-		buf = tail[o5:]
-		if r.AdjustmentData == nil {
-			r.AdjustmentData = new(bidadjustment.AdjustmentData)
-		}
-		if err = r.AdjustmentData.UnmarshalSSZ(buf); err != nil {
-			return fmt.Errorf("failed to unmarshal field 'AdjustmentData': %w", err)
+		adjustmentDataBufSize := size - o5
+		// Skip if buffer too small (1 byte is likely padding/trailing data, not valid AdjustmentData)
+		if adjustmentDataBufSize > 1 {
+			buf = tail[o5:]
+			if r.AdjustmentData == nil {
+				r.AdjustmentData = new(bidadjustment.AdjustmentData)
+			}
+			if err = r.AdjustmentData.UnmarshalSSZ(buf); err != nil {
+				return fmt.Errorf("failed to unmarshal field 'AdjustmentData' (offset=%d, bufSize=%d, totalSize=%d): %w", o5, adjustmentDataBufSize, size, err)
+			}
+		} else {
+			// Buffer too small for valid AdjustmentData
+			r.AdjustmentData = nil
 		}
 	} else {
 		// No adjustment data present
@@ -603,8 +654,8 @@ func (u *BlockSubmissionSSZFastUnmarshaller) cloneFuluBlobsBundle(src *FuluExten
 
 func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *FuluExtendedBlobsBundle, buf []byte) error {
 	size := uint64(len(buf))
-	if size < 12 {
-		return fmt.Errorf("buffer too small, expected at least 12 bytes, got %d: %w", size, ssz.ErrSize)
+	if size < 8 {
+		return fmt.Errorf("buffer too small, expected at least 8 bytes, got %d: %w", size, ssz.ErrSize)
 	}
 
 	tail := buf
