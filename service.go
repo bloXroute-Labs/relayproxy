@@ -634,7 +634,7 @@ func (s *Service) getTopLookBackBid(cacheKey string, lookbackTime time.Duration)
 	}
 
 	now := time.Now().UTC()
-	maxBidAdjustmentTargetTimestamp := now.Add(lookbackTime)
+	maxBidAdjustmentTargetTimestamp := now.Add(-lookbackTime)
 
 	// Get best bid in time range by for each builder pubkey
 	bestBuilderBidByPubkey := make(map[string]*common.BidMetadata)
@@ -675,6 +675,7 @@ func (s *Service) getTopLookBackBid(cacheKey string, lookbackTime time.Duration)
 		bidValue := new(big.Int).SetBytes(bid.Value)
 		if bidValue.Cmp(topLookBackBidValue) > 0 {
 			topLookBackBid = bid
+			topLookBackBidValue = bidValue
 		}
 	}
 
