@@ -81,6 +81,8 @@ type Service struct {
 	tracer                          trace.Tracer
 	fluentD                         fluentstats.Stats
 	builderBidsForProxySlot         *cache.Cache
+	allBidsLock                     sync.RWMutex
+	allBidsMetadataForProxySlot     *cache.Cache
 	builderExistingBlockHash        *cache.Cache
 	getPayloadResponseForProxySlot  *cache.Cache
 	preFetchPayloadChan             chan preFetcherFields
@@ -472,7 +474,10 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			blockSequenceNumber,
 			header.GetHidden(),
 		)
+
 		s.setBuilderBidForProxySlot(keyForCachingBids, header.GetBuilderPubkey(), bid, header.GetSlot())
+		s.setBidMetadataForProxySlot(keyForCachingBids, common.NewBidMetadata(bid))
+
 		storeBidsSpan.SetAttributes(
 			attribute.String("method", method),
 			attribute.String("nodeID", client.NodeID),
@@ -582,6 +587,25 @@ func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey strin
 		}
 	}
 	builderBidsMap.Store(builderPubkey, bid)
+}
+
+func (s *Service) setBidMetadataForProxySlot(cacheKey string, bidMetadata *common.BidMetadata) {
+	s.allBidsLock.Lock()
+	defer s.allBidsLock.Unlock()
+
+	var allBidsForSlot []*common.BidMetadata
+
+	// If the cache key does not exist, create a new slice and store it in the cache
+	if entry, bidsFound := s.allBidsMetadataForProxySlot.Get(cacheKey); !bidsFound {
+		allBidsForSlot = make([]*common.BidMetadata, 0, 1000)
+	} else {
+		// Otherwise use the existing slice
+		allBidsForSlot = entry.([]*common.BidMetadata)
+	}
+
+	allBidsForSlot = append(allBidsForSlot, bidMetadata)
+
+	s.allBidsMetadataForProxySlot.Set(cacheKey, allBidsForSlot, cache.DefaultExpiration)
 }
 
 func (s *Service) getBuilderBidForSlot(cacheKey string, builderPubkey string) (*common.Bid, bool) {

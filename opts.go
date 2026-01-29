@@ -152,6 +152,13 @@ func WithBuilderBidsForProxySlot(cache *cache.Cache) ServiceOption {
 		s.builderBidsForProxySlot = cache
 	}
 }
+
+func WithAllBidsMetadataForProxySlot(cache *cache.Cache) ServiceOption {
+	return func(s *Service) {
+		s.allBidsMetadataForProxySlot = cache
+	}
+}
+
 func WithBuilderExistingBlockHash(cache *cache.Cache) ServiceOption {
 	return func(s *Service) {
 		s.builderExistingBlockHash = cache

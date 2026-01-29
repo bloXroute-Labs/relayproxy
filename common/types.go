@@ -406,6 +406,26 @@ func NewParentClient(safeUrl string, safeConn *grpc.ClientConn, fastUrl string, 
 	}
 }
 
+type BidMetadata struct {
+	Value               []byte // block value
+	BlockHash           string
+	BuilderPubkey       string
+	BuilderExtraData    string
+	ReceivedAt          time.Time
+	BlockSequenceNumber *uint64
+}
+
+func NewBidMetadata(bid *Bid) *BidMetadata {
+	return &BidMetadata{
+		Value:               bid.Value,
+		BlockHash:           bid.BlockHash,
+		BuilderPubkey:       bid.BuilderPubkey,
+		BuilderExtraData:    bid.BuilderExtraData,
+		ReceivedAt:          bid.ReceivedAt,
+		BlockSequenceNumber: bid.BlockSequenceNumber,
+	}
+}
+
 type Bid struct {
 	Value               []byte // block value
 	payload             []byte // blinded block
