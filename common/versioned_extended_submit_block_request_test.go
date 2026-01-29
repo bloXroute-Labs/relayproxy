@@ -171,10 +171,10 @@ func TestBlockSubmissionSSZFastUnmarshaller_DehydratedFormat(t *testing.T) {
 		commitment2[i] = byte((i + 60) % 256)
 	}
 
-	// Create NewItems with proofs array (128 proofs per item)
+	// Create NewItems with proofs array (maxProofsPerBlob proofs per item)
 	newItem1 := FuluHydrationBlobItem{
 		Commitment: commitment1,
-		Proof:      make([]deneb.KZGProof, 128),
+		Proof:      make([]deneb.KZGProof, maxProofsPerBlob),
 		Blob:       deneb.Blob{},
 	}
 	for i := range newItem1.Proof {
@@ -188,7 +188,7 @@ func TestBlockSubmissionSSZFastUnmarshaller_DehydratedFormat(t *testing.T) {
 
 	newItem2 := FuluHydrationBlobItem{
 		Commitment: commitment2,
-		Proof:      make([]deneb.KZGProof, 128),
+		Proof:      make([]deneb.KZGProof, maxProofsPerBlob),
 		Blob:       deneb.Blob{},
 	}
 	for i := range newItem2.Proof {
@@ -296,13 +296,13 @@ func TestBlockSubmissionSSZFastUnmarshaller_DehydratedFormat(t *testing.T) {
 	// Verify NewItems
 	require.Equal(t, commitment1, result.Fulu.BlobsBundle.NewItems[0].Commitment)
 	require.Equal(t, commitment2, result.Fulu.BlobsBundle.NewItems[1].Commitment)
-	require.Len(t, result.Fulu.BlobsBundle.NewItems[0].Proof, 128)
-	require.Len(t, result.Fulu.BlobsBundle.NewItems[1].Proof, 128)
+	require.Len(t, result.Fulu.BlobsBundle.NewItems[0].Proof, maxProofsPerBlob)
+	require.Len(t, result.Fulu.BlobsBundle.NewItems[1].Proof, maxProofsPerBlob)
 	require.Equal(t, newItem1.Blob, result.Fulu.BlobsBundle.NewItems[0].Blob)
 	require.Equal(t, newItem2.Blob, result.Fulu.BlobsBundle.NewItems[1].Blob)
 
 	// Verify proofs match
-	for i := 0; i < 128; i++ {
+	for i := 0; i < maxProofsPerBlob; i++ {
 		require.Equal(t, newItem1.Proof[i], result.Fulu.BlobsBundle.NewItems[0].Proof[i])
 		require.Equal(t, newItem2.Proof[i], result.Fulu.BlobsBundle.NewItems[1].Proof[i])
 	}
@@ -440,8 +440,8 @@ func marshalDehydratedBlobsBundle(t *testing.T, bundle *FuluExtendedBlobsBundle)
 	require.NotEmpty(t, bundle.NewItems, "Dehydrated bundle should have NewItems")
 
 	// Calculate sizes
-	commitmentsSize := len(bundle.Commitments) * 48
-	newItemsSize := len(bundle.NewItems) * 137268 // Fixed size per item (4 + 48 + 131072 + 128*48 = 137268)
+	commitmentsSize := len(bundle.Commitments) * kzgCommitmentSize
+	newItemsSize := len(bundle.NewItems) * fuluHydrationItemMaxSize
 
 	// Total size: 8 (header) + commitmentsSize + newItemsSize
 	totalSize := 8 + commitmentsSize + newItemsSize
@@ -456,15 +456,15 @@ func marshalDehydratedBlobsBundle(t *testing.T, bundle *FuluExtendedBlobsBundle)
 
 	// Write Commitments
 	for i, commitment := range bundle.Commitments {
-		copy(data[o0+uint64(i*48):o0+uint64((i+1)*48)], commitment[:])
+		copy(data[o0+uint64(i*kzgCommitmentSize):o0+uint64((i+1)*kzgCommitmentSize)], commitment[:])
 	}
 
 	// Write NewItems
 	for i, item := range bundle.NewItems {
 		itemSSZ, err := item.MarshalSSZ()
 		require.NoError(t, err)
-		require.Equal(t, 137268, len(itemSSZ))
-		copy(data[o3+uint64(i*137268):o3+uint64((i+1)*137268)], itemSSZ)
+		require.Equal(t, fuluHydrationItemMaxSize, len(itemSSZ))
+		copy(data[o3+uint64(i*fuluHydrationItemMaxSize):o3+uint64((i+1)*fuluHydrationItemMaxSize)], itemSSZ)
 	}
 
 	return data
@@ -472,26 +472,26 @@ func marshalDehydratedBlobsBundle(t *testing.T, bundle *FuluExtendedBlobsBundle)
 
 // MarshalSSZ for HydrateBlobItem
 func (item *FuluHydrationBlobItem) MarshalSSZ() ([]byte, error) {
-	// Fixed part: offset(4) + Commitment(48) + Blob(131072) = 131124
-	// Variable part: Proofs = len(Proof)*48
-	// Total: 131124 + len(Proof)*48
-	proofsSize := len(item.Proof) * 48
-	totalSize := 131124 + proofsSize
+	// Fixed part: offset(4) + Commitment(48) + Blob(131072) = fuluHydrationItemFixedSize
+	// Variable part: Proofs = len(Proof)*kzgProofSize
+	// Total: fuluHydrationItemFixedSize + len(Proof)*kzgProofSize
+	proofsSize := len(item.Proof) * kzgProofSize
+	totalSize := fuluHydrationItemFixedSize + proofsSize
 	buf := make([]byte, totalSize)
 
 	// Offset for Proof field (points to where variable data starts)
-	o0 := uint32(131124)
+	o0 := uint32(fuluHydrationItemFixedSize)
 	binary.LittleEndian.PutUint32(buf[0:4], o0)
 
 	// Commitment at [4:52]
-	copy(buf[4:52], item.Commitment[:])
+	copy(buf[4:4+kzgCommitmentSize], item.Commitment[:])
 
-	// Blob at [52:131124]
-	copy(buf[52:131124], item.Blob[:])
+	// Blob at [52:fuluHydrationItemFixedSize]
+	copy(buf[4+kzgCommitmentSize:fuluHydrationItemFixedSize], item.Blob[:])
 
-	// Proofs at [131124:]
+	// Proofs at [fuluHydrationItemFixedSize:]
 	for i, proof := range item.Proof {
-		copy(buf[131124+i*48:131124+(i+1)*48], proof[:])
+		copy(buf[fuluHydrationItemFixedSize+i*kzgProofSize:fuluHydrationItemFixedSize+(i+1)*kzgProofSize], proof[:])
 	}
 
 	return buf, nil
@@ -647,19 +647,19 @@ func TestProtoRequestToVersionedExtendedRequest_StandardFormat(t *testing.T) {
 	tx1 := []byte{0x01, 0x02, 0x03, 0x04}
 	tx2 := []byte{0x05, 0x06, 0x07, 0x08}
 
-	commitment1 := make([]byte, 48)
+	commitment1 := make([]byte, kzgCommitmentSize)
 	commitment1[0] = 0xAA
-	commitment2 := make([]byte, 48)
+	commitment2 := make([]byte, kzgCommitmentSize)
 	commitment2[0] = 0xBB
 
-	proof1 := make([]byte, 48)
+	proof1 := make([]byte, kzgProofSize)
 	proof1[0] = 0xCC
-	proof2 := make([]byte, 48)
+	proof2 := make([]byte, kzgProofSize)
 	proof2[0] = 0xDD
 
-	blob1 := make([]byte, 131072)
+	blob1 := make([]byte, blobSize)
 	blob1[0] = 0xEE
-	blob2 := make([]byte, 131072)
+	blob2 := make([]byte, blobSize)
 	blob2[0] = 0xFF
 
 	protoRequest := &relayGRPC.SubmitBlockRequest{
@@ -693,7 +693,7 @@ func TestProtoRequestToVersionedExtendedRequest_StandardFormat(t *testing.T) {
 				{RawData: tx2},
 			},
 			Withdrawals:   []*relayGRPC.Withdrawal{},
-			BlobGasUsed:   131072,
+			BlobGasUsed:   blobSize,
 			ExcessBlobGas: 0,
 		},
 		BlobsBundle: &relayGRPC.BlobsBundle{
@@ -779,23 +779,23 @@ func TestProtoRequestToVersionedExtendedRequest_WithNewItems(t *testing.T) {
 	parentHash := GenerateRandomEthHash()
 	blockHash := GenerateRandomEthHash()
 
-	commitment1 := make([]byte, 48)
+	commitment1 := make([]byte, kzgCommitmentSize)
 	commitment1[0] = 0x11
-	commitment2 := make([]byte, 48)
+	commitment2 := make([]byte, kzgCommitmentSize)
 	commitment2[0] = 0x22
 
 	// Create NewItems with proofs arrays
-	proof1_1 := make([]byte, 48)
+	proof1_1 := make([]byte, kzgProofSize)
 	proof1_1[0] = 0x33
-	proof1_2 := make([]byte, 48)
+	proof1_2 := make([]byte, kzgProofSize)
 	proof1_2[0] = 0x44
 
-	proof2_1 := make([]byte, 48)
+	proof2_1 := make([]byte, kzgProofSize)
 	proof2_1[0] = 0x55
 
-	blob1 := make([]byte, 131072)
+	blob1 := make([]byte, blobSize)
 	blob1[0] = 0x66
-	blob2 := make([]byte, 131072)
+	blob2 := make([]byte, blobSize)
 	blob2[0] = 0x77
 
 	protoRequest := &relayGRPC.SubmitBlockRequest{
@@ -949,7 +949,7 @@ func TestProtoRequestToVersionedExtendedRequest_WithAdjustmentData(t *testing.T)
 			GasUsed:       17500000,
 			Transactions:  []*relayGRPC.CompressTx{{RawData: []byte{0x99}}},
 			Withdrawals:   []*relayGRPC.Withdrawal{},
-			BlobGasUsed:   131072,
+			BlobGasUsed:   blobSize,
 			ExcessBlobGas: 0,
 		},
 		BlobsBundle: &relayGRPC.BlobsBundle{

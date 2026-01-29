@@ -24,9 +24,26 @@ import (
 	"github.com/pkg/errors"
 )
 
+const (
+	// SSZ size constants for Fulu w/o hydration
+	kzgProofSize      = 48     // Size of a single KZG proof in bytes
+	kzgCommitmentSize = 48     // Size of a KZG commitment in bytes
+	blobSize          = 131072 // Size of a blob in bytes (128 KiB)
+	maxProofsPerBlob  = 128    // Maximum number of proofs per blob (CELLS_PER_EXT_BLOB in PeerDAS of Fulu spec)
+	maxBlobsPerBlock  = 4096   // Maximum number of blobs per block
+
+	// fuluHydrationItemFixedSize is the size of fixed fields in FuluHydrationBlobItem:
+	// 4 bytes (offset) + 48 bytes (commitment) + 131072 bytes (blob)
+	fuluHydrationItemFixedSize = 4 + kzgCommitmentSize + blobSize // = 131124
+
+	// fuluHydrationItemMaxSize is the maximum encoded size of FuluHydrationBlobItem:
+	// 131124 bytes (fixed) + 128*48 bytes (max proofs)
+	fuluHydrationItemMaxSize = fuluHydrationItemFixedSize + (maxProofsPerBlob * kzgProofSize) // = 137268
+)
+
 // Extended models - full structures with standard fields + NewItems used for blobs hydration
 type FuluHydrationBlobItem struct {
-	Proof      []deneb.KZGProof    `json:"proof" ssz-max:"128" ssz-size:"?,48"`
+	Proof      []deneb.KZGProof    `json:"proof" ssz-max:"128" ssz-size:"?,48"` // In fact we get fixed count 128 per blob (CELLS_PER_EXT_BLOB)
 	Commitment deneb.KZGCommitment `json:"commitment" ssz-size:"48"`
 	Blob       deneb.Blob          `json:"blob" ssz-size:"131072"`
 }
@@ -34,8 +51,8 @@ type FuluHydrationBlobItem struct {
 // UnmarshalSSZ unmarshals FuluHydrationBlobItem from SSZ format
 func (item *FuluHydrationBlobItem) UnmarshalSSZ(buf []byte) error {
 	size := uint64(len(buf))
-	if size < 131124 {
-		return fmt.Errorf("buffer too small, expected at least 131124 bytes, got %d: %w", size, ssz.ErrSize)
+	if size < fuluHydrationItemFixedSize {
+		return fmt.Errorf("buffer too small, expected at least %d bytes, got %d: %w", fuluHydrationItemFixedSize, size, ssz.ErrSize)
 	}
 
 	tail := buf
@@ -45,26 +62,26 @@ func (item *FuluHydrationBlobItem) UnmarshalSSZ(buf []byte) error {
 	if o0 = ssz.ReadOffset(buf[0:4]); o0 > size {
 		return fmt.Errorf("failed to unmarshal field 'Proofs': offset %d exceeds buffer size %d: %w", o0, size, ssz.ErrOffset)
 	}
-	if o0 != 131124 {
-		return fmt.Errorf("failed to unmarshal field 'Proofs': invalid offset %d, expected 131124: %w", o0, ssz.ErrInvalidVariableOffset)
+	if o0 != fuluHydrationItemFixedSize {
+		return fmt.Errorf("failed to unmarshal field 'Proofs': invalid offset %d, expected %d: %w", o0, fuluHydrationItemFixedSize, ssz.ErrInvalidVariableOffset)
 	}
 
 	// Field (1) 'Commitment' - 48 bytes at [4:52]
-	copy(item.Commitment[:], buf[4:52])
+	copy(item.Commitment[:], buf[4:4+kzgCommitmentSize])
 
 	// Field (2) 'Blob' - 131072 bytes at [52:131124]
-	copy(item.Blob[:], buf[52:131124])
+	copy(item.Blob[:], buf[4+kzgCommitmentSize:fuluHydrationItemFixedSize])
 
-	// Field (0) 'Proofs' (variable) but in fact expected to be 128 always
+	// Field (0) 'Proofs' (variable) but in fact expected to be 128 always (CELLS_PER_EXT_BLOB)
 	{
 		seg := tail[o0:]
-		num, err := ssz.DivideInt2(len(seg), 48, 128)
+		num, err := ssz.DivideInt2(len(seg), kzgProofSize, maxProofsPerBlob)
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal field 'Proofs': invalid segment size %d: %w", len(seg), err)
 		}
 		item.Proof = make([]deneb.KZGProof, num)
-		for i := 0; i < num; i++ {
-			copy(item.Proof[i][:], seg[i*48:(i+1)*48])
+		for i := range num {
+			copy(item.Proof[i][:], seg[i*kzgProofSize:(i+1)*kzgProofSize])
 		}
 	}
 
@@ -75,7 +92,7 @@ type FuluExtendedBlobsBundle struct {
 	Commitments []deneb.KZGCommitment    `json:"commitments" ssz-max:"4096" ssz-size:"?,48"`
 	Proofs      []deneb.KZGProof         `json:"proofs" ssz-max:"33554432" ssz-size:"?,48"`
 	Blobs       []deneb.Blob             `json:"blobs" ssz-max:"4096" ssz-size:"?,131072"`
-	NewItems    []*FuluHydrationBlobItem `json:"new_items" ssz-max:"4096" ssz-size:"?,137268"`
+	NewItems    []*FuluHydrationBlobItem `json:"new_items" ssz-max:"4096" ssz-size:"?,137268"` // see fuluHydrationItemMaxSize
 }
 
 type FuluExtendedSubmitBlockRequest struct {
@@ -593,9 +610,8 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 	// Field (6) 'AdjustmentData' (optional)
 	// Only unmarshal if there's data beyond o5 and buffer is large enough
 	if hasAdjustmentDataOffset && o5 < size {
-		adjustmentDataBufSize := size - o5
 		// Skip if buffer too small (1 byte is likely padding/trailing data, not valid AdjustmentData)
-		if adjustmentDataBufSize > 1 {
+		if adjustmentDataBufSize := size - o5; adjustmentDataBufSize > 1 {
 			buf = tail[o5:]
 			if r.AdjustmentData == nil {
 				r.AdjustmentData = new(bidadjustment.AdjustmentData)
@@ -701,7 +717,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 	// Field (0) 'Commitments'
 	{
 		seg := tail[o0:o1]
-		num, err := ssz.DivideInt2(len(seg), 48, 4096)
+		num, err := ssz.DivideInt2(len(seg), kzgCommitmentSize, maxBlobsPerBlock)
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal field 'Commitments': invalid segment size %d: %w", len(seg), err)
 		}
@@ -711,8 +727,8 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 			} else {
 				b.Commitments = make([]deneb.KZGCommitment, num)
 			}
-			for i := 0; i < num; i++ {
-				copy(b.Commitments[i][:], seg[i*48:(i+1)*48])
+			for i := range num {
+				copy(b.Commitments[i][:], seg[i*kzgCommitmentSize:(i+1)*kzgCommitmentSize])
 			}
 		} else {
 			b.Commitments = b.Commitments[:0]
@@ -722,8 +738,8 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 	// Field (1) 'Proofs'
 	{
 		seg := tail[o1:o2]
-		// NOTE: max = 33554432 here, same as generated UnmarshalSSZ
-		num, err := ssz.DivideInt2(len(seg), 48, 33554432)
+		// max = 33554432 here is same as in fulu.BlobsBundle SSZ max for Proofs
+		num, err := ssz.DivideInt2(len(seg), kzgProofSize, 33554432)
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal field 'Proofs': invalid segment size %d: %w", len(seg), err)
 		}
@@ -733,8 +749,8 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 			} else {
 				b.Proofs = make([]deneb.KZGProof, num)
 			}
-			for i := 0; i < num; i++ {
-				copy(b.Proofs[i][:], seg[i*48:(i+1)*48])
+			for i := range num {
+				copy(b.Proofs[i][:], seg[i*kzgProofSize:(i+1)*kzgProofSize])
 			}
 		} else {
 			b.Proofs = b.Proofs[:0]
@@ -744,7 +760,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 	// Field (2) 'Blobs'
 	{
 		seg := tail[o2:o3]
-		num, err := ssz.DivideInt2(len(seg), 131072, 4096)
+		num, err := ssz.DivideInt2(len(seg), blobSize, maxBlobsPerBlock)
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal field 'Blobs': invalid segment size %d: %w", len(seg), err)
 		}
@@ -755,7 +771,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 				b.Blobs = make([]deneb.Blob, num)
 			}
 			for i := 0; i < num; i++ {
-				copy(b.Blobs[i][:], seg[i*131072:(i+1)*131072])
+				copy(b.Blobs[i][:], seg[i*blobSize:(i+1)*blobSize])
 			}
 		} else {
 			b.Blobs = b.Blobs[:0]
@@ -765,14 +781,14 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 	// Field (3) 'NewItems' (only if extended format)
 	if hasNewItems {
 		seg := tail[o3:]
-		num, err := ssz.DivideInt2(len(seg), 137268, 4096)
+		num, err := ssz.DivideInt2(len(seg), fuluHydrationItemMaxSize, maxBlobsPerBlock)
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal field 'NewItems': invalid segment size %d: %w", len(seg), err)
 		}
 		b.NewItems = make([]*FuluHydrationBlobItem, num)
-		for i := 0; i < num; i++ {
+		for i := range num {
 			b.NewItems[i] = &FuluHydrationBlobItem{}
-			if err = b.NewItems[i].UnmarshalSSZ(seg[i*137268 : (i+1)*137268]); err != nil {
+			if err = b.NewItems[i].UnmarshalSSZ(seg[i*fuluHydrationItemMaxSize : (i+1)*fuluHydrationItemMaxSize]); err != nil {
 				return fmt.Errorf("failed to unmarshal field 'NewItems' item %d: %w", i, err)
 			}
 		}
