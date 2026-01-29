@@ -96,7 +96,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 
 	fetchGetHeaderStartTime := time.Now().UTC()
 	keyForCachingBids := s.keyForCachingBids(_slot, in.ParentHash, in.PubKey)
-	slotBestHeader, secondBestHeader, getErr := s.GetTopBuilderBid(keyForCachingBids)
+	slotBestHeader, secondBestHeader, lookbackBestHeader, getErr := s.GetTopBuilderBid(keyForCachingBids)
 	usedRepick := false
 	repickDataExist := false
 	repickDataSuccess := true
@@ -176,7 +176,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		}
 		if !usedRepick {
 			<-repickTimer.C
-			newBestHeader, secondBidHeader, err := s.GetTopBuilderBid(keyForCachingBids)
+			newBestHeader, secondBidHeader, _, err := s.GetTopBuilderBid(keyForCachingBids)
 			if err != nil {
 				log.Error().Err(err).Msg("error getting top builder bid after repick wait")
 			} else {
