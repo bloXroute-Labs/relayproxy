@@ -145,7 +145,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			go func() {
 				onHeaderBidRetrievedStart := time.Now()
 				onHeaderRetrievedCtx, onHeadonHeaderBidRetrievedSpan := s.tracer.Start(storingHeaderCtx, "getHeader-onHeaderBidRetrieved")
-				newBestHeader, replaceable, err := s.OnHeaderBidRetrieved(onHeaderRetrievedCtx, slotBestHeader, *log, _slot, in.ParentHash, slotBestHeader.BuilderPubkey, in.AccountID, delayGetHeaderResponse.ReplacementDelayMs, s.uniqueStreamingClients)
+				newBestHeader, replaceable, err := s.OnHeaderBidRetrieved(onHeaderRetrievedCtx, slotBestHeader, lookbackBestHeader, *log, _slot, in.ParentHash, in.AccountID, delayGetHeaderResponse.ReplacementDelayMs, s.uniqueStreamingClients)
 				onHeadonHeaderBidRetrievedSpan.End()
 				repickDurationMS = time.Since(onHeaderBidRetrievedStart).Milliseconds()
 				log.Info().Bool("replaceable", replaceable).Int64("onHeaderBidRetrievedDuration", repickDurationMS).Msg("OnHeaderBidRetrieved duration")
