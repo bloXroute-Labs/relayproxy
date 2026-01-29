@@ -526,7 +526,7 @@ func (s *Service) keyForCachingBids(slot uint64, parentHash string, proposerPubk
 	return fmt.Sprintf("%d_%s_%s", slot, strings.ToLower(parentHash), strings.ToLower(proposerPubkey))
 }
 
-func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, *common.Bid, error) {
+func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, *common.BidMetadata, error) {
 	var builderBidsMap *SyncMap[string, *common.Bid]
 	entry, bidsMapFound := s.builderBidsForProxySlot.Get(cacheKey)
 	if bidsMapFound {
@@ -554,7 +554,13 @@ func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, *
 		return true
 	})
 
+	topLookbackbid := s.getTopLookBackBid(200 * time.Millisecond)
+
 	return topBid, secondBid, topLookbackbid, nil
+}
+
+func (s *Service) getTopLookBackBid(lookbackTime time.Duration) *common.BidMetadata {
+
 }
 
 func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey string, bid *common.Bid, slot uint64) {
