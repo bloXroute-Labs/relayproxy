@@ -88,6 +88,7 @@ type FuluExtendedSubmitBlockRequest struct {
 	AdjustmentData    *bidadjustment.AdjustmentData `json:"adjustment_data,omitempty"`
 }
 
+// Transactions root computation is not used yet as Titan is not sending tx_root for hydrated submissions.
 const (
 	maxTransactionsPerPayload = 1048576    // 2^20
 	maxBytesPerTransaction    = 1073741824 // 2^30
