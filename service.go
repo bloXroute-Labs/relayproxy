@@ -559,10 +559,6 @@ func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, *
 	return topBid, secondBid, topLookbackbid, nil
 }
 
-func (s *Service) getTopLookBackBid(cacheKey string, lookbackTime time.Duration) *common.BidMetadata {
-
-}
-
 func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey string, bid *common.Bid, slot uint64) {
 	var builderBidsMap *SyncMap[string, *common.Bid]
 
@@ -606,12 +602,95 @@ func (s *Service) setBidMetadataForProxySlot(cacheKey string, bidMetadata *commo
 		allBidsForSlot = make([]*common.BidMetadata, 0, 1000)
 	} else {
 		// Otherwise use the existing slice
-		allBidsForSlot = entry.([]*common.BidMetadata)
+		var ok bool
+		allBidsForSlot, ok = entry.([]*common.BidMetadata)
+		if !ok {
+			s.logger.Warn().Str("cacheKey", cacheKey).Msg("Bid adjustment test - failed to cast allBidsForSlot slice in Service 'setBidMetadataForProxySlot'")
+			return
+		}
 	}
 
 	allBidsForSlot = append(allBidsForSlot, bidMetadata)
 
 	s.allBidsMetadataForProxySlot.Set(cacheKey, allBidsForSlot, cache.DefaultExpiration)
+}
+
+func (s *Service) getTopLookBackBid(cacheKey string, lookbackTime time.Duration) *common.BidMetadata {
+	start := time.Now().UTC()
+
+	s.allBidsLock.RLock()
+	defer s.allBidsLock.RUnlock()
+
+	entry, bidsMapFound := s.builderBidsForProxySlot.Get(cacheKey)
+	if !bidsMapFound {
+		s.logger.Warn().Str("cacheKey", cacheKey).Msg("Bid adjustment test - no top lookback bid found for cache key in Service 'getTopLookBackBid'")
+		return nil
+	}
+
+	allBidsForSlot, ok := entry.([]*common.BidMetadata)
+	if !ok {
+		s.logger.Warn().Str("cacheKey", cacheKey).Msg("Bid adjustment test - failed to cast allBidsForSlot slice in Service 'getTopLookBackBid'")
+		return nil
+	}
+
+	now := time.Now().UTC()
+	maxBidAdjustmentTargetTimestamp := now.Add(lookbackTime)
+
+	// Get best bid in time range by for each builder pubkey
+	bestBuilderBidByPubkey := make(map[string]*common.BidMetadata)
+	for _, bid := range allBidsForSlot {
+		// Skip bids after max target timestamp
+		// TODO: is "ReceivedAt" ok to use here?
+		if bid.ReceivedAt.After(maxBidAdjustmentTargetTimestamp) {
+			continue
+		}
+
+		bid, found := bestBuilderBidByPubkey[bid.BuilderPubkey]
+
+		// If there is no bid in the map for this pubkey, add the bid and continue
+		if !found {
+			bestBuilderBidByPubkey[bid.BuilderPubkey] = bid
+			continue
+		}
+
+	}
+
+	var topLookBackBid *common.BidMetadata
+	topLookBackBidValue := big.NewInt(0)
+
+	for _, bid := range bestBuilderBidByPubkey {
+		bidValue := new(big.Int).SetBytes(bid.Value)
+		if bidValue.Cmp(topLookBackBidValue) > 0 {
+			topLookBackBid = bid
+		}
+	}
+
+	// Get info for log if non-nil
+	lookbackTopBidBlockHash := ""
+	lookbackTopBidBuilderPubkey := ""
+	lookbackTopBidBuilderExtraData := ""
+	var lookbackTopBidTimestamp time.Time
+
+	if topLookBackBid != nil {
+		lookbackTopBidBlockHash = topLookBackBid.BlockHash
+		lookbackTopBidBuilderPubkey = topLookBackBid.BuilderPubkey
+		lookbackTopBidBuilderExtraData = topLookBackBid.BuilderExtraData
+		lookbackTopBidTimestamp = topLookBackBid.ReceivedAt
+	}
+
+	s.logger.Info().
+		Int64("durationMs", time.Since(start).Milliseconds()).
+		Str("now", now.Format(time.RFC3339Nano)).
+		Str("maxBidAdjustmentTargetTimestamp", maxBidAdjustmentTargetTimestamp.Format(time.RFC3339Nano)).
+		Str("lookbackTopBidTimestamp", lookbackTopBidTimestamp.Format(time.RFC3339Nano)).
+		Str("lookbackTopBidBlockHash", lookbackTopBidBlockHash).
+		Str("lookbackTopBidValue", topLookBackBidValue.String()).
+		Str("lookbackTopBidBuilderPubkey", lookbackTopBidBuilderPubkey).
+		Str("lookbackTopBidBuilderExtraData", lookbackTopBidBuilderExtraData).
+		Bool("lookbackTopBidFound", topLookBackBid != nil).
+		Msg("Bid adjustment test - Service 'getTopLookBackBid' completed")
+
+	return topLookBackBid
 }
 
 func (s *Service) getBuilderBidForSlot(cacheKey string, builderPubkey string) (*common.Bid, bool) {
