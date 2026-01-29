@@ -653,8 +653,11 @@ func (s *Service) getTopLookBackBid(cacheKey string, lookbackTime time.Duration)
 			continue
 		}
 
+		// Otherwise compare to previous best bid
+
 	}
 
+	// Get the overall top lookback bid from top builder bids
 	var topLookBackBid *common.BidMetadata
 	topLookBackBidValue := big.NewInt(0)
 
