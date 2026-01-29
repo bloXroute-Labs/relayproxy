@@ -645,7 +645,7 @@ func (s *Service) getTopLookBackBid(cacheKey string, lookbackTime time.Duration)
 			continue
 		}
 
-		bid, found := bestBuilderBidByPubkey[bid.BuilderPubkey]
+		existingBid, found := bestBuilderBidByPubkey[bid.BuilderPubkey]
 
 		// If there is no bid in the map for this pubkey, add the bid and continue
 		if !found {
@@ -653,8 +653,18 @@ func (s *Service) getTopLookBackBid(cacheKey string, lookbackTime time.Duration)
 			continue
 		}
 
-		// Otherwise compare to previous best bid
+		// Otherwise compare to bid sequence numbers
+		if bid.BlockSequenceNumber != nil &&
+			existingBid.BlockSequenceNumber != nil &&
+			*bid.BlockSequenceNumber > *existingBid.BlockSequenceNumber {
+			bestBuilderBidByPubkey[bid.BuilderPubkey] = bid
+			continue
+		}
 
+		// Then compare bid receive times if necessary
+		if bid.ReceivedAt.After(existingBid.ReceivedAt) {
+			bestBuilderBidByPubkey[bid.BuilderPubkey] = bid
+		}
 	}
 
 	// Get the overall top lookback bid from top builder bids
