@@ -621,8 +621,8 @@ func (s *Service) getTopLookBackBid(cacheKey string, lookbackTime time.Duration)
 	s.allBidsLock.RLock()
 	defer s.allBidsLock.RUnlock()
 
-	entry, bidsMapFound := s.builderBidsForProxySlot.Get(cacheKey)
-	if !bidsMapFound {
+	entry, allBidsFound := s.allBidsMetadataForProxySlot.Get(cacheKey)
+	if !allBidsFound {
 		s.logger.Warn().Str("cacheKey", cacheKey).Msg("Bid adjustment test - no top lookback bid found for cache key in Service 'getTopLookBackBid'")
 		return nil
 	}
