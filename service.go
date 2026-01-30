@@ -555,7 +555,7 @@ func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, *
 		return true
 	})
 
-	topLookbackbid := s.getTopLookBackBid(cacheKey, 200*time.Millisecond)
+	topLookbackbid := s.getTopLookBackBid(cacheKey, 300*time.Millisecond)
 
 	return topBid, secondBid, topLookbackbid, nil
 }
