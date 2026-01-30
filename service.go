@@ -39,9 +39,10 @@ const (
 	preFetcherRequestTimeout = 3 * time.Second
 
 	// cache
-	BuilderBidsCleanupInterval      = 36 * time.Second // 3 slots
-	ExecutionPayloadCleanupInterval = 36 * time.Second // 3 slots
-	slotStatsCleanupInterval        = 36 * time.Second // 3 slots
+	threeSlotsExpiration            = 36 * time.Second
+	BuilderBidsCleanupInterval      = threeSlotsExpiration
+	ExecutionPayloadCleanupInterval = threeSlotsExpiration
+	slotStatsCleanupInterval        = threeSlotsExpiration
 	cacheKeySeparator               = "_"
 
 	maxGetPayloadRetry                = 3
