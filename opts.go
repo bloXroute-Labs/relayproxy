@@ -176,6 +176,12 @@ func WithPreFetchPayloadChan(ch chan preFetcherFields) ServiceOption {
 	}
 }
 
+func WithOptimisticV3FetchedPayloadsChan(ch chan *common.VersionedSubmitBlockRequest) ServiceOption {
+	return func(s *Service) {
+		s.optimisticV3FetchedPayloadsChan = ch
+	}
+}
+
 func WithSvcBeaconGenesisTime(time int64) ServiceOption {
 	return func(s *Service) {
 		s.beaconGenesisTime = time
