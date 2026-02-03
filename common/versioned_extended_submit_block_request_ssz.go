@@ -92,11 +92,11 @@ func NewBlockSubmissionSSZFastUnmarshaller() *BlockSubmissionSSZFastUnmarshaller
 	}
 }
 
-func (u *BlockSubmissionSSZFastUnmarshaller) UnmarshalSSZ(input []byte, out *VersionedExtendedSubmitBlockRequest) error {
+func (u *BlockSubmissionSSZFastUnmarshaller) UnmarshalSSZ(hydrate bool, input []byte, out *VersionedExtendedSubmitBlockRequest) error {
 	if IsFulu {
 		out.Version = consensusspec.DataVersionFulu
 		fuluExtendedRequest := new(FuluExtendedSubmitBlockRequest)
-		if err := u.unmarshalSSZFulu(fuluExtendedRequest, input); err != nil {
+		if err := u.unmarshalSSZFulu(hydrate, fuluExtendedRequest, input); err != nil {
 			return fmt.Errorf("failed to unmarshal Fulu extended submit block request: %w", err)
 		}
 		out.Fulu = fuluExtendedRequest
@@ -105,7 +105,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) UnmarshalSSZ(input []byte, out *Ver
 	return errors.New("only fulu version is supported for extended SubmitBlockRequest")
 }
 
-func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSubmitBlockRequest, buf []byte) error {
+func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(hydrate bool, r *FuluExtendedSubmitBlockRequest, buf []byte) error {
 	var err error
 	size := uint64(len(buf))
 	if size < 344 {
@@ -113,7 +113,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 	}
 
 	tail := buf
-	var o1, o2, o3, o5 uint64
+	var o1, o2, o3, o4 uint64
 
 	// Field (0) 'Message'
 	if r.Message == nil {
@@ -143,84 +143,77 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 
 	// Detect optional fields based on where ExecutionPayload offset points
 	// o1 is the ExecutionPayload offset read from [236:240]
-	// TxRoot in Rust is encoded as Option<B256> with 1-byte selector:
-	//   - selector = 0: None (1 byte total)
-	//   - selector = 1: Some (1 byte selector + 32 bytes data = 33 bytes total)
+	//
+	// TxRoot encoding (hydrated format only):
+	//   - 4 bytes for offset in fixed section
+	//   - Variable section contains: 1-byte selector (0=None, 1=Some) + 32 bytes if selector=1
 	//
 	// Possible layouts after Signature (position 344):
 	// 1. o1 == 344: No optional fields
-	// 2. o1 == 345: Only TxRoot=None (1 byte selector)
-	// 3. o1 == 348: Only AdjustmentData offset (legacy format, 4 bytes)
-	// 4. o1 == 349: TxRoot=None + AdjustmentData (1 byte + 4 bytes offset)
-	// 5. o1 == 377: Only TxRoot=Some (1 byte selector + 32 bytes)
-	// 6. o1 == 381: TxRoot=Some + AdjustmentData (1 byte + 32 bytes + 4 bytes offset)
+	// 2. o1 == 348: Single 4-byte offset (could be TxRoot or AdjustmentData, need to inspect data)
+	// 3. o1 == 352: TxRoot offset (4 bytes) + AdjustmentData offset (4 bytes)
 
-	var txRootPos uint64 = 344
-	var txRootSize uint64 = 0 // 0 = not present, 1 = None, 33 = Some
+	var txRootOffsetPos uint64 = 344
 	var adjustmentDataOffsetPos uint64 = 344
+	hasTxRootOffset := false
 	hasAdjustmentDataOffset := false
 
 	switch o1 {
 	case 344:
 		// No optional fields
-		o5 = size
-	case 345:
-		// Only TxRoot=None (1 byte selector)
-		txRootSize = 1
-		o5 = size
+		o4 = size
 	case 348:
-		// Only AdjustmentData offset (legacy format)
-		hasAdjustmentDataOffset = true
-		adjustmentDataOffsetPos = 344
-	case 349:
-		// TxRoot=None (1 byte) + AdjustmentData offset (4 bytes)
-		txRootSize = 1
-		hasAdjustmentDataOffset = true
-		adjustmentDataOffsetPos = 345
-	case 377:
-		// Only TxRoot=Some (1 byte selector + 32 bytes data)
-		txRootSize = 33
-		o5 = size
-	case 381:
-		// TxRoot=Some (33 bytes) + AdjustmentData offset (4 bytes)
-		txRootSize = 33
-		hasAdjustmentDataOffset = true
-		adjustmentDataOffsetPos = 377
-	default:
-		return fmt.Errorf("invalid header layout: ExecutionPayload offset %d not recognized (expected 344, 345, 348, 349, 377, or 381)", o1)
-	}
-
-	// Field (5) 'TxRoot' - optional field with 1-byte selector (otherwise is not present, even selector)
-	if txRootSize > 0 {
-		if size < txRootPos+txRootSize {
-			return fmt.Errorf("buffer too small for TxRoot: expected at least %d bytes, got %d", txRootPos+txRootSize, size)
+		// Single 4-byte offset at position 344
+		// Could be either TxRoot or AdjustmentData - need to inspect the data
+		// TxRoot data is always exactly 1 byte (None) or 33 bytes (Some with hash)
+		// AdjustmentData is much larger (typically ~200 bytes)
+		// We check the size to determine which it is
+		o4 = ssz.ReadOffset(buf[344:348])
+		if o4 >= size {
+			return fmt.Errorf("invalid offset at position 344: %d exceeds buffer size %d", o4, size)
 		}
 
-		// Read selector byte
-		switch selector := buf[txRootPos]; selector {
-		case 0:
-			// None: TxRoot is not present
-			if txRootSize != 1 {
-				return fmt.Errorf("TxRoot selector is 0 (None) but size is %d, expected 1", txRootSize)
-			}
-			r.TxRoot = nil
-		case 1:
-			// Some: Read 32 bytes of data
-			if txRootSize != 33 {
-				return fmt.Errorf("TxRoot selector is 1 (Some) but size is %d, expected 33", txRootSize)
-			}
-			txRoot := new([32]byte)
-			copy(txRoot[:], buf[txRootPos+1:txRootPos+33])
-			r.TxRoot = txRoot
-		default:
-			return fmt.Errorf("invalid TxRoot selector byte: %d (expected 0 or 1)", selector)
+		// Calculate data size from offset to end of buffer
+		dataSize := size - o4
+
+		// TxRoot is always 1 or 33 bytes
+		// Otherwise it's AdjustmentData
+		if hydrate && (dataSize == 1 || dataSize == 33) {
+			// TxRoot
+			hasTxRootOffset = true
+			txRootOffsetPos = 344
+		} else {
+			// AdjustmentData
+			hasAdjustmentDataOffset = true
+			adjustmentDataOffsetPos = 344
+		}
+	case 352:
+		// TxRoot offset (4 bytes) + AdjustmentData offset (4 bytes)
+		o4 = ssz.ReadOffset(buf[344:348])
+		if o4 >= size {
+			return fmt.Errorf("invalid TxRoot offset at position 344: %d exceeds buffer size %d", o4, size)
+		}
+		hasTxRootOffset = true
+		txRootOffsetPos = 344
+		hasAdjustmentDataOffset = true
+		adjustmentDataOffsetPos = 348
+	default:
+		return fmt.Errorf("invalid header layout: ExecutionPayload offset %d not recognized (expected 344, 348, or 352)", o1)
+	}
+
+	// Read TxRoot offset if present
+	var txRootDataOffset uint64
+	if hasTxRootOffset {
+		if txRootDataOffset = ssz.ReadOffset(buf[txRootOffsetPos : txRootOffsetPos+4]); txRootDataOffset > size {
+			return fmt.Errorf("failed to unmarshal field 'TxRoot': offset %d exceeds buffer size %d: %w", txRootDataOffset, size, ssz.ErrOffset)
 		}
 	}
 
 	// Offset (6) 'AdjustmentData' (only if header contains it)
+	var adjustmentDataOffset uint64
 	if hasAdjustmentDataOffset {
-		if o5 = ssz.ReadOffset(buf[adjustmentDataOffsetPos : adjustmentDataOffsetPos+4]); o5 > size || o3 > o5 {
-			return fmt.Errorf("failed to unmarshal field 'AdjustmentData': invalid offset %d (previous offset: %d, size: %d): %w", o5, o3, size, ssz.ErrOffset)
+		if adjustmentDataOffset = ssz.ReadOffset(buf[adjustmentDataOffsetPos : adjustmentDataOffsetPos+4]); adjustmentDataOffset > size {
+			return fmt.Errorf("failed to unmarshal field 'AdjustmentData': invalid offset %d (size: %d): %w", adjustmentDataOffset, size, ssz.ErrOffset)
 		}
 	}
 
@@ -263,7 +256,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 
 	// Field (3) 'ExecutionRequests'
 	{
-		buf = tail[o3:o5]
+		buf = tail[o3:o4]
 		if r.ExecutionRequests == nil {
 			r.ExecutionRequests = new(electra.ExecutionRequests)
 		}
@@ -272,18 +265,52 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 		}
 	}
 
+	// Field (5) 'TxRoot' variable data (if encoded as variable field)
+	// TxRoot data in variable section always has:
+	//   - 1 byte selector (0 = None, 1 = Some)
+	//   - If selector = 1: followed by 32 bytes of data
+	// Total size: 1 byte (None) or 33 bytes (Some)
+	if hasTxRootOffset {
+		// Determine TxRoot data end position
+		var txRootDataEnd uint64
+		if hasAdjustmentDataOffset {
+			// AdjustmentData follows TxRoot
+			txRootDataEnd = adjustmentDataOffset
+		} else {
+			// TxRoot extends to end of buffer
+			txRootDataEnd = size
+		}
+
+		switch txRootDataSize := txRootDataEnd - txRootDataOffset; txRootDataSize {
+		case 1:
+			// Selector = 0 (None)
+			selector := tail[txRootDataOffset]
+			if selector != 0 {
+				return fmt.Errorf("invalid TxRoot: 1-byte size but selector is %d (expected 0)", selector)
+			}
+			r.TxRoot = nil
+		case 33:
+			// Selector = 1 (Some) followed by 32 bytes
+			selector := tail[txRootDataOffset]
+			if selector != 1 {
+				return fmt.Errorf("invalid TxRoot: 33-byte size but selector is %d (expected 1)", selector)
+			}
+			txRoot := new([32]byte)
+			copy(txRoot[:], tail[txRootDataOffset+1:txRootDataEnd])
+			r.TxRoot = txRoot
+		default:
+			return fmt.Errorf("invalid TxRoot variable data size: %d (expected 1 for None or 33 for Some)", txRootDataSize)
+		}
+	}
+
 	// Field (6) 'AdjustmentData' (optional)
-	// Only unmarshal if there's data beyond o5 and buffer is large enough
-	if hasAdjustmentDataOffset && o5 < size {
-		// Skip if buffer too small (1 byte is likely padding/trailing data, not valid AdjustmentData)
-		if adjustmentDataBufSize := size - o5; adjustmentDataBufSize > 1 {
-			buf = tail[o5:]
-			if r.AdjustmentData == nil {
-				r.AdjustmentData = new(bidadjustment.AdjustmentData)
-			}
-			if err = r.AdjustmentData.UnmarshalSSZ(buf); err != nil {
-				return fmt.Errorf("failed to unmarshal field 'AdjustmentData' (offset=%d, bufSize=%d, totalSize=%d): %w", o5, adjustmentDataBufSize, size, err)
-			}
+	if hasAdjustmentDataOffset {
+		buf = tail[adjustmentDataOffset:]
+		if r.AdjustmentData == nil {
+			r.AdjustmentData = new(bidadjustment.AdjustmentData)
+		}
+		if err = r.AdjustmentData.UnmarshalSSZ(buf); err != nil {
+			return fmt.Errorf("failed to unmarshal field 'AdjustmentData': %w", err)
 		}
 	}
 
@@ -428,15 +455,54 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 	// Field (3) 'NewItems' (only if extended format)
 	if hasNewItems {
 		seg := tail[o3:]
-		num, err := ssz.DivideInt2(len(seg), fuluHydrationItemMaxSize, maxBlobsPerBlock)
-		if err != nil {
-			return fmt.Errorf("failed to unmarshal field 'NewItems': invalid segment size %d: %w", len(seg), err)
+		if len(seg) < 4 {
+			return fmt.Errorf("failed to unmarshal field 'NewItems': segment too small %d: %w", len(seg), ssz.ErrSize)
 		}
+
+		// NewItems is a list of pointers, so SSZ encodes it with offsets for each item
+		// Format: [offset_0][offset_1]...[offset_n][item_0_data][item_1_data]...
+		// Each offset is 4 bytes and points to the start of that item's data within the variable section
+
+		// Read first offset to determine number of items
+		// The first offset value tells us where the data section starts, which is after all the offsets
+		// So: first_offset / 4 = number_of_items
+		firstOffset := ssz.ReadOffset(seg[0:4])
+		if firstOffset < 4 || firstOffset%4 != 0 {
+			return fmt.Errorf("failed to unmarshal field 'NewItems': invalid first offset %d: %w", firstOffset, ssz.ErrInvalidVariableOffset)
+		}
+		num := int(firstOffset / 4)
+		if num > maxBlobsPerBlock {
+			return fmt.Errorf("failed to unmarshal field 'NewItems': too many items %d (max %d): %w", num, maxBlobsPerBlock, ssz.ErrSize)
+		}
+		if uint64(len(seg)) < firstOffset {
+			return fmt.Errorf("failed to unmarshal field 'NewItems': segment size %d < first offset %d: %w", len(seg), firstOffset, ssz.ErrSize)
+		}
+
+		// Read all offsets
+		offsets := make([]uint64, num)
+		for i := range num {
+			offsets[i] = ssz.ReadOffset(seg[i*4 : (i+1)*4])
+			if offsets[i] > uint64(len(seg)) {
+				return fmt.Errorf("failed to unmarshal field 'NewItems' item %d: offset %d exceeds segment size %d: %w", i, offsets[i], len(seg), ssz.ErrOffset)
+			}
+		}
+
+		// Unmarshal each item using its offset
 		b.NewItems = make([]*FuluHydrationBlobItem, num)
 		for i := range num {
+			var itemEnd uint64
+			if i+1 < num {
+				itemEnd = offsets[i+1]
+			} else {
+				itemEnd = uint64(len(seg))
+			}
+			if itemEnd <= offsets[i] {
+				return fmt.Errorf("failed to unmarshal field 'NewItems' item %d: invalid item range [%d:%d]: %w", i, offsets[i], itemEnd, ssz.ErrSize)
+			}
+
 			b.NewItems[i] = &FuluHydrationBlobItem{}
-			if err = b.NewItems[i].UnmarshalSSZ(seg[i*fuluHydrationItemMaxSize : (i+1)*fuluHydrationItemMaxSize]); err != nil {
-				return fmt.Errorf("failed to unmarshal field 'NewItems' item %d: %w", i, err)
+			if unmarshalErr := b.NewItems[i].UnmarshalSSZ(seg[offsets[i]:itemEnd]); unmarshalErr != nil {
+				return fmt.Errorf("failed to unmarshal field 'NewItems' item %d: %w", i, unmarshalErr)
 			}
 		}
 	} else {
