@@ -85,7 +85,7 @@ func TestGetIPXForwardedFor(t *testing.T) {
 		})
 	}
 }
-func Test_weiToEther(t *testing.T) {
+func Test_WeiToEther(t *testing.T) {
 
 	tests := []struct {
 		wei *big.Int
@@ -98,7 +98,6 @@ func Test_weiToEther(t *testing.T) {
 		{big.NewInt(46983840577085104), "0.046983840577085104"},
 	}
 	for _, tt := range tests {
-		//result := weiToEtherString(weiToEther(tt.wei))
 		result := weiToEther(tt.wei)
 		if result != tt.eth {
 			t.Errorf("For wei %v, expected %s, got %s", tt.wei, tt.eth, result)

@@ -97,6 +97,46 @@ func (r *VersionedSignedBuilderBid) WithdrawalsRoot() (phase0.Root, error) {
 	}
 }
 
+func (r *VersionedSignedBuilderBid) ReceiptsRoot() (phase0.Root, error) {
+	switch r.Version {
+	case spec.DataVersionFulu:
+		if r.Fulu == nil {
+			return phase0.Root{}, errors.New("no data")
+		}
+		if r.Fulu.Message == nil {
+			return phase0.Root{}, errors.New("no data message")
+		}
+		if r.Fulu.Message.Header == nil {
+			return phase0.Root{}, errors.New("no data message header")
+		}
+		return r.Fulu.Message.Header.ReceiptsRoot, nil
+	case spec.DataVersionElectra:
+		if r.Electra == nil {
+			return phase0.Root{}, errors.New("no data")
+		}
+		if r.Electra.Message == nil {
+			return phase0.Root{}, errors.New("no data message")
+		}
+		if r.Electra.Message.Header == nil {
+			return phase0.Root{}, errors.New("no data message header")
+		}
+		return r.Electra.Message.Header.ReceiptsRoot, nil
+	case spec.DataVersionDeneb:
+		if r.Deneb == nil {
+			return phase0.Root{}, errors.New("no data")
+		}
+		if r.Deneb.Message == nil {
+			return phase0.Root{}, errors.New("no data message")
+		}
+		if r.Deneb.Message.Header == nil {
+			return phase0.Root{}, errors.New("no data message header")
+		}
+		return r.Deneb.Message.Header.ReceiptsRoot, nil
+	default:
+		return phase0.Root{}, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
+	}
+}
+
 func (r *VersionedSignedBuilderBid) ExtraData() ([]byte, error) {
 	switch r.Version {
 	case spec.DataVersionFulu:
@@ -239,5 +279,36 @@ func (r *VersionedSignedBuilderBid) ExcessBlobGas() (uint64, error) {
 		return r.Deneb.Message.Header.ExcessBlobGas, nil
 	default:
 		return 0, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
+	}
+}
+
+func (r *VersionedSignedBuilderBid) ExecutionPayloadHeader() (*deneb.ExecutionPayloadHeader, error) {
+	switch r.Version {
+	case spec.DataVersionFulu:
+		if r.Fulu == nil {
+			return nil, errors.New("no data")
+		}
+		if r.Fulu.Message == nil {
+			return nil, errors.New("no data message")
+		}
+		return r.Fulu.Message.Header, nil
+	case spec.DataVersionElectra:
+		if r.Electra == nil {
+			return nil, errors.New("no data")
+		}
+		if r.Electra.Message == nil {
+			return nil, errors.New("no data message")
+		}
+		return r.Electra.Message.Header, nil
+	case spec.DataVersionDeneb:
+		if r.Deneb == nil {
+			return nil, errors.New("no data")
+		}
+		if r.Deneb.Message == nil {
+			return nil, errors.New("no data message")
+		}
+		return r.Deneb.Message.Header, nil
+	default:
+		return nil, errors.Wrap(ErrInvalidVersion, fmt.Sprintf("%s is not supported", r.Version))
 	}
 }
