@@ -455,54 +455,57 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 	// Field (3) 'NewItems' (only if extended format)
 	if hasNewItems {
 		seg := tail[o3:]
-		if len(seg) < 4 {
+		if len(seg) == 0 {
+			// Empty NewItems list
+			b.NewItems = nil
+		} else if len(seg) < 4 {
 			return fmt.Errorf("failed to unmarshal field 'NewItems': segment too small %d: %w", len(seg), ssz.ErrSize)
-		}
+		} else {
+			// NewItems is a list of pointers, so SSZ encodes it with offsets for each item
+			// Format: [offset_0][offset_1]...[offset_n][item_0_data][item_1_data]...
+			// Each offset is 4 bytes and points to the start of that item's data within the variable section
 
-		// NewItems is a list of pointers, so SSZ encodes it with offsets for each item
-		// Format: [offset_0][offset_1]...[offset_n][item_0_data][item_1_data]...
-		// Each offset is 4 bytes and points to the start of that item's data within the variable section
-
-		// Read first offset to determine number of items
-		// The first offset value tells us where the data section starts, which is after all the offsets
-		// So: first_offset / 4 = number_of_items
-		firstOffset := ssz.ReadOffset(seg[0:4])
-		if firstOffset < 4 || firstOffset%4 != 0 {
-			return fmt.Errorf("failed to unmarshal field 'NewItems': invalid first offset %d: %w", firstOffset, ssz.ErrInvalidVariableOffset)
-		}
-		num := int(firstOffset / 4)
-		if num > maxBlobsPerBlock {
-			return fmt.Errorf("failed to unmarshal field 'NewItems': too many items %d (max %d): %w", num, maxBlobsPerBlock, ssz.ErrSize)
-		}
-		if uint64(len(seg)) < firstOffset {
-			return fmt.Errorf("failed to unmarshal field 'NewItems': segment size %d < first offset %d: %w", len(seg), firstOffset, ssz.ErrSize)
-		}
-
-		// Read all offsets
-		offsets := make([]uint64, num)
-		for i := range num {
-			offsets[i] = ssz.ReadOffset(seg[i*4 : (i+1)*4])
-			if offsets[i] > uint64(len(seg)) {
-				return fmt.Errorf("failed to unmarshal field 'NewItems' item %d: offset %d exceeds segment size %d: %w", i, offsets[i], len(seg), ssz.ErrOffset)
+			// Read first offset to determine number of items
+			// The first offset value tells us where the data section starts, which is after all the offsets
+			// So: first_offset / 4 = number_of_items
+			firstOffset := ssz.ReadOffset(seg[0:4])
+			if firstOffset < 4 || firstOffset%4 != 0 {
+				return fmt.Errorf("failed to unmarshal field 'NewItems': invalid first offset %d: %w", firstOffset, ssz.ErrInvalidVariableOffset)
 			}
-		}
-
-		// Unmarshal each item using its offset
-		b.NewItems = make([]*FuluHydrationBlobItem, num)
-		for i := range num {
-			var itemEnd uint64
-			if i+1 < num {
-				itemEnd = offsets[i+1]
-			} else {
-				itemEnd = uint64(len(seg))
+			num := int(firstOffset / 4)
+			if num > maxBlobsPerBlock {
+				return fmt.Errorf("failed to unmarshal field 'NewItems': too many items %d (max %d): %w", num, maxBlobsPerBlock, ssz.ErrSize)
 			}
-			if itemEnd <= offsets[i] {
-				return fmt.Errorf("failed to unmarshal field 'NewItems' item %d: invalid item range [%d:%d]: %w", i, offsets[i], itemEnd, ssz.ErrSize)
+			if uint64(len(seg)) < firstOffset {
+				return fmt.Errorf("failed to unmarshal field 'NewItems': segment size %d < first offset %d: %w", len(seg), firstOffset, ssz.ErrSize)
 			}
 
-			b.NewItems[i] = &FuluHydrationBlobItem{}
-			if unmarshalErr := b.NewItems[i].UnmarshalSSZ(seg[offsets[i]:itemEnd]); unmarshalErr != nil {
-				return fmt.Errorf("failed to unmarshal field 'NewItems' item %d: %w", i, unmarshalErr)
+			// Read all offsets
+			offsets := make([]uint64, num)
+			for i := range num {
+				offsets[i] = ssz.ReadOffset(seg[i*4 : (i+1)*4])
+				if offsets[i] > uint64(len(seg)) {
+					return fmt.Errorf("failed to unmarshal field 'NewItems' item %d: offset %d exceeds segment size %d: %w", i, offsets[i], len(seg), ssz.ErrOffset)
+				}
+			}
+
+			// Unmarshal each item using its offset
+			b.NewItems = make([]*FuluHydrationBlobItem, num)
+			for i := range num {
+				var itemEnd uint64
+				if i+1 < num {
+					itemEnd = offsets[i+1]
+				} else {
+					itemEnd = uint64(len(seg))
+				}
+				if itemEnd <= offsets[i] {
+					return fmt.Errorf("failed to unmarshal field 'NewItems' item %d: invalid item range [%d:%d]: %w", i, offsets[i], itemEnd, ssz.ErrSize)
+				}
+
+				b.NewItems[i] = &FuluHydrationBlobItem{}
+				if unmarshalErr := b.NewItems[i].UnmarshalSSZ(seg[offsets[i]:itemEnd]); unmarshalErr != nil {
+					return fmt.Errorf("failed to unmarshal field 'NewItems' item %d: %w", i, unmarshalErr)
+				}
 			}
 		}
 	} else {
