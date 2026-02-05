@@ -218,3 +218,17 @@ type SlotStatsRecord struct {
 	GetHeaderLatency  int64  `json:"get_header_latency"`
 	GetPayloadLatency int64  `json:"get_payload_latency"`
 }
+
+type PrefetchPayloadHttpRecord struct {
+	Slot               uint64 `json:"slot,string"`
+	BlockNumber        uint64 `json:"block_number,string"`
+	BlockHash          string `json:"block_hash"`
+	BuilderPubkey      string `json:"builder_pubkey"`
+	ExtraData          string `json:"extra_data"`
+	Url                string `json:"url"`
+	HttpStatusCode     int    `json:"http_status_code"`
+	DurationMs         int64  `json:"duration_ms"`
+	DurationMsMeasured int64  `json:"duration_ms_measured"`
+	Success            bool   `json:"success"`
+	FetchError         string `json:"fetch_error"`
+}
