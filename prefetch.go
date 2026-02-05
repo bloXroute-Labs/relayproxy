@@ -924,7 +924,7 @@ func (s *Service) builderPreFetchGetPayloadHTTP(
 
 			responseChan <- result
 
-			// Record stats and set span attributes
+			// Record stats record
 			blockNumber, err := result.BlockNumber()
 			if err != nil {
 				log.Warn().Err(err).Msg("Failed to get block number from HTTP prefetched block")
