@@ -92,7 +92,7 @@ func TestBlockSubmissionSSZFastUnmarshaller_StandardFormat(t *testing.T) {
 
 	// Unmarshal using fast unmarshaller
 	result := &VersionedExtendedSubmitBlockRequest{}
-	err = unmarshaller.UnmarshalSSZ(false, sszData, result)
+	err = unmarshaller.UnmarshalSSZ(sszData, result)
 	require.NoError(t, err)
 
 	// Verify the result
@@ -123,7 +123,7 @@ func TestBlockSubmissionSSZFastUnmarshaller_StandardFormat(t *testing.T) {
 
 	// Test cache hit - unmarshal again and verify it uses cached blobs bundle
 	result2 := &VersionedExtendedSubmitBlockRequest{}
-	err = unmarshaller.UnmarshalSSZ(false, sszData, result2)
+	err = unmarshaller.UnmarshalSSZ(sszData, result2)
 	require.NoError(t, err)
 
 	// Verify cache hit - should be same pointer
@@ -263,7 +263,7 @@ func TestBlockSubmissionSSZFastUnmarshaller_DehydratedFormat(t *testing.T) {
 
 	// Unmarshal using fast unmarshaller
 	result := &VersionedExtendedSubmitBlockRequest{}
-	err = unmarshaller.UnmarshalSSZ(true, sszData, result)
+	err = unmarshaller.UnmarshalSSZ(sszData, result)
 	require.NoError(t, err)
 
 	// Verify the result
@@ -304,7 +304,7 @@ func TestBlockSubmissionSSZFastUnmarshaller_DehydratedFormat(t *testing.T) {
 
 	// Test cache hit - unmarshal again and verify it uses cached blobs bundle
 	result2 := &VersionedExtendedSubmitBlockRequest{}
-	err = unmarshaller.UnmarshalSSZ(true, sszData, result2)
+	err = unmarshaller.UnmarshalSSZ(sszData, result2)
 	require.NoError(t, err)
 
 	// Verify cache hit - should be same pointer
@@ -413,7 +413,7 @@ func TestBlockSubmissionSSZFastUnmarshaller_WithAdjustmentData(t *testing.T) {
 
 	// Unmarshal
 	result := &VersionedExtendedSubmitBlockRequest{}
-	err = unmarshaller.UnmarshalSSZ(false, sszData, result)
+	err = unmarshaller.UnmarshalSSZ(sszData, result)
 	require.NoError(t, err)
 
 	// Verify AdjustmentData is present
@@ -578,7 +578,7 @@ func TestBlockSubmissionSSZFastUnmarshaller_InvalidOffset(t *testing.T) {
 			binary.LittleEndian.PutUint32(testData[236:240], tt.o1Value)
 
 			result := &VersionedExtendedSubmitBlockRequest{}
-			err := unmarshaller.UnmarshalSSZ(false, testData, result)
+			err := unmarshaller.UnmarshalSSZ(testData, result)
 
 			if tt.expectError {
 				require.Error(t, err, "Expected error for offset %d", tt.o1Value)
@@ -617,7 +617,7 @@ func TestBlockSubmissionSSZFastUnmarshaller_TxRootZeroValue(t *testing.T) {
 
 	// Unmarshal
 	result := &VersionedExtendedSubmitBlockRequest{}
-	err = unmarshaller.UnmarshalSSZ(false, sszData, result)
+	err = unmarshaller.UnmarshalSSZ(sszData, result)
 	require.NoError(t, err)
 
 	// Verify TxRoot is nil
@@ -693,7 +693,7 @@ func TestDecodeHexPayload(t *testing.T) {
 	// Unmarshal the payload
 	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller()
 	result := &VersionedExtendedSubmitBlockRequest{}
-	err = unmarshaller.UnmarshalSSZ(true, payloadBytes, result)
+	err = unmarshaller.UnmarshalSSZ(payloadBytes, result)
 
 	if err != nil {
 		t.Logf("Unmarshal error: %v", err)

@@ -92,11 +92,11 @@ func NewBlockSubmissionSSZFastUnmarshaller() *BlockSubmissionSSZFastUnmarshaller
 	}
 }
 
-func (u *BlockSubmissionSSZFastUnmarshaller) UnmarshalSSZ(hydrate bool, input []byte, out *VersionedExtendedSubmitBlockRequest) error {
+func (u *BlockSubmissionSSZFastUnmarshaller) UnmarshalSSZ(input []byte, out *VersionedExtendedSubmitBlockRequest) error {
 	if IsFulu {
 		out.Version = consensusspec.DataVersionFulu
 		fuluExtendedRequest := new(FuluExtendedSubmitBlockRequest)
-		if err := u.unmarshalSSZFulu(hydrate, fuluExtendedRequest, input); err != nil {
+		if err := u.unmarshalSSZFulu(fuluExtendedRequest, input); err != nil {
 			return fmt.Errorf("failed to unmarshal Fulu extended submit block request: %w", err)
 		}
 		out.Fulu = fuluExtendedRequest
@@ -105,7 +105,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) UnmarshalSSZ(hydrate bool, input []
 	return errors.New("only fulu version is supported for extended SubmitBlockRequest")
 }
 
-func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(hydrate bool, r *FuluExtendedSubmitBlockRequest, buf []byte) error {
+func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSubmitBlockRequest, buf []byte) error {
 	var err error
 	size := uint64(len(buf))
 	if size < 344 {
@@ -178,7 +178,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(hydrate bool, r *F
 
 		// TxRoot is always 1 or 33 bytes
 		// Otherwise it's AdjustmentData
-		if hydrate && (dataSize == 1 || dataSize == 33) {
+		if dataSize == 1 || dataSize == 33 {
 			// TxRoot
 			hasTxRootOffset = true
 			txRootOffsetPos = 344
