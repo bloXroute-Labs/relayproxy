@@ -902,7 +902,7 @@ func (s *Service) builderPreFetchGetPayloadHTTP(
 
 			code, durationMs, err := httpclient.FetchSSZ(http.MethodPost, url, payload, result, nil, true)
 			if err != nil || result == nil {
-				if err == nil {
+				if err != nil {
 					fetchError = err.Error()
 				}
 
