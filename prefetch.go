@@ -898,15 +898,15 @@ func (s *Service) builderPreFetchGetPayloadHTTP(
 			result := new(common.VersionedSubmitBlockRequest)
 			reqStart := time.Now()
 
-			code, durationMS, err := httpclient.FetchSSZ(http.MethodPost, url, payload, result, nil, true)
+			code, durationMs, err := httpclient.FetchSSZ(http.MethodPost, url, payload, result, nil, true)
 			if err != nil || result == nil {
 				log.Error().
 					Err(err).
 					Str("url", url).
 					Int("code", code).
 					Bool("nilPayload", result == nil).
-					Int64("durationMS", durationMS).
-					Int64("duration_ms_measured", time.Since(reqStart).Milliseconds()).
+					Int64("durationMs", durationMs).
+					Int64("durationMsMeasured", time.Since(reqStart).Milliseconds()).
 					Msg("Failed to prefetch builder payload with HTTP")
 				return
 			}
@@ -915,8 +915,8 @@ func (s *Service) builderPreFetchGetPayloadHTTP(
 			log.Info().
 				Str("url", url).
 				Int("code", code).
-				Int64("durationMS", durationMS).
-				Int64("duration_ms_measured", time.Since(reqStart).Milliseconds()).
+				Int64("durationMs", durationMs).
+				Int64("durationMsMeasured", time.Since(reqStart).Milliseconds()).
 				Msg("Successful prefetch builder payload HTTP response")
 
 			responseChan <- result
