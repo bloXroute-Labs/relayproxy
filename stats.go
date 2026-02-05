@@ -226,7 +226,9 @@ type PrefetchPayloadHttpRecord struct {
 	BuilderPubkey      string `json:"builder_pubkey"`
 	ExtraData          string `json:"extra_data"`
 	Url                string `json:"url"`
-	HttpResponseCode   int    `json:"http_response_code"`
+	HttpStatusCode     int    `json:"http_status_code"`
 	DurationMs         int64  `json:"duration_ms"`
 	DurationMsMeasured int64  `json:"duration_ms_measured"`
+	Success            bool   `json:"success"`
+	FetchError         string `json:"fetch_error"`
 }

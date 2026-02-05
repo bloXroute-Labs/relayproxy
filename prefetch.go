@@ -898,9 +898,14 @@ func (s *Service) builderPreFetchGetPayloadHTTP(
 		go func(url string, log zerolog.Logger) {
 			result := new(common.VersionedSubmitBlockRequest)
 			reqStart := time.Now()
+			fetchError := ""
 
 			code, durationMs, err := httpclient.FetchSSZ(http.MethodPost, url, payload, result, nil, true)
 			if err != nil || result == nil {
+				if err == nil {
+					fetchError = err.Error()
+				}
+
 				log.Error().
 					Err(err).
 					Str("url", url).
@@ -909,35 +914,39 @@ func (s *Service) builderPreFetchGetPayloadHTTP(
 					Int64("durationMs", durationMs).
 					Int64("durationMsMeasured", time.Since(reqStart).Milliseconds()).
 					Msg("Failed to prefetch builder payload with HTTP")
-				return
 			}
 
 			durationMsMeasured := time.Since(reqStart).Milliseconds()
+			blockNumber := uint64(0)
+			builderExtraData := ""
 
-			// Success path
-			log.Info().
-				Str("url", url).
-				Int("code", code).
-				Int64("durationMs", durationMs).
-				Int64("durationMsMeasured", durationMsMeasured).
-				Msg("Successful prefetch builder payload HTTP response")
+			if result != nil {
+				// Success path
+				log.Info().
+					Str("url", url).
+					Int("code", code).
+					Int64("durationMs", durationMs).
+					Int64("durationMsMeasured", durationMsMeasured).
+					Msg("Successful prefetch builder payload HTTP response")
 
-			responseChan <- result
+				// Send response to channel
+				responseChan <- result
+
+				// Extract data for stats record
+				blockNumber, err = result.BlockNumber()
+				if err != nil {
+					log.Warn().Err(err).Msg("Failed to get block number from HTTP prefetched block")
+				}
+
+				extraDataBytes, err := result.ExecutionPayloadExtraData()
+				if err != nil {
+					log.Warn().Err(err).Msg("Failed to get extra data from HTTP prefetched block")
+				} else {
+					builderExtraData = common.DecodeExtraData(extraDataBytes)
+				}
+			}
 
 			// Record stats record
-			blockNumber, err := result.BlockNumber()
-			if err != nil {
-				log.Warn().Err(err).Msg("Failed to get block number from HTTP prefetched block")
-			}
-
-			builderExtraData := ""
-			extraDataBytes, err := result.ExecutionPayloadExtraData()
-			if err != nil {
-				log.Warn().Err(err).Msg("Failed to get extra data from HTTP prefetched block")
-			} else {
-				builderExtraData = common.DecodeExtraData(extraDataBytes)
-			}
-
 			if s.fluentD != nil {
 				s.fluentD.LogToFluentD(fluentstats.Record{
 					Type: "StatsPrefetchPayloadHttp",
@@ -948,9 +957,11 @@ func (s *Service) builderPreFetchGetPayloadHTTP(
 						BuilderPubkey:      fields.builderPubKey,
 						ExtraData:          builderExtraData,
 						Url:                url,
-						HttpResponseCode:   code,
+						HttpStatusCode:     code,
 						DurationMs:         durationMs,
 						DurationMsMeasured: durationMsMeasured,
+						Success:            result != nil,
+						FetchError:         fetchError,
 					},
 				}, time.Now().UTC(), s.nodeID, "stats.prefetch_payload_http")
 			}
