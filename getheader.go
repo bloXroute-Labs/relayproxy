@@ -373,6 +373,11 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 				record.SecondPlaceBuilderBuilderPubkey = secondBestHeader.BuilderPubkey
 				record.SecondPlaceBuilderExtraData = secondBestHeader.BuilderExtraData
 			}
+
+			s.fluentD.LogToFluentD(fluentstats.Record{
+				Type: "StatsHeaderProvidedToValidatorIP",
+				Data: record,
+			}, time.Now().UTC(), s.nodeID, "stats.header_provided_to_validator_ip")
 		}
 	}()
 
