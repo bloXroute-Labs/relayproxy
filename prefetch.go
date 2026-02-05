@@ -19,6 +19,7 @@ import (
 	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
 	"github.com/bloXroute-Labs/relay-grpc/optimisticv3"
 	"github.com/bloXroute-Labs/relayproxy/common"
+	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 	"github.com/bloXroute-Labs/relayproxy/httpclient"
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/flashbots/go-boost-utils/ssz"
@@ -911,15 +912,48 @@ func (s *Service) builderPreFetchGetPayloadHTTP(
 				return
 			}
 
+			durationMsMeasured := time.Since(reqStart).Milliseconds()
+
 			// Success path
 			log.Info().
 				Str("url", url).
 				Int("code", code).
 				Int64("durationMs", durationMs).
-				Int64("durationMsMeasured", time.Since(reqStart).Milliseconds()).
+				Int64("durationMsMeasured", durationMsMeasured).
 				Msg("Successful prefetch builder payload HTTP response")
 
 			responseChan <- result
+
+			// Record stats and set span attributes
+			blockNumber, err := result.BlockNumber()
+			if err != nil {
+				log.Warn().Err(err).Msg("Failed to get block number from HTTP prefetched block")
+			}
+
+			builderExtraData := ""
+			extraDataBytes, err := result.ExecutionPayloadExtraData()
+			if err != nil {
+				log.Warn().Err(err).Msg("Failed to get extra data from HTTP prefetched block")
+			} else {
+				builderExtraData = common.DecodeExtraData(extraDataBytes)
+			}
+
+			if s.fluentD != nil {
+				s.fluentD.LogToFluentD(fluentstats.Record{
+					Type: "StatsPrefetchPayloadHttp",
+					Data: PrefetchPayloadHttpRecord{
+						Slot:               fields.slot,
+						BlockNumber:        blockNumber,
+						BlockHash:          fields.blockHash,
+						BuilderPubkey:      fields.builderPubKey,
+						ExtraData:          builderExtraData,
+						Url:                url,
+						HttpResponseCode:   code,
+						DurationMs:         durationMs,
+						DurationMsMeasured: durationMsMeasured,
+					},
+				}, time.Now().UTC(), s.nodeID, "stats.prefetch_payload_http")
+			}
 		}(url, log)
 	}
 
