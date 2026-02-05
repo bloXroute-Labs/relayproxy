@@ -920,8 +920,8 @@ func (s *Service) builderPreFetchGetPayloadHTTP(
 			blockNumber := uint64(0)
 			builderExtraData := ""
 
+			// Success path
 			if success {
-				// Success path
 				log.Info().
 					Str("url", url).
 					Int("code", code).
