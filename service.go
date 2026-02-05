@@ -39,15 +39,14 @@ const (
 	preFetcherRequestTimeout = 3 * time.Second
 
 	// cache
-	threeSlotsExpiration            = 36 * time.Second
-	BuilderBidsCleanupInterval      = threeSlotsExpiration
-	ExecutionPayloadCleanupInterval = threeSlotsExpiration
-	slotStatsCleanupInterval        = threeSlotsExpiration
+	BuilderBidsCleanupInterval      = 60 * time.Second // 5 slots
+	ExecutionPayloadCleanupInterval = 60 * time.Second // 5 slots
+	slotStatsCleanupInterval        = 60 * time.Second // 5 slots
 	cacheKeySeparator               = "_"
 
 	maxGetPayloadRetry                = 3
 	getPayloadInterval                = 150 * time.Millisecond
-	preFetchPayloadChanBufSize        = 1000
+	preFetchPayloadChanBufSize        = 100
 	getPayloadRequestCutoffMs         = 4000
 	duplicateSlotCacheCleanupInterval = 180 * time.Second // 30 slots
 	reconnectTime                     = 6000
@@ -79,14 +78,13 @@ type Service struct {
 	authKey     string
 	secretToken string
 
-	tracer                          trace.Tracer
-	fluentD                         fluentstats.Stats
-	builderBidsForProxySlot         *cache.Cache
-	builderExistingBlockHash        *cache.Cache
-	getPayloadResponseForProxySlot  *cache.Cache
-	preFetchPayloadChan             chan preFetcherFields
-	optimisticV3FetchedPayloadsChan chan *common.VersionedSubmitBlockRequest
-	performancestats                *stat.PerformanceStats
+	tracer                         trace.Tracer
+	fluentD                        fluentstats.Stats
+	builderBidsForProxySlot        *cache.Cache
+	builderExistingBlockHash       *cache.Cache
+	getPayloadResponseForProxySlot *cache.Cache
+	preFetchPayloadChan            chan preFetcherFields
+	performancestats               *stat.PerformanceStats
 
 	beaconGenesisTime     int64
 	secondsPerSlot        int64

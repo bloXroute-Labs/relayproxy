@@ -10,15 +10,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/bloXroute-Labs/relay-grpc/optimisticv3"
+	"github.com/bloXroute-Labs/relayproxy/common"
+	"github.com/bloXroute-Labs/relayproxy/fastjson"
+	"github.com/bloXroute-Labs/relayproxy/fluentstats"
+	"github.com/bloXroute-Labs/relayproxy/httpclient"
+	gethcommon "github.com/ethereum/go-ethereum/common"
+	"github.com/flashbots/go-boost-utils/ssz"
 	"github.com/google/uuid"
 	"github.com/patrickmn/go-cache"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-
-	"github.com/bloXroute-Labs/relayproxy/common"
-	"github.com/bloXroute-Labs/relayproxy/fastjson"
-	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 )
 
 func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
@@ -109,26 +113,6 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	} else {
 		log.Error().Err(getErr).Msg("error getting top builder bid")
 	}
-
-	// Send in an early prefetch payload request for Optimistic V3 block payloads
-	if slotBestHeader != nil && slotBestHeader.PayloadFetchUrl != "" {
-		s.preFetchPayloadChan <- preFetcherFields{
-			clientIP:                          in.ClientIP,
-			authHeader:                        in.AuthHeader,
-			slot:                              _slot,
-			parentHash:                        in.ParentHash,
-			blockHash:                         slotBestHeader.BlockHash,
-			proposerPubKey:                    in.PubKey,
-			builderPubKey:                     slotBestHeader.BuilderPubkey,
-			blockValue:                        weiToEther(new(big.Int).SetBytes(slotBestHeader.Value)),
-			client:                            slotBestHeader.Client,
-			payloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
-			slotStartTime:                     slotStartTime,
-			msIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
-			getHeaderReqID:                    id,
-		}
-	}
-
 	repickDurationMS := int64(0)
 
 	repickTime := time.Now().Add(time.Duration(delayGetHeaderResponse.ReplacementDelayMs) * time.Millisecond)
@@ -453,6 +437,122 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	})
 
 	return signedHeaderResponse, onHeaderDeliveredParams, nil
+}
+
+func (s *Service) clientPreFetchGetPayloadHTTP(
+	ctx context.Context,
+	logMetric *LogMetric,
+	fields *preFetcherFields,
+	payloadUrls []string,
+) bool {
+	_, fetchSpan := s.tracer.Start(ctx, "clientPreFetchGetPayloadHTTP")
+	defer func() {
+		fetchSpan.SetAttributes(
+			attribute.Int64("slot", int64(fields.slot)),
+			attribute.String("blockHash", fields.blockHash),
+			attribute.String("parentHash", fields.parentHash),
+			attribute.String("proposerPubkey", fields.proposerPubKey),
+			attribute.String("builderPubkey", fields.builderPubKey),
+		)
+		fetchSpan.End()
+	}()
+
+	payload, err := s.prepareGetPayloadV3Request(fields.blockHash)
+	if err != nil {
+		s.logger.Error().Err(err).Fields(logMetric.GetFields()).Msg("failed to prepare HTTP get_payload_v3 request")
+		return false
+	}
+
+	responseChan := make(chan *common.VersionedSubmitBlockRequest, len(payloadUrls))
+
+	// Send request to all builders
+	for _, payloadUrl := range payloadUrls {
+		url := payloadUrl + common.PathGetPayloadV3
+
+		go func() {
+			result := new(common.VersionedSubmitBlockRequest)
+			code, durationMS, err := httpclient.FetchSSZ(http.MethodPost, url, payload, result, nil, true)
+
+			// TODO: should we try with JSON if ssz fails?
+			if err != nil {
+				s.logger.Error().
+					Fields(logMetric.GetFields()).
+					Err(err).Str("url", url).
+					Int("code", code).
+					Int64("durationMS", durationMS).
+					Msg("failed to prefetch payload with HTTP")
+				return
+			}
+
+			// Send to response channel
+			responseChan <- result
+		}()
+	}
+
+	// Process first positive response from builder (or timeout)
+	return s.processGetPayloadV3ResponsesOld(ctx, responseChan, logMetric, fields)
+}
+
+func (s *Service) prepareGetPayloadV3RequestOld(blockHash string) (*optimisticv3.SignedGetPayloadV3, error) {
+	getPayloadV3 := &optimisticv3.GetPayloadV3{
+		BlockHash:      phase0.Hash32(gethcommon.HexToHash(blockHash)),
+		RequestTs:      uint64(time.Now().UnixMilli()),
+		RelayPublicKey: s.publicKey,
+	}
+
+	signature, err := ssz.SignMessage(getPayloadV3, s.builderSigningDomain, s.secretKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &optimisticv3.SignedGetPayloadV3{
+		Message:   getPayloadV3,
+		Signature: signature,
+	}, nil
+}
+
+func (s *Service) processGetPayloadV3ResponsesOld(
+	ctx context.Context,
+	responseChan chan *common.VersionedSubmitBlockRequest,
+	logMetric *LogMetric,
+	fields *preFetcherFields,
+) bool {
+	for {
+		select {
+		case <-ctx.Done():
+			s.logger.Error().Fields(logMetric.GetFields()).Msg("PreFetchGetPayloadV3 :: context cancelled")
+			return false
+		case response := <-responseChan:
+			if response == nil {
+				s.logger.Error().Fields(logMetric.GetFields()).Msg("PreFetchGetPayloadV3 :: failed to prefetch payload with HTTP, received nil payload from builder")
+				continue
+			}
+
+			getPayloadResponseSpec, err := common.BuildGetPayloadResponse(response)
+			if err != nil {
+				s.logger.Fatal().Fields(logMetric.GetFields()).Err(err)
+			}
+
+			getPayloadResponse := common.VersionedSubmitBlindedBlockResponse{VersionedSubmitBlindedBlockResponse: *getPayloadResponseSpec}
+			proxyCacheKey := common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey)
+
+			payloadResponse := &common.PayloadResponseForProxy{
+				PayloadResponse: getPayloadResponse,
+				BlockValue:      fields.blockValue,
+			}
+
+			if err := s.getPayloadResponseForProxySlot.Add(proxyCacheKey, payloadResponse, cache.DefaultExpiration); err != nil {
+				s.logger.Warn().Fields(logMetric.GetFields()).Err(err).Msg("PreFetchGetPayloadV3 :: cache execution payload already exists")
+				return true
+			}
+
+			s.logger.Info().Fields(logMetric.GetFields()).Msg("PreFetchGetPayloadV3 :: preFetchGetPayload succeeded")
+			return true
+		case <-time.After(common.OptimisticV3FetchPayloadTimeout):
+			s.logger.Error().Fields(logMetric.GetFields()).Msg("PreFetchGetPayloadV3 :: timeout waiting for prefetch payload HTTP response")
+			return false
+		}
+	}
 }
 
 func (s *Service) prefetchPayloadToSignedBlindedBeaconBlock(ctx context.Context, payload []byte) (*common.VersionedSignedBlindedBeaconBlock, *ErrorResp) {

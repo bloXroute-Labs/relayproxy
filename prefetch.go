@@ -887,12 +887,7 @@ func (s *Service) builderPreFetchGetPayloadHTTP(
 
 	// Send request to all builders
 	for _, payloadUrl := range payloadUrls {
-		url := payloadUrl
-
-		// Add the proper path if it's not already included in the url
-		if !strings.HasSuffix(url, common.PathGetPayloadV3) {
-			url += common.PathGetPayloadV3
-		}
+		url := payloadUrl + common.PathGetPayloadV3
 
 		go func(url string, log zerolog.Logger) {
 			result := new(common.VersionedSubmitBlockRequest)
@@ -973,19 +968,7 @@ func (s *Service) processGetPayloadV3Responses(
 				return true
 			}
 
-			// Send fetched Optimistic V3 block payload for processing
-			if s.optimisticV3FetchedPayloadsChan != nil {
-				select {
-				case s.optimisticV3FetchedPayloadsChan <- response:
-				default:
-					log.Error().
-						Str("blockHash", fields.blockHash).
-						Msg("PreFetchPayloadV3 :: failed to send Optimistic V3 block fetched payload for processing, channel is full")
-				}
-			}
-
 			log.Info().Msg("PreFetchPayloadV3 :: HTTP builder prefetch succeeded")
-
 			return true
 
 		case <-time.After(common.OptimisticV3FetchPayloadTimeout):
