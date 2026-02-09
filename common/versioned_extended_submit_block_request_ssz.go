@@ -86,7 +86,7 @@ type BlockSubmissionSSZFastUnmarshaller struct {
 	blobCache *cache.Cache
 	// Fulu blobs
 	fuluBundlePool sync.Pool
-
+	// Hydrator for optional hydration of transactions and blobs during unmarshalling
 	hydrator Hydrator
 }
 
