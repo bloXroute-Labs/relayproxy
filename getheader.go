@@ -21,13 +21,6 @@ import (
 	"github.com/bloXroute-Labs/relayproxy/fluentstats"
 )
 
-const (
-	figment  = "94955c54-8a85-4705-aec9-394ac89330b0"
-	kraken   = "196d352f-390c-4251-8525-8d4950dedf53"
-	coinbase = "cd42c659-6b5f-42f0-bbf2-0798879ccad0"
-	p2p      = "c6128441-e797-4f12-9ba1-23d66ecfa8b3"
-)
-
 func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, log *zerolog.Logger, in *HeaderRequestParams) (json.RawMessage, *common.OnHeaderDeliveredParams, error) {
 	id := uuid.NewString()
 	ctx, span := s.tracer.Start(parentCtx, "getHeader-start")
