@@ -137,6 +137,31 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	originalValue := big.NewInt(0)
 	originalBlockHash := ""
 
+	// Repick algorithm (high level):
+	//  1) Initial fetch: GetTopBuilderBid(key) -> (best, second). This is the baseline header/value we would return.
+	//     - If best has a PayloadFetchUrl, we best-effort enqueue a prefetch.
+	//
+	//  2) Repick window: If ReplacementDelayMs > 0 and OnHeaderBidRetrieved is set,
+	//     we open a bounded "repick window" of length ReplacementDelayMs.
+	//     - Spawn a goroutine that calls OnHeaderBidRetrieved(repickCtx, currentBest, ...).
+	//     - repickCtx is capped by repickDeadline (hard deadline).
+	//     - Result is sent on a buffered channel (size 1) best-effort (never block).
+	//
+	//  3) Decide outcome (whichever happens first):
+	//     a) Receive repick result within window:
+	//        - If err: repick failed (record error), keep current best.
+	//        - If bid != nil: accept replacement bid (usedRepick=true), update best/value.
+	//        - If bid == nil: treat as failure, keep current best.
+	//     b) repickCtx deadline hits: timeout, keep current best.
+	//     c) request ctx canceled: abort repick, keep current best.
+	//
+	//  4) Final fetch (only if repick did NOT replace):
+	//     After the repick window closes, fetch GetTopBuilderBid(key) again.
+	//     If the newly fetched best has higher value than our current best, upgrade to it.
+	//     This might affect bid replacement.
+	//     (This is a final "catch-up" fetch; it does not wait beyond the repick deadline.)
+	//
+
 	if getErr == nil && slotBestHeader != nil {
 		originalValue = new(big.Int).SetBytes(slotBestHeader.Value)
 		blockValue = new(big.Int).Set(originalValue)
@@ -229,6 +254,8 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			case resCh <- r:
 			default:
 				// best-effort; should not block
+				log.Warn().
+					Msg("resCh full, dropping result (non-blocking send)")
 			}
 		}()
 
