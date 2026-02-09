@@ -15,6 +15,7 @@ import (
 	ssz "github.com/ferranbt/fastssz"
 	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
+	"github.com/rs/zerolog"
 )
 
 const (
@@ -81,6 +82,7 @@ type Hydrator interface {
 // SSZ Unmarshaller impl for VersionedExtendedSubmitBlockRequest with caching and object pooling.
 // It's capable of processing both standard and dehydrated formats for Fulu blobs bundle as well as optional AdjustmentData.
 type BlockSubmissionSSZFastUnmarshaller struct {
+	log *zerolog.Logger
 	// Key: sha256(raw SSZ bytes of BlobsBundle) as binary string
 	// Val: *apideneb.BlobsBundle (immutable, cached)
 	blobCache *cache.Cache
@@ -90,8 +92,9 @@ type BlockSubmissionSSZFastUnmarshaller struct {
 	hydrator Hydrator
 }
 
-func NewBlockSubmissionSSZFastUnmarshaller(hydrator Hydrator) *BlockSubmissionSSZFastUnmarshaller {
+func NewBlockSubmissionSSZFastUnmarshaller(log *zerolog.Logger, hydrator Hydrator) *BlockSubmissionSSZFastUnmarshaller {
 	return &BlockSubmissionSSZFastUnmarshaller{
+		log:       log,
 		blobCache: cache.New(1*time.Minute, 1*time.Minute),
 		fuluBundlePool: sync.Pool{
 			New: func() any { return new(FuluExtendedBlobsBundle) },
@@ -236,8 +239,10 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 		}
 		// Hydrate transactions
 		if hydrate {
-			if _, err := u.hydrator.HydrateFuluTransactions(r.Message.BuilderPubkey, r.ExecutionPayload); err != nil {
+			if d, err := u.hydrator.HydrateFuluTransactions(r.Message.BuilderPubkey, r.ExecutionPayload); err != nil {
 				return fmt.Errorf("failed to hydrate field 'ExecutionPayload': %w", err)
+			} else {
+				u.log.Debug().Uint64("slot", r.Message.Slot).Int("tx_cache_hits", d.CacheHits).Int("tx_cache_writes", d.CacheWrites).Msg("Hydrated transactions for ExecutionPayload")
 			}
 		}
 	}
@@ -263,9 +268,11 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 			cached := u.cloneFuluBlobsBundle(tmp)
 			// Hydrate blobs
 			if hydrate {
-				if _, err := u.hydrator.HydrateFuluBlobs(cached); err != nil {
+				if d, err := u.hydrator.HydrateFuluBlobs(cached); err != nil {
 					u.putFuluBundle(tmp)
 					return fmt.Errorf("failed to hydrate field 'BlobsBundle': %w", err)
+				} else {
+					u.log.Debug().Uint64("slot", r.Message.Slot).Int("blob_cache_hits", d.CacheHits).Int("blob_cache_writes", d.CacheWrites).Msg("Hydrated blobs for BlobsBundle")
 				}
 			}
 			u.blobCache.SetDefault(key, cached)

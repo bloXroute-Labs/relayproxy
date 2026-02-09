@@ -23,7 +23,7 @@ func init() {
 // with full BlobsBundle (Commitments, Proofs, Blobs) and no NewItems (12-byte header)
 func TestBlockSubmissionSSZFastUnmarshaller_StandardFormat(t *testing.T) {
 	// Setup
-	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller(nil)
+	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller(nil, nil)
 
 	// Create a standard Fulu block submission
 	blockHash := GenerateRandomEthHash()
@@ -134,7 +134,7 @@ func TestBlockSubmissionSSZFastUnmarshaller_StandardFormat(t *testing.T) {
 // with BlobsBundle containing only Commitments and NewItems (8-byte header), no Proofs/Blobs
 func TestBlockSubmissionSSZFastUnmarshaller_DehydratedFormat(t *testing.T) {
 	// Setup
-	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller(nil)
+	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller(nil, nil)
 
 	// Create extended request with dehydrated blobs bundle
 	blockHash := GenerateRandomEthHash()
@@ -314,7 +314,7 @@ func TestBlockSubmissionSSZFastUnmarshaller_DehydratedFormat(t *testing.T) {
 // TestBlockSubmissionSSZFastUnmarshaller_WithAdjustmentData tests unmarshaling with AdjustmentData
 func TestBlockSubmissionSSZFastUnmarshaller_WithAdjustmentData(t *testing.T) {
 	// Setup
-	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller(nil)
+	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller(nil, nil)
 
 	blockHash := GenerateRandomEthHash()
 	builderPubkey := GenerateRandomPublicKey()
@@ -509,7 +509,7 @@ func (item *FuluHydrationBlobItem) MarshalSSZ() ([]byte, error) {
 
 // TestBlockSubmissionSSZFastUnmarshaller_InvalidOffset tests error handling for invalid offset values
 func TestBlockSubmissionSSZFastUnmarshaller_InvalidOffset(t *testing.T) {
-	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller(nil)
+	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller(nil, nil)
 
 	blockHash := GenerateRandomEthHash()
 	builderPubkey := GenerateRandomPublicKey()
@@ -591,7 +591,7 @@ func TestBlockSubmissionSSZFastUnmarshaller_InvalidOffset(t *testing.T) {
 
 // TestBlockSubmissionSSZFastUnmarshaller_TxRootZeroValue tests that TxRoot is nil when not present
 func TestBlockSubmissionSSZFastUnmarshaller_TxRootZeroValue(t *testing.T) {
-	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller(nil)
+	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller(nil, nil)
 
 	blockHash := GenerateRandomEthHash()
 	builderPubkey := GenerateRandomPublicKey()
@@ -691,7 +691,7 @@ func TestDecodeHexPayload(t *testing.T) {
 	}
 
 	// Unmarshal the payload
-	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller(nil)
+	unmarshaller := NewBlockSubmissionSSZFastUnmarshaller(nil, nil)
 	result := &VersionedExtendedSubmitBlockRequest{}
 	err = unmarshaller.UnmarshalSSZ(payloadBytes, result, false)
 

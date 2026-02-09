@@ -40,8 +40,10 @@ func NewCachingHydrator(cache *HydrationCache) *CachingHydrator {
 
 // HydratedData contains the result of hydration
 type HydratedData struct {
-	TxCacheHits   int
-	BlobCacheHits int
+	TxCacheWrites   int
+	TxCacheHits     int
+	BlobCacheWrites int
+	BlobCacheHits   int
 }
 
 // Hydrate hydrates a versioned block submission using FxHash
@@ -72,20 +74,22 @@ func (h *CachingHydrator) hydrateFulu(request *FuluExtendedSubmitBlockRequest) (
 
 	builderPubKey := request.Message.BuilderPubkey
 	txCacheHits := 0
+	txCacheWrites := 0
 	blobCacheHits := 0
+	blobCacheWrites := 0
 	var lastError error
 
 	if d, err := h.HydrateFuluTransactions(builderPubKey, request.ExecutionPayload); err != nil {
 		lastError = fmt.Errorf("failed to hydrate transactions: %w", err)
 	} else {
-		// Update cache hit count even on error to return best effort stats
+		txCacheWrites = d.CacheWrites
 		txCacheHits = d.CacheHits
 	}
 
 	if d, err := h.HydrateFuluBlobs(request.BlobsBundle); err != nil {
 		lastError = fmt.Errorf("failed to hydrate blobs: %w", err)
 	} else {
-		// Update cache hit count even on error to return best effort stats
+		blobCacheWrites = d.CacheWrites
 		blobCacheHits = d.CacheHits
 	}
 
@@ -95,19 +99,23 @@ func (h *CachingHydrator) hydrateFulu(request *FuluExtendedSubmitBlockRequest) (
 	}
 
 	return &HydratedData{
-		TxCacheHits:   txCacheHits,
-		BlobCacheHits: blobCacheHits,
+		TxCacheWrites:   txCacheWrites,
+		TxCacheHits:     txCacheHits,
+		BlobCacheWrites: blobCacheWrites,
+		BlobCacheHits:   blobCacheHits,
 	}, nil
 }
 
 type TransactionsHydrateData struct {
-	CacheHits int
+	CacheWrites int
+	CacheHits   int
 }
 
 func (h *CachingHydrator) HydrateFuluTransactions(builderPubkey phase0.BLSPubKey, payload *deneb.ExecutionPayload) (*TransactionsHydrateData, error) {
 	txCache := h.cache.getTxCache(builderPubkey)
 
-	txCacheHits := 0
+	cacheHits := 0
+	cacheWrites := 0
 	var lastError error
 
 	// Hydrate transactions (per-builder cache)
@@ -121,7 +129,7 @@ func (h *CachingHydrator) HydrateFuluTransactions(builderPubkey phase0.BLSPubKey
 			if cachedObj, found := txCache.Get(key); found {
 				cachedTx := cachedObj.([]byte)
 				payload.Transactions[i] = cachedTx
-				txCacheHits++
+				cacheHits++
 			} else {
 				lastError = fmt.Errorf("unknown tx: index %d, hash %d", i, hash)
 				// Continue processing to populate cache with subsequent items
@@ -137,6 +145,7 @@ func (h *CachingHydrator) HydrateFuluTransactions(builderPubkey phase0.BLSPubKey
 			txCopy := make([]byte, len(tx))
 			copy(txCopy, tx)
 			txCache.Set(key, txCopy, gocache.DefaultExpiration)
+			cacheWrites++
 		}
 	}
 
@@ -145,18 +154,21 @@ func (h *CachingHydrator) HydrateFuluTransactions(builderPubkey phase0.BLSPubKey
 	}
 
 	return &TransactionsHydrateData{
-		CacheHits: txCacheHits,
+		CacheWrites: cacheWrites,
+		CacheHits:   cacheHits,
 	}, nil
 }
 
 type BlobsHydrateData struct {
-	CacheHits int
+	CacheWrites int
+	CacheHits   int
 }
 
 func (h *CachingHydrator) HydrateFuluBlobs(blobsBundle *FuluExtendedBlobsBundle) (*BlobsHydrateData, error) {
 	blobCache := h.cache.getBlobCache()
 
-	blobCacheHits := 0
+	cacheHits := 0
+	cacheWrites := 0
 	var lastError error
 
 	// Cache new blob items in shared blob cache
@@ -165,6 +177,7 @@ func (h *CachingHydrator) HydrateFuluBlobs(blobsBundle *FuluExtendedBlobsBundle)
 	for i := range blobsBundle.NewItems {
 		key := blobFuluKey(blobsBundle.NewItems[i].Commitment)
 		blobCache.Set(key, blobsBundle.NewItems[i], gocache.DefaultExpiration)
+		cacheWrites++
 	}
 
 	// Check blob count using request.BlobsBundle.Commitments array
@@ -184,7 +197,7 @@ func (h *CachingHydrator) HydrateFuluBlobs(blobsBundle *FuluExtendedBlobsBundle)
 			item := cachedObj.(*FuluHydrationBlobItem)
 			blobsBundle.Proofs = append(blobsBundle.Proofs, item.Proof...)
 			blobsBundle.Blobs[i] = item.Blob
-			blobCacheHits++
+			cacheHits++
 		} else {
 			lastError = fmt.Errorf("unknown blob (Fulu): index %d", i)
 			// Continue processing to populate cache with subsequent items
@@ -195,9 +208,10 @@ func (h *CachingHydrator) HydrateFuluBlobs(blobsBundle *FuluExtendedBlobsBundle)
 		return nil, lastError
 	}
 
-	blobCacheHits -= newBlobCount
+	cacheHits -= newBlobCount
 	return &BlobsHydrateData{
-		CacheHits: blobCacheHits,
+		CacheHits:   cacheHits,
+		CacheWrites: cacheWrites,
 	}, nil
 }
 
