@@ -242,7 +242,8 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 			if d, err := u.hydrator.HydrateFuluTransactions(r.Message.BuilderPubkey, r.ExecutionPayload); err != nil {
 				return fmt.Errorf("failed to hydrate field 'ExecutionPayload': %w", err)
 			} else {
-				u.log.Debug().Uint64("slot", r.Message.Slot).Int("tx_cache_hits", d.CacheHits).Int("tx_cache_writes", d.CacheWrites).Msg("Hydrated transactions for ExecutionPayload")
+				// TODO: set debug
+				u.log.Info().Uint64("slot", r.Message.Slot).Int("tx_cache_hits", d.CacheHits).Int("tx_cache_writes", d.CacheWrites).Msg("Hydrated transactions for ExecutionPayload")
 			}
 		}
 	}
@@ -272,7 +273,8 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 					u.putFuluBundle(tmp)
 					return fmt.Errorf("failed to hydrate field 'BlobsBundle': %w", err)
 				} else {
-					u.log.Debug().Uint64("slot", r.Message.Slot).Int("blob_cache_hits", d.CacheHits).Int("blob_cache_writes", d.CacheWrites).Msg("Hydrated blobs for BlobsBundle")
+					// TODO: set debug
+					u.log.Info().Uint64("slot", r.Message.Slot).Int("blob_cache_hits", d.CacheHits).Int("blob_cache_writes", d.CacheWrites).Msg("Hydrated blobs for BlobsBundle")
 				}
 			}
 			u.blobCache.SetDefault(key, cached)
