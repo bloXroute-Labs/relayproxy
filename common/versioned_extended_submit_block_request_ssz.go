@@ -274,7 +274,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 					return fmt.Errorf("failed to hydrate field 'BlobsBundle': %w", err)
 				} else {
 					// TODO: set debug
-					u.log.Info().Uint64("slot", r.Message.Slot).Int("newitems", len(cached.NewItems)).Int("commitments", len(cached.Commitments)).Int("blob_cache_hits", d.CacheHits).Int("blob_cache_writes", d.CacheWrites).Int("blob_cache_size", d.CacheSize).Msg("Hydrated blobs for BlobsBundle")
+					u.log.Info().Uint64("slot", r.Message.Slot).Int("ssz_blobcache_size", u.blobCache.ItemCount()).Int("newitems", len(cached.NewItems)).Int("commitments", len(cached.Commitments)).Int("blob_cache_hits", d.CacheHits).Int("blob_cache_writes", d.CacheWrites).Int("blob_cache_size", d.CacheSize).Msg("Hydrated blobs for BlobsBundle")
 				}
 			}
 			u.blobCache.SetDefault(key, cached)
@@ -365,7 +365,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) resetFuluBlobsBundle(b *FuluExtende
 	b.Commitments = b.Commitments[:0]
 	b.Proofs = b.Proofs[:0]
 	b.Blobs = b.Blobs[:0]
-	b.NewItems = b.NewItems[:0]
+	b.NewItems = nil
 }
 
 func (u *BlockSubmissionSSZFastUnmarshaller) cloneFuluBlobsBundle(src *FuluExtendedBlobsBundle) *FuluExtendedBlobsBundle {
