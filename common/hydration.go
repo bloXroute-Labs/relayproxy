@@ -40,10 +40,14 @@ func NewCachingHydrator(cache *HydrationCache) *CachingHydrator {
 
 // HydratedData contains the result of hydration
 type HydratedData struct {
-	TxCacheWrites   int
-	TxCacheHits     int
-	BlobCacheWrites int
-	BlobCacheHits   int
+	TxCacheWrites     int
+	TxCacheHits       int
+	TxCacheBuilders   int // Number of builders with cached transactions
+	TxCacheTotalSize  int // Total transactions across all builders
+	TxCacheTotalBytes int // Total bytes of transactions across all builders
+	BlobCacheWrites   int
+	BlobCacheHits     int
+	BlobCacheSize     int
 }
 
 // Hydrate hydrates a versioned block submission using FxHash
@@ -75,8 +79,12 @@ func (h *CachingHydrator) hydrateFulu(request *FuluExtendedSubmitBlockRequest) (
 	builderPubKey := request.Message.BuilderPubkey
 	txCacheHits := 0
 	txCacheWrites := 0
+	txCacheBuilders := 0
+	txCacheTotalSize := 0
+	txCacheTotalBytes := 0
 	blobCacheHits := 0
 	blobCacheWrites := 0
+	blobCacheSize := 0
 	var lastError error
 
 	if d, err := h.HydrateFuluTransactions(builderPubKey, request.ExecutionPayload); err != nil {
@@ -84,6 +92,9 @@ func (h *CachingHydrator) hydrateFulu(request *FuluExtendedSubmitBlockRequest) (
 	} else {
 		txCacheWrites = d.CacheWrites
 		txCacheHits = d.CacheHits
+		txCacheBuilders = d.CacheBuilders
+		txCacheTotalSize = d.CacheTotalSize
+		txCacheTotalBytes = d.CacheTotalBytes
 	}
 
 	if d, err := h.HydrateFuluBlobs(request.BlobsBundle); err != nil {
@@ -91,6 +102,7 @@ func (h *CachingHydrator) hydrateFulu(request *FuluExtendedSubmitBlockRequest) (
 	} else {
 		blobCacheWrites = d.CacheWrites
 		blobCacheHits = d.CacheHits
+		blobCacheSize = d.CacheSize
 	}
 
 	// Return last error if any occurred during hydration
@@ -99,16 +111,23 @@ func (h *CachingHydrator) hydrateFulu(request *FuluExtendedSubmitBlockRequest) (
 	}
 
 	return &HydratedData{
-		TxCacheWrites:   txCacheWrites,
-		TxCacheHits:     txCacheHits,
-		BlobCacheWrites: blobCacheWrites,
-		BlobCacheHits:   blobCacheHits,
+		TxCacheWrites:     txCacheWrites,
+		TxCacheHits:       txCacheHits,
+		TxCacheBuilders:   txCacheBuilders,
+		TxCacheTotalSize:  txCacheTotalSize,
+		TxCacheTotalBytes: txCacheTotalBytes,
+		BlobCacheWrites:   blobCacheWrites,
+		BlobCacheHits:     blobCacheHits,
+		BlobCacheSize:     blobCacheSize,
 	}, nil
 }
 
 type TransactionsHydrateData struct {
-	CacheWrites int
-	CacheHits   int
+	CacheWrites     int
+	CacheHits       int
+	CacheBuilders   int // Number of builders with cached transactions
+	CacheTotalSize  int // Total transactions across all builders
+	CacheTotalBytes int // Total bytes of transactions across all builders
 }
 
 func (h *CachingHydrator) HydrateFuluTransactions(builderPubkey phase0.BLSPubKey, payload *deneb.ExecutionPayload) (*TransactionsHydrateData, error) {
@@ -153,15 +172,20 @@ func (h *CachingHydrator) HydrateFuluTransactions(builderPubkey phase0.BLSPubKey
 		return nil, lastError
 	}
 
+	builders, totalSize, totalBytes := h.cache.getTxCacheStats()
 	return &TransactionsHydrateData{
-		CacheWrites: cacheWrites,
-		CacheHits:   cacheHits,
+		CacheWrites:     cacheWrites,
+		CacheHits:       cacheHits,
+		CacheBuilders:   builders,
+		CacheTotalSize:  totalSize,
+		CacheTotalBytes: totalBytes,
 	}, nil
 }
 
 type BlobsHydrateData struct {
 	CacheWrites int
 	CacheHits   int
+	CacheSize   int
 }
 
 func (h *CachingHydrator) HydrateFuluBlobs(blobsBundle *FuluExtendedBlobsBundle) (*BlobsHydrateData, error) {
@@ -212,6 +236,7 @@ func (h *CachingHydrator) HydrateFuluBlobs(blobsBundle *FuluExtendedBlobsBundle)
 	return &BlobsHydrateData{
 		CacheHits:   cacheHits,
 		CacheWrites: cacheWrites,
+		CacheSize:   blobCache.ItemCount(),
 	}, nil
 }
 
@@ -249,7 +274,7 @@ type HydrationCache struct {
 // NewHydrationCache creates a new hydration cache
 func NewHydrationCache() *HydrationCache {
 	return &HydrationCache{
-		blobCache: gocache.New(time.Minute, time.Minute),
+		blobCache: gocache.New(30*time.Second, 30*time.Second),
 	}
 }
 
@@ -263,11 +288,28 @@ func (hc *HydrationCache) getTxCache(builderPubKey phase0.BLSPubKey) *gocache.Ca
 	}
 
 	// Create new cache
-	cache := gocache.New(time.Minute, time.Minute) // Leaving it for several slots
+	cache := gocache.New(30*time.Second, 30*time.Second) // Leaving it for several slots
 
 	// Store it (LoadOrStore handles race condition)
 	actual, _ := hc.txCaches.LoadOrStore(key, cache)
 	return actual.(*gocache.Cache)
+}
+
+// getTxCacheStats returns the number of builder keys, total transaction count, and total bytes across all builders
+func (hc *HydrationCache) getTxCacheStats() (builders int, totalTxs int, totalBytes int) {
+	hc.txCaches.Range(func(key, value any) bool {
+		builders++
+		if cache, ok := value.(*gocache.Cache); ok {
+			for _, item := range cache.Items() {
+				if tx, ok := item.Object.([]byte); ok {
+					totalTxs++
+					totalBytes += len(tx)
+				}
+			}
+		}
+		return true
+	})
+	return builders, totalTxs, totalBytes
 }
 
 // getBlobCache returns the shared blob cache
