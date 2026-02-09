@@ -10,6 +10,7 @@ import (
 	consensusspec "github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/deneb"
 	"github.com/attestantio/go-eth2-client/spec/electra"
+	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/bloXroute-Labs/relay-grpc/bidadjustment"
 	ssz "github.com/ferranbt/fastssz"
 	"github.com/patrickmn/go-cache"
@@ -40,7 +41,6 @@ func (item *FuluHydrationBlobItem) UnmarshalSSZ(buf []byte) error {
 		return fmt.Errorf("buffer too small, expected at least %d bytes, got %d: %w", fuluHydrationItemFixedSize, size, ssz.ErrSize)
 	}
 
-	tail := buf
 	var o0 uint64
 
 	// Offset (0) 'Proofs'
@@ -59,7 +59,7 @@ func (item *FuluHydrationBlobItem) UnmarshalSSZ(buf []byte) error {
 
 	// Field (0) 'Proofs' (variable) but in fact expected to be 128 always (CELLS_PER_EXT_BLOB)
 	{
-		seg := tail[o0:]
+		seg := buf[o0:]
 		num, err := ssz.DivideInt2(len(seg), kzgProofSize, maxProofsPerBlob)
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal field 'Proofs': invalid segment size %d: %w", len(seg), err)
@@ -73,6 +73,11 @@ func (item *FuluHydrationBlobItem) UnmarshalSSZ(buf []byte) error {
 	return nil
 }
 
+type Hydrator interface {
+	HydrateFuluTransactions(builderPubkey phase0.BLSPubKey, payload *deneb.ExecutionPayload) (*TransactionsHydrateData, error)
+	HydrateFuluBlobs(blobsBundle *FuluExtendedBlobsBundle) (*BlobsHydrateData, error)
+}
+
 // SSZ Unmarshaller impl for VersionedExtendedSubmitBlockRequest with caching and object pooling.
 // It's capable of processing both standard and dehydrated formats for Fulu blobs bundle as well as optional AdjustmentData.
 type BlockSubmissionSSZFastUnmarshaller struct {
@@ -81,22 +86,25 @@ type BlockSubmissionSSZFastUnmarshaller struct {
 	blobCache *cache.Cache
 	// Fulu blobs
 	fuluBundlePool sync.Pool
+
+	hydrator Hydrator
 }
 
-func NewBlockSubmissionSSZFastUnmarshaller() *BlockSubmissionSSZFastUnmarshaller {
+func NewBlockSubmissionSSZFastUnmarshaller(hydrator Hydrator) *BlockSubmissionSSZFastUnmarshaller {
 	return &BlockSubmissionSSZFastUnmarshaller{
 		blobCache: cache.New(1*time.Minute, 1*time.Minute),
 		fuluBundlePool: sync.Pool{
 			New: func() any { return new(FuluExtendedBlobsBundle) },
 		},
+		hydrator: hydrator,
 	}
 }
 
-func (u *BlockSubmissionSSZFastUnmarshaller) UnmarshalSSZ(input []byte, out *VersionedExtendedSubmitBlockRequest) error {
+func (u *BlockSubmissionSSZFastUnmarshaller) UnmarshalSSZ(input []byte, out *VersionedExtendedSubmitBlockRequest, hydrate bool) error {
 	if IsFulu {
 		out.Version = consensusspec.DataVersionFulu
 		fuluExtendedRequest := new(FuluExtendedSubmitBlockRequest)
-		if err := u.unmarshalSSZFulu(fuluExtendedRequest, input); err != nil {
+		if err := u.unmarshalSSZFulu(fuluExtendedRequest, input, hydrate); err != nil {
 			return fmt.Errorf("failed to unmarshal Fulu extended submit block request: %w", err)
 		}
 		out.Fulu = fuluExtendedRequest
@@ -105,7 +113,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) UnmarshalSSZ(input []byte, out *Ver
 	return errors.New("only fulu version is supported for extended SubmitBlockRequest")
 }
 
-func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSubmitBlockRequest, buf []byte) error {
+func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSubmitBlockRequest, buf []byte, hydrate bool) error {
 	var err error
 	size := uint64(len(buf))
 	if size < 344 {
@@ -226,6 +234,12 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 		if err = r.ExecutionPayload.UnmarshalSSZ(buf); err != nil {
 			return fmt.Errorf("failed to unmarshal field 'ExecutionPayload': %w", err)
 		}
+		// Hydrate transactions
+		if hydrate {
+			if _, err := u.hydrator.HydrateFuluTransactions(r.Message.BuilderPubkey, r.ExecutionPayload); err != nil {
+				return fmt.Errorf("failed to hydrate field 'ExecutionPayload': %w", err)
+			}
+		}
 	}
 
 	// Field (2) 'BlobsBundle' — zero-copy on cache hits
@@ -247,6 +261,13 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 
 			// Clone once for immutable cache entry and reuse that pointer
 			cached := u.cloneFuluBlobsBundle(tmp)
+			// Hydrate blobs
+			if hydrate {
+				if _, err := u.hydrator.HydrateFuluBlobs(cached); err != nil {
+					u.putFuluBundle(tmp)
+					return fmt.Errorf("failed to hydrate field 'BlobsBundle': %w", err)
+				}
+			}
 			u.blobCache.SetDefault(key, cached)
 			r.BlobsBundle = cached
 
@@ -361,7 +382,6 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 		return fmt.Errorf("buffer too small, expected at least 8 bytes, got %d: %w", size, ssz.ErrSize)
 	}
 
-	tail := buf
 	var o0, o1, o2, o3 uint64
 
 	// Detect format by reading first offset
@@ -402,7 +422,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 
 	// Field (0) 'Commitments'
 	{
-		seg := tail[o0:o1]
+		seg := buf[o0:o1]
 		num, err := ssz.DivideInt2(len(seg), kzgCommitmentSize, maxBlobsPerBlock)
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal field 'Commitments': invalid segment size %d: %w", len(seg), err)
@@ -419,7 +439,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 
 	// Field (1) 'Proofs'
 	{
-		seg := tail[o1:o2]
+		seg := buf[o1:o2]
 		// max = 33554432 here is same as in fulu.BlobsBundle SSZ max for Proofs
 		num, err := ssz.DivideInt2(len(seg), kzgProofSize, 33554432)
 		if err != nil {
@@ -437,7 +457,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 
 	// Field (2) 'Blobs'
 	{
-		seg := tail[o2:o3]
+		seg := buf[o2:o3]
 		num, err := ssz.DivideInt2(len(seg), blobSize, maxBlobsPerBlock)
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal field 'Blobs': invalid segment size %d: %w", len(seg), err)
@@ -454,8 +474,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 
 	// Field (3) 'NewItems' (only if extended format)
 	if hasNewItems {
-		seg := tail[o3:]
-		if len(seg) == 0 {
+		if seg := buf[o3:]; len(seg) == 0 {
 			// Empty NewItems list
 			b.NewItems = nil
 		} else if len(seg) < 4 {
@@ -508,8 +527,6 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalFuluBlobsBundleReuse(b *Fu
 				}
 			}
 		}
-	} else {
-		b.NewItems = nil
 	}
 
 	return nil
