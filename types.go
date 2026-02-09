@@ -90,5 +90,29 @@ type DelayGetHeaderParams struct {
 	SlotWithParentHash  string
 	BoostSendTimeUnixMS string
 	Latency             int64
-	headerTimeoutMS     uint64 // client timeout
+	HeaderTimeoutMS     uint64 // client timeout
+}
+
+type DelayGetHeaderResponse struct {
+	Sleep, MaxSleep       int64
+	SlotStartTime         time.Time
+	Latency               int64
+	ExternalRelayResponse ExternalRelayResponse
+	ReplacementDelayMs    int64
+	DelayInfo             DelayInfo
+}
+
+type DelayInfo struct {
+	IsSleepUpdated     bool
+	SleepMsBefore      int64
+	SleepMsAfter       int64
+	SleptMsActual      int64
+	OneWayMs           int64 // one way ping ms which rtt/2
+	RequestInitiatedAt int64
+	RequestTimeout     int64
+	RequestDeadline    time.Time
+	GetHeaderDeadline  time.Time // default getHeader window 2.9secs
+	EffectiveDeadline  time.Time
+	DefaultWakeupAt    time.Time
+	UpdatedWakeupAt    time.Time
 }

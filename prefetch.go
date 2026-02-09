@@ -134,7 +134,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		Str("blockHash", fields.blockHash).
 		Int64("msIntoSlotStart", msIntoSlotPrefetchStart).
 		Int64("msIntoSlotGetHeaderIncludingDelay", fields.msIntoSlotGetHeaderIncludingDelay).
-		Str("getHeaderReqID", fields.getHeaderReqID).
+		Str("getheaderReqID", fields.getHeaderReqID).
 		Str("builderPayloadFetchURL", fields.payloadFetchUrl).
 		Logger()
 	prefetchLogger.Info().Msg("received prefetchPayload")

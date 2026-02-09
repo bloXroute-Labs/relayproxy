@@ -117,13 +117,7 @@ type AccountsLists struct {
 	AccountIDToInfo   map[string]*AccountInfo
 	AccountNameToInfo map[AccountName]*AccountInfo
 }
-type DelayGetHeaderResponse struct {
-	Sleep, MaxSleep       int64
-	SlotStartTime         time.Time
-	Latency               int64
-	ExternalRelayResponse ExternalRelayResponse
-	ReplacementDelayMs    int64
-}
+
 type ExternalRelayResponse struct {
 	URL             string
 	ReqStartTime    time.Time
@@ -173,7 +167,7 @@ func (s *DataService) DelayGetHeader(ctx context.Context, in DelayGetHeaderParam
 	if GetHeaderRequestCutoffMs > 0 && msIntoSlot > GetHeaderRequestCutoffMs {
 		return DelayGetHeaderResponse{}, common.ErrLateHeader
 	}
-	sleep, maxSleep, replacementDelayMs, err = s.dynamicFuncWrapper(in.AccountID, msIntoSlot, in.Cluster, in.UserAgent, in.Latency, in.ClientIP, int64(in.headerTimeoutMS))
+	sleep, maxSleep, replacementDelayMs, err = s.dynamicFuncWrapper(in.AccountID, msIntoSlot, in.Cluster, in.UserAgent, in.Latency, in.ClientIP, int64(in.HeaderTimeoutMS))
 	if err != nil {
 		return DelayGetHeaderResponse{}, err
 	}
