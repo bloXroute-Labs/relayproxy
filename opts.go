@@ -340,6 +340,12 @@ func WithSvcPerformanceStats(performanceStats *stat.PerformanceStats) ServiceOpt
 	}
 }
 
+func WithDelayer(delayer Delayer) ServiceOption {
+	return func(s *Service) {
+		s.delayer = delayer
+	}
+}
+
 // ---------------- Data service options ----------------------
 
 type DataServiceOption func(s *DataService)

@@ -27,10 +27,12 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	defer span.End()
 
 	k := "slot-" + in.Slot + "-parentHash-" + in.ParentHash
-
+	var (
+		err                    error
+		delayGetHeaderResponse DelayGetHeaderResponse
+	)
 	delayCtx, delayGetHeaderSpan := s.tracer.Start(ctx, "getHeader-delayGetHeader")
-
-	delayGetHeaderResponse, err := s.DelayGetHeader(delayCtx, DelayGetHeaderParams{
+	delayGetHeaderResponse, err = s.delayer.DelayGetHeader(delayCtx, DelayGetHeaderParams{
 		ReceivedAt:          in.ReceivedAt,
 		Slot:                in.Slot,
 		AccountID:           in.AccountID,
@@ -40,8 +42,32 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		SlotWithParentHash:  k,
 		BoostSendTimeUnixMS: in.GetHeaderStartTimeUnixMS,
 		Latency:             in.Latency,
-		headerTimeoutMS:     in.HeaderTimeoutMs, // client timeout
+		HeaderTimeoutMS:     in.HeaderTimeoutMs, // client timeout
 	})
+	resp := delayGetHeaderResponse
+
+	*log = log.With().
+		// top-level response fields
+		Int64("sleep", resp.Sleep).
+		Int64("maxSleep", resp.MaxSleep).
+		Int64("replacementDelayMs", resp.ReplacementDelayMs).
+		Int64("latency", resp.Latency).
+		Time("slotStartTime", resp.SlotStartTime).
+
+		// DelayInfo fields (exported)
+		Int64("slept", resp.DelayInfo.SleptMsActual).
+		Int64("sleepMsBefore", resp.DelayInfo.SleepMsBefore).
+		Int64("sleepMsAfter", resp.DelayInfo.SleepMsAfter).
+		Bool("isSleepUpdated", resp.DelayInfo.IsSleepUpdated).
+		Int64("oneWayMs", resp.DelayInfo.OneWayMs).
+		Int64("requestInitiatedAt", resp.DelayInfo.RequestInitiatedAt).
+		Int64("requestTimeout", resp.DelayInfo.RequestTimeout).
+		Time("requestDeadline", resp.DelayInfo.RequestDeadline).
+		Time("getHeaderDeadline", resp.DelayInfo.GetHeaderDeadline).
+		Time("effectiveDeadline", resp.DelayInfo.EffectiveDeadline).
+		Time("defaultWakeupAt", resp.DelayInfo.DefaultWakeupAt).
+		Time("updatedWakeupAt", resp.DelayInfo.UpdatedWakeupAt).
+		Logger()
 	delayGetHeaderSpan.End(trace.WithTimestamp(time.Now()))
 
 	_, preStoringHeaderSpan := s.tracer.Start(ctx, "getHeader-preStoringHeaderSpan")
@@ -77,6 +103,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds() // without sleep and using received at
 	*log = log.With().
 		Int64("msIntoSlotIncludingDelay", msIntoSlotIncludingDelay).
+		Int64("receivedAtMsIntoSlot", msIntoSlot).
 		Logger()
 
 	preStoringHeaderSpan.End()
@@ -96,23 +123,56 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 
 	fetchGetHeaderStartTime := time.Now().UTC()
 	keyForCachingBids := s.keyForCachingBids(_slot, in.ParentHash, in.PubKey)
+
+	initialBidFetchStart := time.Now().UTC()
 	slotBestHeader, secondBestHeader, getErr := s.GetTopBuilderBid(keyForCachingBids)
+	blockValue := new(big.Int)
+	initialFetchBidUsed := true
+	initialBidFetchDurationMs := time.Since(initialBidFetchStart).Milliseconds()
+
 	usedRepick := false
 	repickDataExist := false
 	repickDataSuccess := true
 	repickErr := ""
 	originalValue := big.NewInt(0)
 	originalBlockHash := ""
+
+	// Repick algorithm (high level):
+	//  1) Initial fetch: GetTopBuilderBid(key) -> (best, second). This is the baseline header/value we would return.
+	//     - If best has a PayloadFetchUrl, we best-effort enqueue a prefetch.
+	//
+	//  2) Repick window: If ReplacementDelayMs > 0 and OnHeaderBidRetrieved is set,
+	//     we open a bounded "repick window" of length ReplacementDelayMs.
+	//     - Spawn a goroutine that calls OnHeaderBidRetrieved(repickCtx, currentBest, ...).
+	//     - repickCtx is capped by repickDeadline (hard deadline).
+	//     - Result is sent on a buffered channel (size 1) best-effort (never block).
+	//
+	//  3) Decide outcome (whichever happens first):
+	//     a) Receive repick result within window:
+	//        - If err: repick failed (record error), keep current best.
+	//        - If bid != nil: accept replacement bid (usedRepick=true), update best/value.
+	//        - If bid == nil: treat as failure, keep current best.
+	//     b) repickCtx deadline hits: timeout, keep current best.
+	//     c) request ctx canceled: abort repick, keep current best.
+	//
+	//  4) Final fetch (only if repick did NOT replace):
+	//     After the repick window closes, fetch GetTopBuilderBid(key) again.
+	//     If the newly fetched best has higher value than our current best, upgrade to it.
+	//     This might affect bid replacement.
+	//     (This is a final "catch-up" fetch; it does not wait beyond the repick deadline.)
+	//
+
 	if getErr == nil && slotBestHeader != nil {
 		originalValue = new(big.Int).SetBytes(slotBestHeader.Value)
+		blockValue = new(big.Int).Set(originalValue)
 		originalBlockHash = slotBestHeader.BlockHash
 	} else {
 		log.Error().Err(getErr).Msg("error getting top builder bid")
 	}
 
-	// Send in an early prefetch payload request for Optimistic V3 block payloads
 	if slotBestHeader != nil && slotBestHeader.PayloadFetchUrl != "" {
-		s.preFetchPayloadChan <- preFetcherFields{
+		select {
+		case s.preFetchPayloadChan <- preFetcherFields{
 			clientIP:                          in.ClientIP,
 			authHeader:                        in.AuthHeader,
 			slot:                              _slot,
@@ -126,70 +186,157 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			slotStartTime:                     slotStartTime,
 			msIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
 			getHeaderReqID:                    id,
+		}:
+		default:
+			log.Warn().Msg("prefetch channel full; skipping prefetch")
 		}
 	}
 
-	repickDurationMS := int64(0)
+	var (
+		repickStartTime time.Time
+		repickDeadline  time.Time
+		repickEndTime   time.Time
+		repickElapsedMs int64
+		repickOutcome   string // "replaced" | "nil" | "timeout" | "ctx_canceled" | "skipped"
 
-	repickTime := time.Now().Add(time.Duration(delayGetHeaderResponse.ReplacementDelayMs) * time.Millisecond)
-	replacementTime := repickTime.Add(-5 * time.Millisecond)
-	if delayGetHeaderResponse.ReplacementDelayMs > 0 {
-		replacementTimer := time.NewTimer(time.Until(replacementTime))
-		defer replacementTimer.Stop()
-		repickTimer := time.NewTimer(time.Until(repickTime))
-		defer repickTimer.Stop()
+		finalFetchAttempted   bool
+		finalFetchBidUsed     bool
+		finalFetchRemainingMs int64
+		finalFetchDurationMs  int64
+		repickDurationMs      int64 // duration of OnHeaderBidRetrieved
+	)
 
-		log.Info().Int64("replacementDelayMs", delayGetHeaderResponse.ReplacementDelayMs).Msg("waiting for replacement delay")
-		if getErr == nil && s.OnHeaderBidRetrieved != nil {
-			newBestHeaderCh := make(chan *common.Bid, 1)
-			go func() {
-				onHeaderBidRetrievedStart := time.Now()
-				onHeaderRetrievedCtx, onHeadonHeaderBidRetrievedSpan := s.tracer.Start(storingHeaderCtx, "getHeader-onHeaderBidRetrieved")
-				newBestHeader, replaceable, err := s.OnHeaderBidRetrieved(onHeaderRetrievedCtx, slotBestHeader, *log, _slot, in.ParentHash, slotBestHeader.BuilderPubkey, in.AccountID, delayGetHeaderResponse.ReplacementDelayMs, s.uniqueStreamingClients)
-				onHeadonHeaderBidRetrievedSpan.End()
-				repickDurationMS = time.Since(onHeaderBidRetrievedStart).Milliseconds()
-				log.Info().Bool("replaceable", replaceable).Int64("onHeaderBidRetrievedDuration", repickDurationMS).Msg("OnHeaderBidRetrieved duration")
-				repickDataExist = replaceable
-				if err != nil {
-					repickErr = err.Error()
-					log.Error().Err(err).Msg("OnHeaderBidRetrieved error")
-					newBestHeaderCh <- nil
-					return
-				}
-				newBestHeaderCh <- newBestHeader
-			}()
+	repickDelayMs := delayGetHeaderResponse.ReplacementDelayMs
+	bidAdjustmentStartAt := time.Now().UTC()
+
+	type repickResult struct {
+		bid         *common.Bid
+		replaceable bool
+		err         error
+		durationMs  int64
+	}
+
+	if repickDelayMs > 0 && getErr == nil && s.OnHeaderBidRetrieved != nil && slotBestHeader != nil {
+		repickStartTime = time.Now().UTC()
+		repickDeadline = repickStartTime.Add(time.Duration(repickDelayMs) * time.Millisecond)
+
+		// ctx that caps OnHeaderBidRetrieved to the repick window
+		repickCtx, cancel := context.WithDeadline(storingHeaderCtx, repickDeadline)
+		defer cancel()
+
+		resCh := make(chan repickResult, 1)
+
+		go func() {
+			start := time.Now()
+			onHeaderRetrievedCtx, span := s.tracer.Start(repickCtx, "getHeader-onHeaderBidRetrieved")
+			defer span.End()
+
+			newBestHeader, replaceable, err := s.OnHeaderBidRetrieved(
+				onHeaderRetrievedCtx,
+				slotBestHeader,
+				*log,
+				_slot,
+				in.ParentHash,
+				slotBestHeader.BuilderPubkey,
+				in.AccountID,
+				repickDelayMs,
+				s.uniqueStreamingClients,
+			)
+
+			r := repickResult{
+				bid:         newBestHeader,
+				replaceable: replaceable,
+				err:         err,
+				durationMs:  time.Since(start).Milliseconds(),
+			}
+
 			select {
-			case replacementHeader := <-newBestHeaderCh:
-				if replacementHeader != nil {
-					usedRepick = true
-					slotBestHeader = replacementHeader
-					getErr = nil
-					log.Info().Msg("got new bid after repick from channel")
-				} else {
-					log.Info().Msg("got nil bid after repick from channel")
-				}
-			case <-replacementTimer.C:
-				log.Error().Time("replacementTime", replacementTime).Time("repickTime", repickTime).Msg("OnHeaderBidRetrieved took too long, proceeding with the original bid")
-				repickErr = "timeout waiting for OnHeaderBidRetrieved"
+			case resCh <- r:
+			default:
+				// best-effort; should not block
+				log.Warn().
+					Msg("resCh full, dropping result (non-blocking send)")
+			}
+		}()
+
+		select {
+		case r := <-resCh:
+			repickDurationMs = r.durationMs
+			repickDataExist = r.replaceable
+
+			if r.err != nil {
+				repickErr = r.err.Error()
 				repickDataSuccess = false
-			}
-		}
-		if !usedRepick {
-			<-repickTimer.C
-			newBestHeader, secondBidHeader, err := s.GetTopBuilderBid(keyForCachingBids)
-			if err != nil {
-				log.Error().Err(err).Msg("error getting top builder bid after repick wait")
+				repickOutcome = r.err.Error()
+				log.Debug().Err(r.err).Msg("OnHeaderBidRetrieved error")
+			} else if r.bid != nil {
+				usedRepick = true
+				initialFetchBidUsed = false
+				blockValue = new(big.Int).SetBytes(r.bid.Value)
+				slotBestHeader = r.bid
+				getErr = nil
+				repickOutcome = "replaced"
+				log.Debug().Msg("got replacement bid within ReplacementDelayMs")
 			} else {
-				slotBestHeader = newBestHeader
-				secondBestHeader = secondBidHeader
-				getErr = err
-				log.Info().Msg("got new bid after repick wait")
+				repickDataSuccess = false
+				repickErr = "OnHeaderBidRetrieved returned nil"
+				repickOutcome = "nil"
+				log.Debug().Msg("repick returned nil bid")
 			}
+
+		case <-repickCtx.Done():
+			repickDataSuccess = false
+			repickErr = "timeout waiting for OnHeaderBidRetrieved"
+			repickOutcome = "timeout"
+			log.Debug().
+				Time("deadline", repickDeadline).
+				Int64("replacementDelayMs", repickDelayMs).
+				Msg("repick hard deadline reached")
+
+		case <-ctx.Done():
+			repickDataSuccess = false
+			repickErr = ctx.Err().Error()
+			repickOutcome = "ctx_canceled"
+			log.Debug().Err(ctx.Err()).Msg("request ctx canceled during repick")
 		}
+
+		if !usedRepick {
+			remaining := time.Until(repickDeadline)
+			finalFetchRemainingMs = remaining.Milliseconds()
+
+			finalFetchAttempted = true
+			fetchStart := time.Now().UTC()
+
+			newBestHeader, secondBidHeader, err := s.GetTopBuilderBid(keyForCachingBids)
+
+			if err != nil || newBestHeader == nil {
+				log.Debug().Err(err).Msg("error getting top builder bid after repick window")
+			} else {
+				newblockValue := new(big.Int).SetBytes(newBestHeader.Value)
+				if newblockValue.Cmp(blockValue) > 0 {
+					slotBestHeader = newBestHeader
+					secondBestHeader = secondBidHeader
+					getErr = err
+					blockValue = newblockValue
+					initialFetchBidUsed = false
+					finalFetchBidUsed = true
+				}
+			}
+			finalFetchDurationMs = time.Since(fetchStart).Milliseconds()
+		}
+
+		repickEndTime = time.Now().UTC()
+		repickElapsedMs = repickEndTime.Sub(repickStartTime).Milliseconds()
+
+	} else {
+		repickOutcome = "skipped"
+		repickDataSuccess = false
 	}
 
+	bidAdjustmentDurationMs := time.Since(bidAdjustmentStartAt).Milliseconds()
 	fetchGetHeaderDurationMS := time.Since(fetchGetHeaderStartTime).Milliseconds()
 	headerReqDuration := time.Since(in.ReceivedAt)
+
 	statsUserAgent := in.UserAgent
 	if in.Cluster != "" {
 		statsUserAgent += "/" + in.Cluster
@@ -227,6 +374,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		}()
 		return nil, nil, toErrorResp(http.StatusNoContent, "Header value is not present")
 	}
+
 	if slotBestHeader.AccountID != "" {
 		in.AccountID = slotBestHeader.AccountID
 		if s.accountsLists.AccountIDToInfo[in.AccountID] != nil &&
@@ -234,22 +382,46 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			in.ValidatorID = in.AccountID
 		}
 	}
-	blockValue := new(big.Int).SetBytes(slotBestHeader.Value)
 	_, signAndFinishSpan := s.tracer.Start(ctx, "getHeader-finalize")
 	defer signAndFinishSpan.End()
+
 	*log = log.With().
 		Str("blockHash", slotBestHeader.BlockHash).
 		Str("blockValue", blockValue.String()).
+
+		// overall timing
+		Int64("headerReqDurationMs", headerReqDuration.Milliseconds()).
+		Int64("fetchGetHeaderDurationMs", fetchGetHeaderDurationMS).
+		Int64("initialBidFetchDurationMs", initialBidFetchDurationMs).
+
+		// repick config + outcome
 		Int64("replacementDelayMs", delayGetHeaderResponse.ReplacementDelayMs).
 		Bool("usedRepick", usedRepick).
 		Bool("repickDataExist", repickDataExist).
 		Bool("repickDataSuccess", repickDataSuccess).
 		Str("repickErr", repickErr).
-		Int64("repickDurationMS", repickDurationMS).
+		Str("repickOutcome", repickOutcome).
+
+		// repick timings
+		Time("repickStartTime", repickStartTime).
+		Time("repickDeadline", repickDeadline).
+		Time("repickEndTime", repickEndTime).
+		Int64("repickElapsedMs", repickElapsedMs).
+		Int64("onHeaderBidRetrievedDurationMs", repickDurationMs).
+
+		// final fetch timings
+		Bool("finalFetchAttempted", finalFetchAttempted).
+		Int64("finalFetchRemainingMs", finalFetchRemainingMs).
+		Int64("finalFetchDurationMs", finalFetchDurationMs).
+		Bool("finalFetchBidUsed", finalFetchBidUsed).
+		Bool("initialFetchBidUsed", initialFetchBidUsed).
+
+		// original bid context
 		Int64("originalValue", originalValue.Int64()).
 		Str("originalBlockHash", originalBlockHash).
-		Time("replacementTime", replacementTime).
-		Time("repickTime", repickTime).
+
+		// your existing metric (renamed semantics: this is the whole repick flow, not only "adjustment")
+		Int64("bidAdjustmentDurationMs", bidAdjustmentDurationMs).
 		Logger()
 
 	go func() {
@@ -353,7 +525,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 
 				OriginalValue:         originalValue.String(),
 				OriginalBlockHash:     originalBlockHash,
-				BidAdjustmentDuration: repickDurationMS,
+				BidAdjustmentDuration: bidAdjustmentDurationMs,
 				UsedAdjustment:        usedRepick,
 				AdjustmentDataExist:   repickDataExist,
 				AdjustmentDataSuccess: repickDataSuccess,
