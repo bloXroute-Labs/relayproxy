@@ -39,57 +39,42 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		delayGetHeaderResponse DelayGetHeaderResponse
 	)
 	delayCtx, delayGetHeaderSpan := s.tracer.Start(ctx, "getHeader-delayGetHeader")
-	if in.AccountID == figment || in.AccountID == kraken || in.AccountID == coinbase || in.AccountID == p2p {
-		delayGetHeaderResponse, err = s.delayer.DelayGetHeader(delayCtx, DelayGetHeaderParams{
-			ReceivedAt:          in.ReceivedAt,
-			Slot:                in.Slot,
-			AccountID:           in.AccountID,
-			Cluster:             in.Cluster,
-			UserAgent:           in.UserAgent,
-			ClientIP:            in.ClientIP,
-			SlotWithParentHash:  k,
-			BoostSendTimeUnixMS: in.GetHeaderStartTimeUnixMS,
-			Latency:             in.Latency,
-			HeaderTimeoutMS:     in.HeaderTimeoutMs, // client timeout
-		})
-		resp := delayGetHeaderResponse
+	delayGetHeaderResponse, err = s.delayer.DelayGetHeader(delayCtx, DelayGetHeaderParams{
+		ReceivedAt:          in.ReceivedAt,
+		Slot:                in.Slot,
+		AccountID:           in.AccountID,
+		Cluster:             in.Cluster,
+		UserAgent:           in.UserAgent,
+		ClientIP:            in.ClientIP,
+		SlotWithParentHash:  k,
+		BoostSendTimeUnixMS: in.GetHeaderStartTimeUnixMS,
+		Latency:             in.Latency,
+		HeaderTimeoutMS:     in.HeaderTimeoutMs, // client timeout
+	})
+	resp := delayGetHeaderResponse
 
-		*log = log.With().
-			// top-level response fields
-			Int64("sleep", resp.Sleep).
-			Int64("maxSleep", resp.MaxSleep).
-			Int64("replacementDelayMs", resp.ReplacementDelayMs).
-			Int64("latency", resp.Latency).
-			Time("slotStartTime", resp.SlotStartTime).
+	*log = log.With().
+		// top-level response fields
+		Int64("sleep", resp.Sleep).
+		Int64("maxSleep", resp.MaxSleep).
+		Int64("replacementDelayMs", resp.ReplacementDelayMs).
+		Int64("latency", resp.Latency).
+		Time("slotStartTime", resp.SlotStartTime).
 
-			// DelayInfo fields (exported)
-			Int64("slept", resp.DelayInfo.SleptMsActual).
-			Int64("sleepMsBefore", resp.DelayInfo.SleepMsBefore).
-			Int64("sleepMsAfter", resp.DelayInfo.SleepMsAfter).
-			Bool("isSleepUpdated", resp.DelayInfo.IsSleepUpdated).
-			Int64("oneWayMs", resp.DelayInfo.OneWayMs).
-			Int64("requestInitiatedAt", resp.DelayInfo.RequestInitiatedAt).
-			Int64("requestTimeout", resp.DelayInfo.RequestTimeout).
-			Time("requestDeadline", resp.DelayInfo.RequestDeadline).
-			Time("getHeaderDeadline", resp.DelayInfo.GetHeaderDeadline).
-			Time("effectiveDeadline", resp.DelayInfo.EffectiveDeadline).
-			Time("defaultWakeupAt", resp.DelayInfo.DefaultWakeupAt).
-			Time("updatedWakeupAt", resp.DelayInfo.UpdatedWakeupAt).
-			Logger()
-	} else {
-		delayGetHeaderResponse, err = s.IDataService.DelayGetHeader(delayCtx, DelayGetHeaderParams{
-			ReceivedAt:          in.ReceivedAt,
-			Slot:                in.Slot,
-			AccountID:           in.AccountID,
-			Cluster:             in.Cluster,
-			UserAgent:           in.UserAgent,
-			ClientIP:            in.ClientIP,
-			SlotWithParentHash:  k,
-			BoostSendTimeUnixMS: in.GetHeaderStartTimeUnixMS,
-			Latency:             in.Latency,
-			HeaderTimeoutMS:     in.HeaderTimeoutMs, // client timeout
-		})
-	}
+		// DelayInfo fields (exported)
+		Int64("slept", resp.DelayInfo.SleptMsActual).
+		Int64("sleepMsBefore", resp.DelayInfo.SleepMsBefore).
+		Int64("sleepMsAfter", resp.DelayInfo.SleepMsAfter).
+		Bool("isSleepUpdated", resp.DelayInfo.IsSleepUpdated).
+		Int64("oneWayMs", resp.DelayInfo.OneWayMs).
+		Int64("requestInitiatedAt", resp.DelayInfo.RequestInitiatedAt).
+		Int64("requestTimeout", resp.DelayInfo.RequestTimeout).
+		Time("requestDeadline", resp.DelayInfo.RequestDeadline).
+		Time("getHeaderDeadline", resp.DelayInfo.GetHeaderDeadline).
+		Time("effectiveDeadline", resp.DelayInfo.EffectiveDeadline).
+		Time("defaultWakeupAt", resp.DelayInfo.DefaultWakeupAt).
+		Time("updatedWakeupAt", resp.DelayInfo.UpdatedWakeupAt).
+		Logger()
 	delayGetHeaderSpan.End(trace.WithTimestamp(time.Now()))
 
 	_, preStoringHeaderSpan := s.tracer.Start(ctx, "getHeader-preStoringHeaderSpan")
