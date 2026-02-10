@@ -239,7 +239,6 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 				*log,
 				_slot,
 				in.ParentHash,
-				slotBestHeader.BuilderPubkey,
 				in.AccountID,
 				repickDelayMs,
 				s.uniqueStreamingClients,
