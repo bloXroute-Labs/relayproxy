@@ -85,7 +85,7 @@ type BlockSubmissionSSZFastUnmarshaller struct {
 	log *zerolog.Logger
 	// Key: sha256(raw SSZ bytes of BlobsBundle) as binary string
 	// Val: *apideneb.BlobsBundle (immutable, cached)
-	blobCache *cache.Cache
+	blobBundleCache *cache.Cache
 	// Fulu blobs
 	fuluBundlePool sync.Pool
 	// Hydrator for optional hydration of transactions and blobs during unmarshalling
@@ -94,8 +94,8 @@ type BlockSubmissionSSZFastUnmarshaller struct {
 
 func NewBlockSubmissionSSZFastUnmarshaller(log *zerolog.Logger, hydrator Hydrator) *BlockSubmissionSSZFastUnmarshaller {
 	return &BlockSubmissionSSZFastUnmarshaller{
-		log:       log,
-		blobCache: cache.New(1*time.Minute, 1*time.Minute),
+		log:             log,
+		blobBundleCache: cache.New(1*time.Minute, 1*time.Minute),
 		fuluBundlePool: sync.Pool{
 			New: func() any { return new(FuluExtendedBlobsBundle) },
 		},
@@ -252,7 +252,7 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 	{
 		buf = tail[o2:o3]
 		key := u.hashByteKey(buf)
-		if val, ok := u.blobCache.Get(key); ok {
+		if val, ok := u.blobBundleCache.Get(key); ok {
 			// Reuse cached immutable pointer (downstream code must not mutate)
 			r.BlobsBundle = val.(*FuluExtendedBlobsBundle)
 		} else {
@@ -274,10 +274,10 @@ func (u *BlockSubmissionSSZFastUnmarshaller) unmarshalSSZFulu(r *FuluExtendedSub
 					return fmt.Errorf("failed to hydrate field 'BlobsBundle': %w", err)
 				} else {
 					// TODO: set debug
-					u.log.Info().Uint64("slot", r.Message.Slot).Int("ssz_blobcache_size", u.blobCache.ItemCount()).Int("newitems", len(cached.NewItems)).Int("commitments", len(cached.Commitments)).Int("blob_cache_hits", d.CacheHits).Int("blob_cache_writes", d.CacheWrites).Int("blob_cache_size", d.CacheSize).Msg("Hydrated blobs for BlobsBundle")
+					u.log.Info().Uint64("slot", r.Message.Slot).Int("ssz_bundlecache_size", u.blobBundleCache.ItemCount()).Int("newitems", len(cached.NewItems)).Int("commitments", len(cached.Commitments)).Int("blob_cache_hits", d.CacheHits).Int("blob_cache_writes", d.CacheWrites).Int("blob_cache_size", d.CacheSize).Msg("Hydrated blobs for BlobsBundle")
 				}
 			}
-			u.blobCache.SetDefault(key, cached)
+			u.blobBundleCache.SetDefault(key, cached)
 			r.BlobsBundle = cached
 
 			u.putFuluBundle(tmp)
