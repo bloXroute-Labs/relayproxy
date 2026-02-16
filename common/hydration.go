@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -97,7 +98,7 @@ func (h *CachingHydrator) hydrateFulu(request *FuluExtendedSubmitBlockRequest) (
 		txCacheTotalBytes = d.CacheTotalBytes
 	}
 
-	if d, err := h.HydrateFuluBlobs(request.BlobsBundle); err != nil {
+	if d, err := h.HydrateFuluBlobs(request.Message.Slot, request.BlobsBundle); err != nil {
 		lastError = fmt.Errorf("failed to hydrate blobs: %w", err)
 	} else {
 		blobCacheWrites = d.CacheWrites
@@ -188,19 +189,46 @@ type BlobsHydrateData struct {
 	CacheSize   int
 }
 
-func (h *CachingHydrator) HydrateFuluBlobs(blobsBundle *FuluExtendedBlobsBundle) (*BlobsHydrateData, error) {
-	blobCache := h.cache.getBlobCache()
+type BlobsData struct {
+	Commitment []deneb.KZGCommitment
+	Blob       []deneb.Blob
+}
+
+func (h *CachingHydrator) HydrateFuluBlobs(slot uint64, blobsBundle *FuluExtendedBlobsBundle) (*BlobsHydrateData, error) {
+	newItemsCache := h.cache.getNewItemsCache()
+	blobsCache := h.cache.getBlobsCache()
 
 	cacheHits := 0
 	cacheWrites := 0
 	var lastError error
 
+	blobsBundle.Proofs = make([]deneb.KZGProof, 0, len(blobsBundle.Commitments)*maxProofsPerBlob)
+
+	if h.cache.isBlobsCacheEnabled() && len(blobsBundle.NewItems) == 0 {
+		if val, ok := blobsCache.Get(blobsSlotKey(slot)); ok {
+			bd := val.(*BlobsData)
+			if slices.Equal(blobsBundle.Commitments, bd.Commitment) {
+				blobsBundle.Blobs = bd.Blob
+				for _, c := range blobsBundle.Commitments {
+					key := newItemFuluKey(c)
+					if val, ok := newItemsCache.Get(key); !ok {
+						lastError = fmt.Errorf("unknown blob bundle commitment: %s", hex.EncodeToString(c[:]))
+					} else {
+						item := val.(*FuluHydrationBlobItem)
+						blobsBundle.Proofs = append(blobsBundle.Proofs, item.Proof...)
+					}
+				}
+			} else {
+				lastError = fmt.Errorf("blob bundle commitment mismatch for slot %d", slot)
+			}
+		}
+	}
+
 	// Cache new blob items in shared blob cache
 	// Store pointers to avoid copying 128KB blobs during cache population
-	newBlobCount := len(blobsBundle.NewItems)
 	for i := range blobsBundle.NewItems {
-		key := blobFuluKey(blobsBundle.NewItems[i].Commitment)
-		blobCache.Set(key, blobsBundle.NewItems[i], gocache.DefaultExpiration)
+		key := newItemFuluKey(blobsBundle.NewItems[i].Commitment)
+		newItemsCache.Set(key, blobsBundle.NewItems[i], gocache.DefaultExpiration)
 		cacheWrites++
 	}
 
@@ -212,12 +240,10 @@ func (h *CachingHydrator) HydrateFuluBlobs(blobsBundle *FuluExtendedBlobsBundle)
 
 	// Hydrate blobs from shared blob cache (content-addressable by commitment)
 	// Continue processing all blobs even on error to maximize cache population
-	blobsBundle.Proofs = make([]deneb.KZGProof, 0, len(blobsBundle.Commitments)*maxProofsPerBlob)
 	blobsBundle.Blobs = make([]deneb.Blob, len(blobsBundle.Commitments))
-
 	for i, commitment := range blobsBundle.Commitments {
-		key := blobFuluKey(commitment)
-		if cachedObj, found := blobCache.Get(key); found {
+		key := newItemFuluKey(commitment)
+		if cachedObj, found := newItemsCache.Get(key); found {
 			item := cachedObj.(*FuluHydrationBlobItem)
 			blobsBundle.Proofs = append(blobsBundle.Proofs, item.Proof...)
 			blobsBundle.Blobs[i] = item.Blob
@@ -232,11 +258,19 @@ func (h *CachingHydrator) HydrateFuluBlobs(blobsBundle *FuluExtendedBlobsBundle)
 		return nil, lastError
 	}
 
-	cacheHits -= newBlobCount
+	if h.cache.isBlobsCacheEnabled() {
+		blobsCache.Set(blobsSlotKey(slot), &BlobsData{
+			Commitment: blobsBundle.Commitments,
+			Blob:       blobsBundle.Blobs,
+		}, gocache.DefaultExpiration)
+	}
+
+	cacheHits -= len(blobsBundle.NewItems)
+
 	return &BlobsHydrateData{
 		CacheHits:   cacheHits,
 		CacheWrites: cacheWrites,
-		CacheSize:   blobCache.ItemCount(),
+		CacheSize:   newItemsCache.ItemCount(),
 	}, nil
 }
 
@@ -245,8 +279,12 @@ func txHashKey(hash uint64) string {
 	return fmt.Sprintf("tx-fulu:%016x", hash)
 }
 
-func blobFuluKey(commitment deneb.KZGCommitment) string {
-	return fmt.Sprintf("blob-fulu:%s", hex.EncodeToString(commitment[:]))
+func newItemFuluKey(commitment deneb.KZGCommitment) string {
+	return fmt.Sprintf("newitem-fulu:%s", hex.EncodeToString(commitment[:]))
+}
+
+func blobsSlotKey(slot uint64) string {
+	return fmt.Sprintf("blobs-fulu:%d", slot)
 }
 
 // hashTransaction hashes the last TxSigMaxSize bytes of a transaction using FxHash
@@ -267,14 +305,17 @@ func hashTransaction(tx consensusbellatrix.Transaction) uint64 {
 // Transaction caches are isolated per builder for security
 // Blob cache is shared globally since blobs are content-addressable by KZG commitment
 type HydrationCache struct {
-	txCaches  sync.Map       // map[string]*gocache.Cache, keyed by builder pubkey hex (for transactions)
-	blobCache *gocache.Cache // shared cache for all blobs (content-addressable by commitment)
+	txCaches          sync.Map       // map[string]*gocache.Cache, keyed by builder pubkey hex (for transactions)
+	newItemsCache     *gocache.Cache // shared cache for all blobs (content-addressable by commitment)
+	blobsCache        *gocache.Cache
+	blobsCacheEnabled bool
 }
 
 // NewHydrationCache creates a new hydration cache
-func NewHydrationCache() *HydrationCache {
+func NewHydrationCache(isBlobsCacheEnabled bool) *HydrationCache {
 	return &HydrationCache{
-		blobCache: gocache.New(30*time.Second, 30*time.Second),
+		newItemsCache:     gocache.New(30*time.Second, 30*time.Second),
+		blobsCacheEnabled: isBlobsCacheEnabled,
 	}
 }
 
@@ -295,6 +336,11 @@ func (hc *HydrationCache) getTxCache(builderPubKey phase0.BLSPubKey) *gocache.Ca
 	return actual.(*gocache.Cache)
 }
 
+// builderPubKeyToString converts a BLS public key to a string for use as a map key
+func builderPubKeyToString(pubKey phase0.BLSPubKey) string {
+	return hex.EncodeToString(pubKey[:])
+}
+
 // getTxCacheStats returns the number of builder keys, total transaction count, and total bytes across all builders
 func (hc *HydrationCache) getTxCacheStats() (builders int, totalTxs int, totalBytes int) {
 	hc.txCaches.Range(func(key, value any) bool {
@@ -312,12 +358,15 @@ func (hc *HydrationCache) getTxCacheStats() (builders int, totalTxs int, totalBy
 	return builders, totalTxs, totalBytes
 }
 
-// getBlobCache returns the shared blob cache
-func (hc *HydrationCache) getBlobCache() *gocache.Cache {
-	return hc.blobCache
+// getNewItemsCache returns the shared new items cache
+func (hc *HydrationCache) getNewItemsCache() *gocache.Cache {
+	return hc.newItemsCache
 }
 
-// builderPubKeyToString converts a BLS public key to a string for use as a map key
-func builderPubKeyToString(pubKey phase0.BLSPubKey) string {
-	return hex.EncodeToString(pubKey[:])
+func (hc *HydrationCache) getBlobsCache() *gocache.Cache {
+	return hc.blobsCache
+}
+
+func (hc *HydrationCache) isBlobsCacheEnabled() bool {
+	return hc.blobsCacheEnabled
 }
