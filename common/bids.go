@@ -10,12 +10,21 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// TODO: refactor as a method on the cache so we don't need to pass in locks
-func GetBidAdjustmentTargetBid(
+type BidMetadataCache struct {
+	lock sync.RWMutex
+	bids *cache.Cache
+}
+
+func NewBidMetadataCache(cleanupInterval time.Duration) *BidMetadataCache {
+	return &BidMetadataCache{
+		lock: sync.RWMutex{},
+		bids: cache.New(cleanupInterval, cleanupInterval),
+	}
+}
+
+func (b *BidMetadataCache) GetBidAdjustmentTargetBid(
 	log *zerolog.Logger,
 	cacheKey string,
-	allBidsLock *sync.RWMutex,
-	allBidsMetadataForProxySlot *cache.Cache,
 	bidAdjustmentLookbackMs int64,
 	topBid *Bid,
 	topBidValue *big.Int,
@@ -27,10 +36,10 @@ func GetBidAdjustmentTargetBid(
 
 	start := time.Now().UTC()
 
-	allBidsLock.RLock()
-	defer allBidsLock.RUnlock()
+	b.lock.RLock()
+	defer b.lock.RUnlock()
 
-	entry, allBidsFound := allBidsMetadataForProxySlot.Get(cacheKey)
+	entry, allBidsFound := b.bids.Get(cacheKey)
 	if !allBidsFound {
 		log.Warn().Str("cacheKey", cacheKey).Msg("No bids found for cache key while getting bid adjustment target bid")
 		return nil
@@ -125,21 +134,14 @@ func GetBidAdjustmentTargetBid(
 	return bidAdjustmentTargetBid
 }
 
-// TODO: refactor as a method on the cache so we don't need to pass in locks
-func SetBidMetadataForProxySlot(
-	log *zerolog.Logger,
-	cacheKey string,
-	allBidsLock *sync.RWMutex,
-	allBidsMetadataForProxySlot *cache.Cache,
-	bid *Bid,
-) {
-	allBidsLock.Lock()
-	defer allBidsLock.Unlock()
+func (b *BidMetadataCache) SetBidMetadataForProxySlot(log *zerolog.Logger, cacheKey string, bid *Bid) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
 
 	var allBidsForSlot []*BidMetadata
 
 	// If the cache key does not exist, create a new slice and store it in the cache
-	if entry, bidsFound := allBidsMetadataForProxySlot.Get(cacheKey); !bidsFound {
+	if entry, bidsFound := b.bids.Get(cacheKey); !bidsFound {
 		allBidsForSlot = make([]*BidMetadata, 0, 1000)
 	} else {
 		// Otherwise use the existing slice
@@ -153,5 +155,5 @@ func SetBidMetadataForProxySlot(
 
 	allBidsForSlot = append(allBidsForSlot, NewBidMetadata(bid))
 
-	allBidsMetadataForProxySlot.Set(cacheKey, allBidsForSlot, cache.DefaultExpiration)
+	b.bids.Set(cacheKey, allBidsForSlot, cache.DefaultExpiration)
 }

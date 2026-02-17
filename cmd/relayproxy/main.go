@@ -357,7 +357,7 @@ func main() {
 	dataSvc := relayproxy.NewDataService(dataSvcOpts...)
 
 	builderBidsForProxySlot := cache.New(relayproxy.BuilderBidsCleanupInterval, relayproxy.BuilderBidsCleanupInterval)
-	allBidsMetadataForProxySlot := cache.New(relayproxy.BuilderBidsCleanupInterval, relayproxy.BuilderBidsCleanupInterval)
+	allBidsMetadataForProxySlot := common.NewBidMetadataCache(relayproxy.BuilderBidsCleanupInterval)
 	builderExistingBlockHash := cache.New(relayproxy.BuilderBidsCleanupInterval, relayproxy.BuilderBidsCleanupInterval)
 	builderInfo := cache.New(time.Duration(*secondsPerSlot)*time.Second, time.Duration(*secondsPerSlot)*time.Second)
 	// local cache to store getPayloadResponse

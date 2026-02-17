@@ -153,7 +153,7 @@ func WithBuilderBidsForProxySlot(cache *cache.Cache) ServiceOption {
 	}
 }
 
-func WithAllBidsMetadataForProxySlot(cache *cache.Cache) ServiceOption {
+func WithAllBidsMetadataForProxySlot(cache *common.BidMetadataCache) ServiceOption {
 	return func(s *Service) {
 		s.allBidsMetadataForProxySlot = cache
 	}

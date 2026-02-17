@@ -82,8 +82,7 @@ type Service struct {
 	tracer                          trace.Tracer
 	fluentD                         fluentstats.Stats
 	builderBidsForProxySlot         *cache.Cache
-	allBidsLock                     sync.RWMutex
-	allBidsMetadataForProxySlot     *cache.Cache
+	allBidsMetadataForProxySlot     *common.BidMetadataCache
 	builderExistingBlockHash        *cache.Cache
 	getPayloadResponseForProxySlot  *cache.Cache
 	preFetchPayloadChan             chan preFetcherFields
@@ -483,7 +482,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 		)
 
 		s.setBuilderBidForProxySlot(keyForCachingBids, header.GetBuilderPubkey(), bid, header.GetSlot())
-		common.SetBidMetadataForProxySlot(&s.logger, keyForCachingBids, &s.allBidsLock, s.allBidsMetadataForProxySlot, bid)
+		s.allBidsMetadataForProxySlot.SetBidMetadataForProxySlot(&s.logger, keyForCachingBids, bid)
 
 		storeBidsSpan.SetAttributes(
 			attribute.String("method", method),
@@ -561,7 +560,7 @@ func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, *
 		return true
 	})
 
-	bidAdjustmentTargetBid := common.GetBidAdjustmentTargetBid(&s.logger, cacheKey, &s.allBidsLock, s.allBidsMetadataForProxySlot, s.bidAdjustmentLookbackMs, topBid, topBidValue)
+	bidAdjustmentTargetBid := s.allBidsMetadataForProxySlot.GetBidAdjustmentTargetBid(&s.logger, cacheKey, s.bidAdjustmentLookbackMs, topBid, topBidValue)
 
 	return topBid, secondBid, bidAdjustmentTargetBid, nil
 }
