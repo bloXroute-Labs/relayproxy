@@ -353,9 +353,8 @@ func WithDelayer(delayer Delayer) ServiceOption {
 	}
 }
 
-func WithBidAdjustmentConfig(enableBidAdjustment bool, enableFixedBidAdjustmentLookbackTime bool, bidAdjustmentBufferTimeMs int64, bidAdjustmentLookbackMs int64) ServiceOption {
+func WithBidAdjustmentConfig(enableFixedBidAdjustmentLookbackTime bool, bidAdjustmentBufferTimeMs int64, bidAdjustmentLookbackMs int64) ServiceOption {
 	return func(s *Service) {
-		s.enableBidAdjustment = enableBidAdjustment
 		s.enableFixedBidAdjustmentLookbackTime = enableFixedBidAdjustmentLookbackTime
 		s.bidAdjustmentBufferTimeMs = bidAdjustmentBufferTimeMs
 		s.bidAdjustmentLookbackMs = bidAdjustmentLookbackMs

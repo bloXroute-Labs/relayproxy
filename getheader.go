@@ -255,8 +255,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			case resCh <- r:
 			default:
 				// best-effort; should not block
-				log.Warn().
-					Msg("resCh full, dropping result (non-blocking send)")
+				log.Warn().Msg("resCh full, dropping result (non-blocking send)")
 			}
 		}()
 
