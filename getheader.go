@@ -125,7 +125,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	keyForCachingBids := s.keyForCachingBids(_slot, in.ParentHash, in.PubKey)
 
 	initialBidFetchStart := time.Now().UTC()
-	slotBestHeader, secondBestHeader, lookbackBestHeader, getErr := s.GetTopBuilderBid(keyForCachingBids)
+	slotBestHeader, secondBestHeader, bidAdjustmentTargetBid, getErr := s.GetTopBuilderBid(keyForCachingBids)
 	blockValue := new(big.Int)
 	initialFetchBidUsed := true
 	initialBidFetchDurationMs := time.Since(initialBidFetchStart).Milliseconds()
@@ -235,7 +235,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			newBestHeader, replaceable, err := s.OnHeaderBidRetrieved(
 				onHeaderRetrievedCtx,
 				slotBestHeader,
-				lookbackBestHeader,
+				bidAdjustmentTargetBid,
 				*log,
 				_slot,
 				in.ParentHash,

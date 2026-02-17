@@ -124,7 +124,7 @@ type Service struct {
 	gatewayAuthKey               string
 	BlockPublishFunc             func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, blockPublishingGatewayClient interface{}, authKey string)
 	OnPayloadRequested           func(slot uint64, blockHash string, parentHash string, proposerPubkey string, getPayloadRequestClientIP string, receivedAt time.Time, signedBlindedBeaconBlock *eth2Api.VersionedSignedBlindedBeaconBlock, ProposerRequestStartTimeUnixMS int64, validatorID string) error
-	OnHeaderBidRetrieved         func(ctx context.Context, topBid *common.Bid, lookbackTopBid *common.BidMetadata, log zerolog.Logger, slot uint64, parentHash string, accountID string, replacemendDelayMs int64, clients []*common.ParentClient) (*common.Bid, bool, error)
+	OnHeaderBidRetrieved         func(ctx context.Context, topBid *common.Bid, bidAdjustmentTargetBid *common.BidMetadata, log zerolog.Logger, slot uint64, parentHash string, accountID string, replacemendDelayMs int64, clients []*common.ParentClient) (*common.Bid, bool, error)
 
 	delayer Delayer
 
@@ -561,9 +561,9 @@ func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, *
 		return true
 	})
 
-	topLookbackBid := s.getTopLookBackBid(cacheKey)
+	bidAdjustmentTargetBid := common.GetBidAdjustmentTargetBid(&s.logger, cacheKey, &s.allBidsLock, s.allBidsMetadataForProxySlot, s.bidAdjustmentLookbackMs)
 
-	return topBid, secondBid, topLookbackBid, nil
+	return topBid, secondBid, bidAdjustmentTargetBid, nil
 }
 
 func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey string, bid *common.Bid, slot uint64) {
@@ -620,99 +620,6 @@ func (s *Service) setBidMetadataForProxySlot(cacheKey string, bidMetadata *commo
 	allBidsForSlot = append(allBidsForSlot, bidMetadata)
 
 	s.allBidsMetadataForProxySlot.Set(cacheKey, allBidsForSlot, cache.DefaultExpiration)
-}
-
-func (s *Service) getTopLookBackBid(cacheKey string) *common.BidMetadata {
-	start := time.Now().UTC()
-
-	s.allBidsLock.RLock()
-	defer s.allBidsLock.RUnlock()
-
-	entry, allBidsFound := s.allBidsMetadataForProxySlot.Get(cacheKey)
-	if !allBidsFound {
-		s.logger.Warn().Str("cacheKey", cacheKey).Msg("No top lookback bid found for cache key in Service 'getTopLookBackBid'")
-		return nil
-	}
-
-	allBidsForSlot, ok := entry.([]*common.BidMetadata)
-	if !ok {
-		s.logger.Warn().Str("cacheKey", cacheKey).Msg("Failed to cast allBidsForSlot slice in Service 'getTopLookBackBid'")
-		return nil
-	}
-
-	now := time.Now().UTC()
-	lookbackTime := time.Duration(s.bidAdjustmentLookbackMs) * time.Millisecond
-	maxBidAdjustmentTargetTimestamp := now.Add(-lookbackTime)
-
-	// Get best bid in time range by for each builder pubkey
-	bestBuilderBidByPubkey := make(map[string]*common.BidMetadata)
-	for _, bid := range allBidsForSlot {
-		// Skip bids after max target timestamp
-		// TODO: is "ReceivedAt" ok to use here?
-		if bid.ReceivedAt.After(maxBidAdjustmentTargetTimestamp) {
-			continue
-		}
-
-		existingBid, found := bestBuilderBidByPubkey[bid.BuilderPubkey]
-
-		// If there is no bid in the map for this pubkey, add the bid and continue
-		if !found {
-			bestBuilderBidByPubkey[bid.BuilderPubkey] = bid
-			continue
-		}
-
-		// Otherwise compare to bid sequence numbers
-		if bid.BlockSequenceNumber != nil &&
-			existingBid.BlockSequenceNumber != nil &&
-			*bid.BlockSequenceNumber > *existingBid.BlockSequenceNumber {
-			bestBuilderBidByPubkey[bid.BuilderPubkey] = bid
-			continue
-		}
-
-		// Then compare bid receive times if necessary
-		if bid.ReceivedAt.After(existingBid.ReceivedAt) {
-			bestBuilderBidByPubkey[bid.BuilderPubkey] = bid
-		}
-	}
-
-	// Get the overall top lookback bid from top builder bids
-	var topLookBackBid *common.BidMetadata
-	topLookBackBidValue := big.NewInt(0)
-
-	for _, bid := range bestBuilderBidByPubkey {
-		bidValue := new(big.Int).SetBytes(bid.Value)
-		if bidValue.Cmp(topLookBackBidValue) > 0 {
-			topLookBackBid = bid
-			topLookBackBidValue = bidValue
-		}
-	}
-
-	// Get info for log if non-nil
-	lookbackTopBidBlockHash := ""
-	lookbackTopBidBuilderPubkey := ""
-	lookbackTopBidBuilderExtraData := ""
-	var lookbackTopBidTimestamp time.Time
-
-	if topLookBackBid != nil {
-		lookbackTopBidBlockHash = topLookBackBid.BlockHash
-		lookbackTopBidBuilderPubkey = topLookBackBid.BuilderPubkey
-		lookbackTopBidBuilderExtraData = topLookBackBid.BuilderExtraData
-		lookbackTopBidTimestamp = topLookBackBid.ReceivedAt
-	}
-
-	s.logger.Info().
-		Int64("durationMs", time.Since(start).Milliseconds()).
-		Str("now", now.Format(time.RFC3339Nano)).
-		Str("maxBidAdjustmentTargetTimestamp", maxBidAdjustmentTargetTimestamp.Format(time.RFC3339Nano)).
-		Str("lookbackTopBidTimestamp", lookbackTopBidTimestamp.Format(time.RFC3339Nano)).
-		Str("lookbackTopBidBlockHash", lookbackTopBidBlockHash).
-		Str("lookbackTopBidValue", topLookBackBidValue.String()).
-		Str("lookbackTopBidBuilderPubkey", lookbackTopBidBuilderPubkey).
-		Str("lookbackTopBidBuilderExtraData", lookbackTopBidBuilderExtraData).
-		Bool("lookbackTopBidFound", topLookBackBid != nil).
-		Msg("Service 'getTopLookBackBid' completed")
-
-	return topLookBackBid
 }
 
 func (s *Service) getBuilderBidForSlot(cacheKey string, builderPubkey string) (*common.Bid, bool) {
