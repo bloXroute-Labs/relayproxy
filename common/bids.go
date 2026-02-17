@@ -2,6 +2,7 @@ package common
 
 import (
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,17 +46,19 @@ func GetBidAdjustmentTargetBid(
 	maxBidAdjustmentTargetTimestamp := bidRetrievalTime.Add(-lookbackTime)
 
 	// Get best bid in time range by for each builder pubkey
+	topBidBlockHash := strings.ToLower(topBid.BlockHash)
 	bestBuilderBidByPubkey := make(map[string]*BidMetadata)
 	for _, bid := range allBidsForSlot {
-		// Skip bids after max target timestamp
+		isTopBid := topBidBlockHash == strings.ToLower(bid.BlockHash)
+
+		// Skip current top bid, or any bids received after max target timestamp
 		// TODO: is "ReceivedAt" ok to use here?
-		if bid.ReceivedAt.After(maxBidAdjustmentTargetTimestamp) {
+		if isTopBid || bid.ReceivedAt.After(maxBidAdjustmentTargetTimestamp) {
 			continue
 		}
 
-		existingBid, found := bestBuilderBidByPubkey[bid.BuilderPubkey]
-
 		// If there is no bid in the map for this pubkey, add the bid and continue
+		existingBid, found := bestBuilderBidByPubkey[bid.BuilderPubkey]
 		if !found {
 			bestBuilderBidByPubkey[bid.BuilderPubkey] = bid
 			continue
