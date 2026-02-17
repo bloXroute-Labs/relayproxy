@@ -608,7 +608,7 @@ func (s *Service) setBidMetadataForProxySlot(cacheKey string, bidMetadata *commo
 		var ok bool
 		allBidsForSlot, ok = entry.([]*common.BidMetadata)
 		if !ok {
-			s.logger.Warn().Str("cacheKey", cacheKey).Msg("Bid adjustment test - failed to cast allBidsForSlot slice in Service 'setBidMetadataForProxySlot'")
+			s.logger.Warn().Str("cacheKey", cacheKey).Msg("Failed to cast allBidsForSlot slice in Service 'setBidMetadataForProxySlot'")
 			return
 		}
 	}
@@ -626,13 +626,13 @@ func (s *Service) getTopLookBackBid(cacheKey string, lookbackTime time.Duration)
 
 	entry, allBidsFound := s.allBidsMetadataForProxySlot.Get(cacheKey)
 	if !allBidsFound {
-		s.logger.Warn().Str("cacheKey", cacheKey).Msg("Bid adjustment test - no top lookback bid found for cache key in Service 'getTopLookBackBid'")
+		s.logger.Warn().Str("cacheKey", cacheKey).Msg("No top lookback bid found for cache key in Service 'getTopLookBackBid'")
 		return nil
 	}
 
 	allBidsForSlot, ok := entry.([]*common.BidMetadata)
 	if !ok {
-		s.logger.Warn().Str("cacheKey", cacheKey).Msg("Bid adjustment test - failed to cast allBidsForSlot slice in Service 'getTopLookBackBid'")
+		s.logger.Warn().Str("cacheKey", cacheKey).Msg("Failed to cast allBidsForSlot slice in Service 'getTopLookBackBid'")
 		return nil
 	}
 
@@ -705,7 +705,7 @@ func (s *Service) getTopLookBackBid(cacheKey string, lookbackTime time.Duration)
 		Str("lookbackTopBidBuilderPubkey", lookbackTopBidBuilderPubkey).
 		Str("lookbackTopBidBuilderExtraData", lookbackTopBidBuilderExtraData).
 		Bool("lookbackTopBidFound", topLookBackBid != nil).
-		Msg("Bid adjustment test - Service 'getTopLookBackBid' completed")
+		Msg("Service 'getTopLookBackBid' completed")
 
 	return topLookBackBid
 }
