@@ -127,6 +127,11 @@ type Service struct {
 	OnHeaderBidRetrieved         func(ctx context.Context, topBid *common.Bid, lookbackTopBid *common.BidMetadata, log zerolog.Logger, slot uint64, parentHash string, accountID string, replacemendDelayMs int64, clients []*common.ParentClient) (*common.Bid, bool, error)
 
 	delayer Delayer
+
+	enableBidAdjustment                  bool  // TODO: use
+	enableFixedBidAdjustmentLookbackTime bool  // TODO: use
+	bidAdjustmentBufferTimeMs            int64 // TODO: use
+	bidAdjustmentLookbackMs              int64
 }
 
 type slotStatsEvent struct {
@@ -557,9 +562,9 @@ func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, *
 		return true
 	})
 
-	topLookbackbid := s.getTopLookBackBid(cacheKey, 300*time.Millisecond)
+	topLookbackBid := s.getTopLookBackBid(cacheKey)
 
-	return topBid, secondBid, topLookbackbid, nil
+	return topBid, secondBid, topLookbackBid, nil
 }
 
 func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey string, bid *common.Bid, slot uint64) {
@@ -618,7 +623,7 @@ func (s *Service) setBidMetadataForProxySlot(cacheKey string, bidMetadata *commo
 	s.allBidsMetadataForProxySlot.Set(cacheKey, allBidsForSlot, cache.DefaultExpiration)
 }
 
-func (s *Service) getTopLookBackBid(cacheKey string, lookbackTime time.Duration) *common.BidMetadata {
+func (s *Service) getTopLookBackBid(cacheKey string) *common.BidMetadata {
 	start := time.Now().UTC()
 
 	s.allBidsLock.RLock()
@@ -637,6 +642,7 @@ func (s *Service) getTopLookBackBid(cacheKey string, lookbackTime time.Duration)
 	}
 
 	now := time.Now().UTC()
+	lookbackTime := time.Duration(s.bidAdjustmentLookbackMs) * time.Millisecond
 	maxBidAdjustmentTargetTimestamp := now.Add(-lookbackTime)
 
 	// Get best bid in time range by for each builder pubkey
