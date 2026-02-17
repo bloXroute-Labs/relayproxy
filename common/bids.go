@@ -15,7 +15,12 @@ func GetBidAdjustmentTargetBid(
 	allBidsLock *sync.RWMutex,
 	allBidsMetadataForProxySlot *cache.Cache,
 	bidAdjustmentLookbackMs int64,
+	topBid *Bid,
 ) *BidMetadata {
+	if topBid == nil {
+		log.Warn().Msg("Failed to get bid adjustment target bid, topBid is nil")
+	}
+
 	start := time.Now().UTC()
 
 	allBidsLock.RLock()
