@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// TODO: refactor as a method on the cache so we don't need to pass in locks
 func GetBidAdjustmentTargetBid(
 	log *zerolog.Logger,
 	cacheKey string,
@@ -122,4 +123,35 @@ func GetBidAdjustmentTargetBid(
 		Msg("Returning bid adjustment target bid")
 
 	return bidAdjustmentTargetBid
+}
+
+// TODO: refactor as a method on the cache so we don't need to pass in locks
+func SetBidMetadataForProxySlot(
+	log *zerolog.Logger,
+	cacheKey string,
+	allBidsLock *sync.RWMutex,
+	allBidsMetadataForProxySlot *cache.Cache,
+	bid *Bid,
+) {
+	allBidsLock.Lock()
+	defer allBidsLock.Unlock()
+
+	var allBidsForSlot []*BidMetadata
+
+	// If the cache key does not exist, create a new slice and store it in the cache
+	if entry, bidsFound := allBidsMetadataForProxySlot.Get(cacheKey); !bidsFound {
+		allBidsForSlot = make([]*BidMetadata, 0, 1000)
+	} else {
+		// Otherwise use the existing slice
+		var ok bool
+		allBidsForSlot, ok = entry.([]*BidMetadata)
+		if !ok {
+			log.Warn().Str("cacheKey", cacheKey).Msg("Failed to cast allBidsForSlot slice in 'SetBidMetadataForProxySlot'")
+			return
+		}
+	}
+
+	allBidsForSlot = append(allBidsForSlot, NewBidMetadata(bid))
+
+	allBidsMetadataForProxySlot.Set(cacheKey, allBidsForSlot, cache.DefaultExpiration)
 }

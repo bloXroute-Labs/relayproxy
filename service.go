@@ -483,7 +483,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 		)
 
 		s.setBuilderBidForProxySlot(keyForCachingBids, header.GetBuilderPubkey(), bid, header.GetSlot())
-		s.setBidMetadataForProxySlot(keyForCachingBids, common.NewBidMetadata(bid))
+		common.SetBidMetadataForProxySlot(&s.logger, keyForCachingBids, &s.allBidsLock, s.allBidsMetadataForProxySlot, bid)
 
 		storeBidsSpan.SetAttributes(
 			attribute.String("method", method),
@@ -596,30 +596,6 @@ func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey strin
 		}
 	}
 	builderBidsMap.Store(builderPubkey, bid)
-}
-
-func (s *Service) setBidMetadataForProxySlot(cacheKey string, bidMetadata *common.BidMetadata) {
-	s.allBidsLock.Lock()
-	defer s.allBidsLock.Unlock()
-
-	var allBidsForSlot []*common.BidMetadata
-
-	// If the cache key does not exist, create a new slice and store it in the cache
-	if entry, bidsFound := s.allBidsMetadataForProxySlot.Get(cacheKey); !bidsFound {
-		allBidsForSlot = make([]*common.BidMetadata, 0, 1000)
-	} else {
-		// Otherwise use the existing slice
-		var ok bool
-		allBidsForSlot, ok = entry.([]*common.BidMetadata)
-		if !ok {
-			s.logger.Warn().Str("cacheKey", cacheKey).Msg("Failed to cast allBidsForSlot slice in Service 'setBidMetadataForProxySlot'")
-			return
-		}
-	}
-
-	allBidsForSlot = append(allBidsForSlot, bidMetadata)
-
-	s.allBidsMetadataForProxySlot.Set(cacheKey, allBidsForSlot, cache.DefaultExpiration)
 }
 
 func (s *Service) getBuilderBidForSlot(cacheKey string, builderPubkey string) (*common.Bid, bool) {
