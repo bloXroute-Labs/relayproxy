@@ -561,7 +561,7 @@ func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, *
 		return true
 	})
 
-	bidAdjustmentTargetBid := common.GetBidAdjustmentTargetBid(&s.logger, cacheKey, &s.allBidsLock, s.allBidsMetadataForProxySlot, s.bidAdjustmentLookbackMs, topBid)
+	bidAdjustmentTargetBid := common.GetBidAdjustmentTargetBid(&s.logger, cacheKey, &s.allBidsLock, s.allBidsMetadataForProxySlot, s.bidAdjustmentLookbackMs, topBid, topBidValue)
 
 	return topBid, secondBid, bidAdjustmentTargetBid, nil
 }

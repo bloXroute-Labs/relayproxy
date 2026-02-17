@@ -16,9 +16,11 @@ func GetBidAdjustmentTargetBid(
 	allBidsMetadataForProxySlot *cache.Cache,
 	bidAdjustmentLookbackMs int64,
 	topBid *Bid,
+	topBidValue *big.Int,
 ) *BidMetadata {
 	if topBid == nil {
 		log.Warn().Msg("Failed to get bid adjustment target bid, topBid is nil")
+		return nil
 	}
 
 	start := time.Now().UTC()
@@ -38,9 +40,9 @@ func GetBidAdjustmentTargetBid(
 		return nil
 	}
 
-	now := time.Now().UTC()
+	bidRetrievalTime := time.Now().UTC()
 	lookbackTime := time.Duration(bidAdjustmentLookbackMs) * time.Millisecond
-	maxBidAdjustmentTargetTimestamp := now.Add(-lookbackTime)
+	maxBidAdjustmentTargetTimestamp := bidRetrievalTime.Add(-lookbackTime)
 
 	// Get best bid in time range by for each builder pubkey
 	bestBuilderBidByPubkey := make(map[string]*BidMetadata)
@@ -100,15 +102,21 @@ func GetBidAdjustmentTargetBid(
 
 	log.Info().
 		Int64("durationMs", time.Since(start).Milliseconds()).
-		Str("now", now.Format(time.RFC3339Nano)).
+		Int64("lookBackMs", bidAdjustmentLookbackMs).
+		Str("bidRetrievalTime", bidRetrievalTime.Format(time.RFC3339Nano)).
 		Str("maxBidAdjustmentTargetTimestamp", maxBidAdjustmentTargetTimestamp.Format(time.RFC3339Nano)).
-		Str("bidTimestamp", bidAdjustmentTargetBidTimestamp.Format(time.RFC3339Nano)).
-		Str("blockHash", bidAdjustmentTargetBidBlockHash).
-		Str("value", bidAdjustmentTargetBidValue.String()).
-		Str("builderPubkey", bidAdjustmentTargetBidBuilderPubkey).
-		Str("builderExtraData", bidAdjustmentTargetBidBuilderExtraData).
+		Str("topBidTimestamp", topBid.ReceivedAt.Format(time.RFC3339Nano)).
+		Str("topBidBlockHash", topBid.BlockHash).
+		Str("topBidValue", WeiToEth(topBidValue.String())).
+		Str("topBidBuilderPubkey", topBid.BuilderPubkey).
+		Str("topBidBuilderExtraData", topBid.BuilderExtraData).
+		Str("bidAdjustmentTargetBidTimestamp", bidAdjustmentTargetBidTimestamp.Format(time.RFC3339Nano)).
+		Str("bidAdjustmentTargetBidBlockHash", bidAdjustmentTargetBidBlockHash).
+		Str("bidAdjustmentTargetBidValue", WeiToEth(bidAdjustmentTargetBidValue.String())).
+		Str("bidAdjustmentTargetBidBuilderPubkey", bidAdjustmentTargetBidBuilderPubkey).
+		Str("bidAdjustmentTargetBidBuilderExtraData", bidAdjustmentTargetBidBuilderExtraData).
 		Bool("found", bidAdjustmentTargetBid != nil).
-		Msg("Found bid adjustment target bid")
+		Msg("Returning bid adjustment target bid")
 
 	return bidAdjustmentTargetBid
 }
