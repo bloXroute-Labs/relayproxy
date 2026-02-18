@@ -31,8 +31,6 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 )
 
-// replace github.com/bloXroute-Labs/mev-common => ../mev-common
-
 require (
 	github.com/bits-and-blooms/bitset v1.20.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
