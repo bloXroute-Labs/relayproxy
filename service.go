@@ -954,6 +954,19 @@ func (s *Service) handleStreamBuilderInfoResponse(
 		}
 
 		s.builderInfo.Set(builderPubkeyStr, newBuilderInfo, cache.DefaultExpiration)
+
+		s.logger.Info().
+			Str("dataBuilderPubkey", newBuilderInfo.BuilderPubkey.String()).
+			Bool("dataIsOptimistic", newBuilderInfo.IsOptimistic).
+			Bool("dataIsDemoted", newBuilderInfo.IsDemoted).
+			Str("dataAccountID", newBuilderInfo.AccountID).
+			Bool("dataIsBuilderPubkeyHighPriority", newBuilderInfo.IsBuilderPubkeyHighPriority).
+			Str("dataBuilderPubkeySkipSimulationThreshold", newBuilderInfo.BuilderPubkeySkipSimulationThreshold.String()).
+			Bool("dataIsBuilderAccountIDHighPriority", newBuilderInfo.IsBuilderAccountIDHighPriority).
+			Str("dataBuilderAccountIDSkipSimulationThreshold", newBuilderInfo.BuilderAccountIDSkipSimulationThreshold.String()).
+			Bool("dataTrustedExternalBuilder", newBuilderInfo.TrustedExternalBuilder).
+			Bool("dataIsOptedIn", newBuilderInfo.IsOptedIn).
+			Msg("Stored builder info in 'handleStreamBuilderInfoResponse'")
 	}
 
 	lm.Fields(map[string]any{
