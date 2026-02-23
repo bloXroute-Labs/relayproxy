@@ -23,7 +23,7 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
-
+	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
 	authKey := s.authKey
 	if in.AuthHeader != "" {
 		authKey = in.AuthHeader

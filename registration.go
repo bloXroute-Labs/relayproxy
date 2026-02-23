@@ -29,7 +29,7 @@ func (s *Service) RegisterValidator(ctx context.Context, log *zerolog.Logger, ou
 
 	parentSpan := trace.SpanFromContext(ctx)
 	ctx = trace.ContextWithSpan(outgoingCtx, parentSpan)
-	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", in.AuthHeader)
+	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
 	ctx, span := s.tracer.Start(ctx, "registerValidator-start")
 	defer span.End()
 
