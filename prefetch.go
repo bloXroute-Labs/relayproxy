@@ -28,6 +28,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -740,6 +741,7 @@ func (s *Service) prefetchGRPCSingle(
 ) (*prefetchResult, error) {
 	clientCtx, cancel := context.WithTimeout(ctx, prefetchContextTimeout)
 	defer cancel()
+	clientCtx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
 	var errMsg, clientURL string
 
 	if client != nil {
