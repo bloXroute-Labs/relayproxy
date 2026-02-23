@@ -62,7 +62,6 @@ func (b *BidMetadataCache) GetBidAdjustmentTargetBid(
 		isTopBid := topBidBlockHash == strings.ToLower(bid.BlockHash)
 
 		// Skip current top bid, or any bids received after max target timestamp
-		// TODO: is "ReceivedAt" ok to use here?
 		if isTopBid || bid.ReceivedAt.After(maxBidAdjustmentTargetTimestamp) {
 			continue
 		}
