@@ -725,7 +725,6 @@ func (s *Service) StreamBuilderInfo(ctx context.Context, client *common.Client) 
 	parentSpan := trace.SpanFromContext(ctx)
 	method := "streamBuilderInfo"
 	ctx = trace.ContextWithSpan(context.Background(), parentSpan)
-	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
 
 	_, port, err := net.SplitHostPort(s.listenAddress)
 	if err != nil {
@@ -735,6 +734,8 @@ func (s *Service) StreamBuilderInfo(ctx context.Context, client *common.Client) 
 
 	ctx = metadata.AppendToOutgoingContext(ctx, "listenAddress", port)
 	ctx = metadata.AppendToOutgoingContext(ctx, "grpcListenAddress", s.GrpcListenAddress)
+	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
+
 	streamBuilderInfoCtx, span := s.tracer.Start(ctx, "streamBuilderInfo-start")
 	defer span.End()
 
@@ -1041,6 +1042,7 @@ func (s *Service) StreamSlotInfo(ctx context.Context, client *common.Client) (*r
 	}
 	ctx = metadata.AppendToOutgoingContext(ctx, "listenAddress", port)
 	ctx = metadata.AppendToOutgoingContext(ctx, "grpcListenAddress", s.GrpcListenAddress)
+	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
 
 	streamSlotInfoCtx, span := s.tracer.Start(ctx, "streamSlotInfo-start")
 	defer span.End(trace.WithTimestamp(time.Now().UTC()))
