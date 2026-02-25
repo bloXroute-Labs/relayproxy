@@ -82,7 +82,7 @@ func (b *BidMetadataCache) GetBidAdjustmentTargetBid(
 			continue
 		}
 
-		// Then compare bid receive times if necessary
+		// Finally, compare bid receive times if necessary
 		if bid.ReceivedAt.After(existingBid.ReceivedAt) {
 			bestBuilderBidByPubkey[bid.BuilderPubkey] = bid
 		}
