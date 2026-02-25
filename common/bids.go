@@ -74,7 +74,7 @@ func (b *BidMetadataCache) GetBidAdjustmentTargetBid(
 			continue
 		}
 
-		// Otherwise compare to bid sequence numbers
+		// Otherwise compare by block sequence numbers
 		if bid.BlockSequenceNumber != nil &&
 			existingBid.BlockSequenceNumber != nil &&
 			*bid.BlockSequenceNumber > *existingBid.BlockSequenceNumber {
