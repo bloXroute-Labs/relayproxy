@@ -58,6 +58,7 @@ func (b *BidMetadataCache) GetBidAdjustmentTargetBid(
 	// Get best bid in time range by for each builder pubkey
 	topBidBlockHash := strings.ToLower(topBid.BlockHash)
 	bestBuilderBidByPubkey := make(map[string]*BidMetadata)
+
 	for _, bid := range allBidsForSlot {
 		isTopBid := topBidBlockHash == strings.ToLower(bid.BlockHash)
 
@@ -88,6 +89,11 @@ func (b *BidMetadataCache) GetBidAdjustmentTargetBid(
 	}
 
 	// Get the overall top lookback bid from top builder bids
+	// If there is no lookback set, we do not want the bid adjustment target bid to be from the same pubkey as the top bid
+	if bidAdjustmentLookbackMs == 0 {
+		delete(bestBuilderBidByPubkey, topBid.BuilderPubkey)
+	}
+
 	var bidAdjustmentTargetBid *BidMetadata
 	bidAdjustmentTargetBidValue := big.NewInt(0)
 
