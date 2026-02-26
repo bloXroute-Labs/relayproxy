@@ -10,6 +10,8 @@ github.com/bloXroute-Labs/relay-grpc v0.0.69 h1:0DV/Q8DSs/mEogWGBJog/9cVdsvUVTLG
 github.com/bloXroute-Labs/relay-grpc v0.0.69/go.mod h1:ywJRvkwerlgPSelpyo17bjurGhjxVi/1/t1jMH8PU8k=
 github.com/bloXroute-Labs/relay-grpc v0.0.70-0.20260220144746-843b60c70b67 h1:ZL3iwfB/83srbd2czuibChU7YAVyxFAlq9K5m4XVdHs=
 github.com/bloXroute-Labs/relay-grpc v0.0.70-0.20260220144746-843b60c70b67/go.mod h1:ywJRvkwerlgPSelpyo17bjurGhjxVi/1/t1jMH8PU8k=
+github.com/bloXroute-Labs/relay-grpc v0.0.70-0.20260225182927-4d95b9e96540 h1:dozsuhJPJ9AWH20b7czgFNfgvsNOUfCOi9uBj0cjjUQ=
+github.com/bloXroute-Labs/relay-grpc v0.0.70-0.20260225182927-4d95b9e96540/go.mod h1:ywJRvkwerlgPSelpyo17bjurGhjxVi/1/t1jMH8PU8k=
 github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK343L8=
 github.com/cenkalti/backoff/v4 v4.3.0/go.mod h1:Y3VNntkOUPxTVeUxJ/G5vcM//AlwfmyYozVcomhLiZE=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
