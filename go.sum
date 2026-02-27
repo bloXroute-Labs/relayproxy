@@ -6,16 +6,6 @@ github.com/attestantio/go-eth2-client v0.27.1 h1:g7bm+gG/p+gfzYdEuxuAepVWYb8EO+2
 github.com/attestantio/go-eth2-client v0.27.1/go.mod h1:fvULSL9WtNskkOB4i+Yyr6BKpNHXvmpGZj9969fCrfY=
 github.com/bits-and-blooms/bitset v1.20.0 h1:2F+rfL86jE2d/bmw7OhqUg2Sj/1rURkBn3MdfoPyRVU=
 github.com/bits-and-blooms/bitset v1.20.0/go.mod h1:7hO7Gc7Pp1vODcmWvKMRA9BNmbv6a/7QIWpPxHddWR8=
-github.com/bloXroute-Labs/relay-grpc v0.0.69 h1:0DV/Q8DSs/mEogWGBJog/9cVdsvUVTLGtz6DvRIBQJ4=
-github.com/bloXroute-Labs/relay-grpc v0.0.69/go.mod h1:ywJRvkwerlgPSelpyo17bjurGhjxVi/1/t1jMH8PU8k=
-github.com/bloXroute-Labs/relay-grpc v0.0.70-0.20260220144746-843b60c70b67 h1:ZL3iwfB/83srbd2czuibChU7YAVyxFAlq9K5m4XVdHs=
-github.com/bloXroute-Labs/relay-grpc v0.0.70-0.20260220144746-843b60c70b67/go.mod h1:ywJRvkwerlgPSelpyo17bjurGhjxVi/1/t1jMH8PU8k=
-github.com/bloXroute-Labs/relay-grpc v0.0.70-0.20260220151038-a4f74018dad6 h1:OTwpHN5VuJjZ/wyVKUhbmljhK0/4Pfidrkdm8VETSD4=
-github.com/bloXroute-Labs/relay-grpc v0.0.70-0.20260220151038-a4f74018dad6/go.mod h1:ywJRvkwerlgPSelpyo17bjurGhjxVi/1/t1jMH8PU8k=
-github.com/bloXroute-Labs/relay-grpc v0.0.70-0.20260225182927-4d95b9e96540 h1:dozsuhJPJ9AWH20b7czgFNfgvsNOUfCOi9uBj0cjjUQ=
-github.com/bloXroute-Labs/relay-grpc v0.0.70-0.20260225182927-4d95b9e96540/go.mod h1:ywJRvkwerlgPSelpyo17bjurGhjxVi/1/t1jMH8PU8k=
-github.com/bloXroute-Labs/relay-grpc v0.0.70-0.20260226165016-634b270e5b45 h1:sIbo1gKSLXRwJLSZV/3kJx+aZRWhdhdWXN4tq+DAjHI=
-github.com/bloXroute-Labs/relay-grpc v0.0.70-0.20260226165016-634b270e5b45/go.mod h1:ywJRvkwerlgPSelpyo17bjurGhjxVi/1/t1jMH8PU8k=
 github.com/bloXroute-Labs/relay-grpc v0.0.70 h1:hVAdSXJMEVGfnuhMqfdV6dWhxiT8gRSEyXuAp1gF4To=
 github.com/bloXroute-Labs/relay-grpc v0.0.70/go.mod h1:ywJRvkwerlgPSelpyo17bjurGhjxVi/1/t1jMH8PU8k=
 github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK343L8=
