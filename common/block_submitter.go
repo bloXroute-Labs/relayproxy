@@ -17,6 +17,7 @@ import (
 	"github.com/pkg/errors"
 )
 
+// TODO: this one is for now left only for `submitNewBlock-Websocket` (which is not used)
 type BlockSubmitter interface {
 	UnmarshalSSZ(in []byte, out *VersionedSubmitBlockRequest) error
 }
