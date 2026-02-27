@@ -126,7 +126,7 @@ func (r *VersionedSubmitBlockRequest) UnmarshalJSON(input []byte) error {
 		r.Deneb = denebRequest
 		return nil
 	}
-	return errors.Wrap(err, "failed to unmarshal SubmitBlockRequest ")
+	return errors.Wrap(err, "failed to unmarshal SubmitBlockRequest")
 }
 
 // ExecutionPayloadExtraData returns the extra data of the payload.
