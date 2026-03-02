@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -358,6 +357,7 @@ func main() {
 	dataSvc := relayproxy.NewDataService(dataSvcOpts...)
 
 	builderBidsForProxySlot := cache.New(relayproxy.BuilderBidsCleanupInterval, relayproxy.BuilderBidsCleanupInterval)
+	allBidsMetadataForProxySlot := common.NewBidMetadataCache(relayproxy.BuilderBidsCleanupInterval)
 	builderExistingBlockHash := cache.New(relayproxy.BuilderBidsCleanupInterval, relayproxy.BuilderBidsCleanupInterval)
 	builderInfo := cache.New(time.Duration(*secondsPerSlot)*time.Second, time.Duration(*secondsPerSlot)*time.Second)
 	// local cache to store getPayloadResponse
@@ -378,6 +378,7 @@ func main() {
 	svcOpts = append(svcOpts, relayproxy.WithSvcFluentD(fluentLogger))
 	svcOpts = append(svcOpts, relayproxy.WithDataService(dataSvc))
 	svcOpts = append(svcOpts, relayproxy.WithBuilderBidsForProxySlot(builderBidsForProxySlot))
+	svcOpts = append(svcOpts, relayproxy.WithAllBidsMetadataForProxySlot(allBidsMetadataForProxySlot))
 	svcOpts = append(svcOpts, relayproxy.WithBuilderExistingBlockHash(builderExistingBlockHash))
 	svcOpts = append(svcOpts, relayproxy.WithBuilderInfo(builderInfo))
 	svcOpts = append(svcOpts, relayproxy.WithGetPayloadResponseForProxySlot(getPayloadResponseForProxySlot))

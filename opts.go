@@ -152,6 +152,13 @@ func WithBuilderBidsForProxySlot(cache *cache.Cache) ServiceOption {
 		s.builderBidsForProxySlot = cache
 	}
 }
+
+func WithAllBidsMetadataForProxySlot(cache *common.BidMetadataCache) ServiceOption {
+	return func(s *Service) {
+		s.allBidsMetadataForProxySlot = cache
+	}
+}
+
 func WithBuilderExistingBlockHash(cache *cache.Cache) ServiceOption {
 	return func(s *Service) {
 		s.builderExistingBlockHash = cache
@@ -343,6 +350,14 @@ func WithSvcPerformanceStats(performanceStats *stat.PerformanceStats) ServiceOpt
 func WithDelayer(delayer Delayer) ServiceOption {
 	return func(s *Service) {
 		s.delayer = delayer
+	}
+}
+
+func WithBidAdjustmentConfig(enableFixedBidAdjustmentLookbackTime bool, bidAdjustmentBufferTimeMs int64, bidAdjustmentLookbackMs int64) ServiceOption {
+	return func(s *Service) {
+		s.enableFixedBidAdjustmentLookbackTime = enableFixedBidAdjustmentLookbackTime
+		s.bidAdjustmentBufferTimeMs = bidAdjustmentBufferTimeMs
+		s.bidAdjustmentLookbackMs = bidAdjustmentLookbackMs
 	}
 }
 

@@ -125,7 +125,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	keyForCachingBids := s.keyForCachingBids(_slot, in.ParentHash, in.PubKey)
 
 	initialBidFetchStart := time.Now().UTC()
-	slotBestHeader, secondBestHeader, getErr := s.GetTopBuilderBid(keyForCachingBids)
+	slotBestHeader, secondBestHeader, bidAdjustmentTargetBid, getErr := s.GetTopBuilderBid(keyForCachingBids)
 	blockValue := new(big.Int)
 	initialFetchBidUsed := true
 	initialBidFetchDurationMs := time.Since(initialBidFetchStart).Milliseconds()
@@ -170,6 +170,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		log.Error().Err(getErr).Msg("error getting top builder bid")
 	}
 
+	// Send in an early prefetch payload request for Optimistic V3 block payloads
 	if slotBestHeader != nil && slotBestHeader.PayloadFetchUrl != "" {
 		select {
 		case s.preFetchPayloadChan <- preFetcherFields{
@@ -234,10 +235,10 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			newBestHeader, replaceable, err := s.OnHeaderBidRetrieved(
 				onHeaderRetrievedCtx,
 				slotBestHeader,
+				bidAdjustmentTargetBid,
 				*log,
 				_slot,
 				in.ParentHash,
-				slotBestHeader.BuilderPubkey,
 				in.AccountID,
 				repickDelayMs,
 				s.uniqueStreamingClients,
@@ -254,8 +255,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			case resCh <- r:
 			default:
 				// best-effort; should not block
-				log.Warn().
-					Msg("resCh full, dropping result (non-blocking send)")
+				log.Warn().Msg("resCh full, dropping result (non-blocking send)")
 			}
 		}()
 
@@ -307,10 +307,10 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			finalFetchAttempted = true
 			fetchStart := time.Now().UTC()
 
-			newBestHeader, secondBidHeader, err := s.GetTopBuilderBid(keyForCachingBids)
+			newBestHeader, secondBidHeader, _, err := s.GetTopBuilderBid(keyForCachingBids)
 
 			if err != nil || newBestHeader == nil {
-				log.Debug().Err(err).Msg("error getting top builder bid after repick window")
+				log.Error().Err(err).Msg("error getting top builder bid after repick window")
 			} else {
 				newblockValue := new(big.Int).SetBytes(newBestHeader.Value)
 				if newblockValue.Cmp(blockValue) > 0 {
