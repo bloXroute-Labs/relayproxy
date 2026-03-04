@@ -6,8 +6,8 @@ github.com/attestantio/go-eth2-client v0.27.1 h1:g7bm+gG/p+gfzYdEuxuAepVWYb8EO+2
 github.com/attestantio/go-eth2-client v0.27.1/go.mod h1:fvULSL9WtNskkOB4i+Yyr6BKpNHXvmpGZj9969fCrfY=
 github.com/bits-and-blooms/bitset v1.20.0 h1:2F+rfL86jE2d/bmw7OhqUg2Sj/1rURkBn3MdfoPyRVU=
 github.com/bits-and-blooms/bitset v1.20.0/go.mod h1:7hO7Gc7Pp1vODcmWvKMRA9BNmbv6a/7QIWpPxHddWR8=
-github.com/bloXroute-Labs/relay-grpc v0.0.70 h1:hVAdSXJMEVGfnuhMqfdV6dWhxiT8gRSEyXuAp1gF4To=
-github.com/bloXroute-Labs/relay-grpc v0.0.70/go.mod h1:ywJRvkwerlgPSelpyo17bjurGhjxVi/1/t1jMH8PU8k=
+github.com/bloXroute-Labs/relay-grpc v0.0.71-0.20260304163242-64d75550301c h1:h/TCreLznqbJijL3Tn7k4nUqvj4RAQGgLgEg6uUh1LA=
+github.com/bloXroute-Labs/relay-grpc v0.0.71-0.20260304163242-64d75550301c/go.mod h1:U/KsWYeCWdBiJU2781Cu/Kqq6ok3hr/LbMRZ1pheKuQ=
 github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK343L8=
 github.com/cenkalti/backoff/v4 v4.3.0/go.mod h1:Y3VNntkOUPxTVeUxJ/G5vcM//AlwfmyYozVcomhLiZE=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
@@ -33,8 +33,8 @@ github.com/ethereum/go-ethereum v1.16.3 h1:nDoBSrmsrPbrDIVLTkDQCy1U9KdHN+F2PzvMb
 github.com/ethereum/go-ethereum v1.16.3/go.mod h1:Lrsc6bt9Gm9RyvhfFK53vboCia8kpF9nv+2Ukntnl+8=
 github.com/ethereum/go-verkle v0.2.2 h1:I2W0WjnrFUIzzVPwm8ykY+7pL2d4VhlsePn4j7cnFk8=
 github.com/ethereum/go-verkle v0.2.2/go.mod h1:M3b90YRnzqKyyzBEWJGqj8Qff4IDeXnzFw0P9bFw3uk=
-github.com/ferranbt/fastssz v0.1.4 h1:OCDB+dYDEQDvAgtAGnTSidK1Pe2tW3nFV40XyMkTeDY=
-github.com/ferranbt/fastssz v0.1.4/go.mod h1:Ea3+oeoRGGLGm5shYAeDgu6PGUlcvQhE2fILyD9+tGg=
+github.com/ferranbt/fastssz v1.0.0 h1:9EXXYsracSqQRBQiHeaVsG/KQeYblPf40hsQPb9Dzk8=
+github.com/ferranbt/fastssz v1.0.0/go.mod h1:Ea3+oeoRGGLGm5shYAeDgu6PGUlcvQhE2fILyD9+tGg=
 github.com/flashbots/go-boost-utils v1.9.0 h1:KtTE70OYEJmIhK0GxLmXChgBTtBN6fbBK+klwP79AEM=
 github.com/flashbots/go-boost-utils v1.9.0/go.mod h1:vqZMGJCgwbS9WUVRzqfkn4ttRXiul4vKSu5iDtAKDfs=
 github.com/fluent/fluent-logger-golang v1.10.0 h1:JcLj8u3WclQv2juHGKTSzBRM5vIZjEqbrmvn/n+m1W0=
