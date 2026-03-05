@@ -620,6 +620,8 @@ func (s *Service) skipBidForOldBlockSequenceNumber(cacheKey string, builderPubke
 			Str("cacheKey", cacheKey).
 			Str("builderPubkey", builderPubkey).
 			Msg("skipping bid for old block sequence number")
+	} else {
+		s.logger.Info().Msg("StreamHeader valid sequence number")
 	}
 
 	return skipBid
