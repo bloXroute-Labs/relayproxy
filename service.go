@@ -387,8 +387,9 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			"hidden":              header.GetHidden(),
 		})
 
+		getPayloadOnly := false
 		if s.skipBidForOldBlockSequenceNumber(keyForCachingBids, header.GetBuilderPubkey(), blockSequenceNumber) {
-			continue
+			getPayloadOnly = true
 		}
 
 		var (
@@ -481,7 +482,9 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			header.GetHidden(),
 		)
 
-		s.setBuilderBidForProxySlot(keyForCachingBids, header.GetBuilderPubkey(), bid, header.GetSlot())
+		if !getPayloadOnly {
+			s.setBuilderBidForProxySlot(keyForCachingBids, header.GetBuilderPubkey(), bid, header.GetSlot())
+		}
 		s.allBidsMetadataForProxySlot.SetBidMetadataForProxySlot(&s.logger, keyForCachingBids, bid)
 
 		storeBidsSpan.SetAttributes(
