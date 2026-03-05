@@ -608,7 +608,7 @@ type PreFetchGetPayloadRequestHTTP struct {
 	NodeID         string
 }
 
-func ToSubmitBlockRequest(v *optimisticv3.VersionedAdjustableSubmitBlockRequest) (*VersionedSubmitBlockRequest, *bidadjustment.AdjustmentData, error) {
+func ToSubmitBlockRequest(v *optimisticv3.VersionedAdjustableSubmitBlockRequest) (*VersionedSubmitBlockRequest, *bidadjustment.VersionedAdjustmentData, error) {
 	switch v.Version {
 	case spec.DataVersionDeneb:
 		return &VersionedSubmitBlockRequest{
