@@ -10,21 +10,18 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/attestantio/go-builder-client/api/deneb"
+	"github.com/attestantio/go-builder-client/api/electra"
 	"github.com/attestantio/go-builder-client/api/fulu"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/attestantio/go-builder-client/api/deneb"
-	"github.com/attestantio/go-builder-client/api/electra"
-
-	//"github.com/attestantio/go-eth2-client/api/v1/fulu"
 	builderApiV1 "github.com/attestantio/go-builder-client/api/v1"
 	builderSpec "github.com/attestantio/go-builder-client/spec"
 	eth2Api "github.com/attestantio/go-eth2-client/api"
 	eth2ApiV1Deneb "github.com/attestantio/go-eth2-client/api/v1/deneb"
 	eth2ApiV1Electra "github.com/attestantio/go-eth2-client/api/v1/electra"
 
-	//eth2ApiV1Fulu "github.com/attestantio/go-eth2-client/api/v1/fulu"
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
@@ -494,6 +491,10 @@ func (b *Bid) GetSignedHeaderResponse(sk *bls.SecretKey, pubkey *phase0.BLSPubKe
 	}
 	b.payload = payload
 	return payload, false, nil
+}
+
+func (b *Bid) IsOptimisticV3() bool {
+	return b.payload == nil && b.PayloadFetchUrl == ""
 }
 
 type DuplicateBlock struct {
