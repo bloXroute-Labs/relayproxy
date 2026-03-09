@@ -484,8 +484,8 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 
 		if !getPayloadOnly {
 			s.setBuilderBidForProxySlot(keyForCachingBids, header.GetBuilderPubkey(), bid, header.GetSlot())
+			s.allBidsMetadataForProxySlot.SetBidMetadataForProxySlot(&s.logger, keyForCachingBids, bid)
 		}
-		s.allBidsMetadataForProxySlot.SetBidMetadataForProxySlot(&s.logger, keyForCachingBids, bid)
 
 		storeBidsSpan.SetAttributes(
 			attribute.String("method", method),
