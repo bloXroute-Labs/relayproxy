@@ -388,8 +388,9 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			"hidden":              header.GetHidden(),
 		})
 
+		getPayloadOnly := false
 		if s.skipBidForOldBlockSequenceNumber(keyForCachingBids, header.GetBuilderPubkey(), blockSequenceNumber) {
-			continue
+			getPayloadOnly = true
 		}
 
 		var (
@@ -497,8 +498,10 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			adjustmentData,
 		)
 
-		s.setBuilderBidForProxySlot(keyForCachingBids, header.GetBuilderPubkey(), bid, header.GetSlot())
-		s.allBidsMetadataForProxySlot.SetBidMetadataForProxySlot(&s.logger, keyForCachingBids, bid)
+		if !getPayloadOnly {
+			s.setBuilderBidForProxySlot(keyForCachingBids, header.GetBuilderPubkey(), bid, header.GetSlot())
+			s.allBidsMetadataForProxySlot.SetBidMetadataForProxySlot(&s.logger, keyForCachingBids, bid)
+		}
 
 		adjustmentDataVersion := bidadjustment.AdjustmentDataVersionUnknown
 		adjustmentDataExists := adjustmentData != nil
@@ -645,6 +648,8 @@ func (s *Service) skipBidForOldBlockSequenceNumber(cacheKey string, builderPubke
 			Str("cacheKey", cacheKey).
 			Str("builderPubkey", builderPubkey).
 			Msg("skipping bid for old block sequence number")
+	} else {
+		s.logger.Info().Msg("StreamHeader valid sequence number")
 	}
 
 	return skipBid
