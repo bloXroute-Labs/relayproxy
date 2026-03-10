@@ -479,6 +479,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			"",
 			blockSequenceNumber,
 			header.GetHidden(),
+			header.GetSszAdjustmentData(),
 		)
 
 		s.setBuilderBidForProxySlot(keyForCachingBids, header.GetBuilderPubkey(), bid, header.GetSlot())
