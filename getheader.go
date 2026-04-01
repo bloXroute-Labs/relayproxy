@@ -32,18 +32,21 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		delayGetHeaderResponse DelayGetHeaderResponse
 	)
 	delayCtx, delayGetHeaderSpan := s.tracer.Start(ctx, "getHeader-delayGetHeader")
-	delayGetHeaderResponse, err = s.delayer.DelayGetHeader(delayCtx, DelayGetHeaderParams{
-		ReceivedAt:          in.ReceivedAt,
-		Slot:                in.Slot,
-		AccountID:           in.AccountID,
-		Cluster:             in.Cluster,
-		UserAgent:           in.UserAgent,
-		ClientIP:            in.ClientIP,
-		SlotWithParentHash:  k,
-		BoostSendTimeUnixMS: in.GetHeaderStartTimeUnixMS,
-		Latency:             in.Latency,
-		HeaderTimeoutMS:     in.HeaderTimeoutMs, // client timeout
-	})
+	delayGetHeaderResponse, err = s.delayer.DelayGetHeader(
+		delayCtx,
+		DelayGetHeaderParams{
+			ReceivedAt:          in.ReceivedAt,
+			Slot:                in.Slot,
+			AccountID:           in.AccountID,
+			Cluster:             in.Cluster,
+			UserAgent:           in.UserAgent,
+			ClientIP:            in.ClientIP,
+			SlotWithParentHash:  k,
+			BoostSendTimeUnixMS: in.GetHeaderStartTimeUnixMS,
+			Latency:             in.Latency,
+			HeaderTimeoutMS:     in.HeaderTimeoutMs, // client timeout
+		},
+	)
 	resp := delayGetHeaderResponse
 
 	*log = log.With().
