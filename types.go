@@ -81,16 +81,17 @@ type PayloadRequestParams struct {
 }
 
 type DelayGetHeaderParams struct {
-	ReceivedAt          time.Time
-	Slot                string
-	AccountID           string
-	Cluster             string
-	UserAgent           string
-	ClientIP            string
-	SlotWithParentHash  string
-	BoostSendTimeUnixMS string
-	Latency             int64
-	HeaderTimeoutMS     uint64 // client timeout
+	ReceivedAt                time.Time
+	Slot                      string
+	AccountID                 string
+	Cluster                   string
+	UserAgent                 string
+	ClientIP                  string
+	SlotWithParentHash        string
+	BoostSendTimeUnixMS       string
+	Latency                   int64
+	HeaderTimeoutMS           uint64 // client timeout
+	BidAdjustmentBufferTimeMs int64
 }
 
 type DelayGetHeaderResponse struct {
