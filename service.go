@@ -17,6 +17,7 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/bellatrix"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	relaygrpc "github.com/bloXroute-Labs/relay-grpc"
+	"github.com/bloXroute-Labs/relay-grpc/bidadjustment"
 	"github.com/bloXroute-Labs/relay-grpc/optimisticv3"
 	"github.com/bloXroute-Labs/relay-grpc/stat"
 	"github.com/bloXroute-Labs/relayproxy/common"
@@ -369,22 +370,44 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 		keyForCachingBids := s.keyForCachingBids(header.GetSlot(), header.GetParentHash(), header.GetPubkey())
 		uniqueKey := fmt.Sprintf("slot_%v_bHash_%v_pHash_%v", header.GetSlot(), header.GetBlockHash(), header.GetParentHash())
 
+		// Unmarshal bid adjustment data if necessary
+		var adjustmentData *bidadjustment.VersionedAdjustmentData
+		sszAdjustmentData := header.GetSszAdjustmentData()
+		if sszAdjustmentData != nil {
+			versionedAdjustmentData := new(bidadjustment.VersionedAdjustmentData)
+			if err = versionedAdjustmentData.UnmarshalSSZ(sszAdjustmentData); err != nil {
+				s.logger.Error().Err(err).Fields(logMetric.GetFields()).Msg("failed to unmarshal bid adjustment data")
+			} else {
+				// Successful unmarshal
+				adjustmentData = versionedAdjustmentData
+			}
+		}
+
+		adjustmentDataVersion := bidadjustment.AdjustmentDataVersionUnknown
+		adjustmentDataExists := adjustmentData != nil
+		if adjustmentDataExists {
+			adjustmentDataVersion = adjustmentData.Version
+		}
+
 		lm.Fields(map[string]any{
-			"keyForCachingBids":   keyForCachingBids,
-			"slot":                header.GetSlot(),
-			"in.ParentHash":       header.GetParentHash(),
-			"blockHash":           header.GetBlockHash(),
-			"pubKey":              header.GetPubkey(),
-			"builderPubKey":       header.GetBuilderPubkey(),
-			"extraData":           header.GetBuilderExtraData(),
-			"traceID":             parentSpan.SpanContext().TraceID().String(),
-			"uniqueKey":           uniqueKey,
-			"receivedAt":          receivedAt,
-			"paidBlxr":            header.GetPaidBlxr(),
-			"accountID":           header.GetAccountId(),
-			"payloadFetchUrl":     header.GetPayloadFetchUrl(),
-			"blockSequenceNumber": header.GetBlockSequenceNumber(),
-			"hidden":              header.GetHidden(),
+			"keyForCachingBids":        keyForCachingBids,
+			"slot":                     header.GetSlot(),
+			"in.ParentHash":            header.GetParentHash(),
+			"blockHash":                header.GetBlockHash(),
+			"pubKey":                   header.GetPubkey(),
+			"builderPubKey":            header.GetBuilderPubkey(),
+			"extraData":                header.GetBuilderExtraData(),
+			"traceID":                  parentSpan.SpanContext().TraceID().String(),
+			"uniqueKey":                uniqueKey,
+			"receivedAt":               receivedAt,
+			"paidBlxr":                 header.GetPaidBlxr(),
+			"accountID":                header.GetAccountId(),
+			"payloadFetchUrl":          header.GetPayloadFetchUrl(),
+			"hidden":                   header.GetHidden(),
+			"blockSequenceNumber":      header.GetBlockSequenceNumber(),
+			"originalSubmissionMethod": header.GetOriginalSubmissionMethod(),
+			"adjustmentDataExists":     adjustmentDataExists,
+			"adjustmentDataVersion":    adjustmentDataVersion,
 		})
 
 		getPayloadOnly := false
@@ -466,6 +489,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			s.logger.Error().Fields(logMetric.GetFields()).Msg("failed to convert to versioned header submission")
 			continue
 		}
+
 		bid := common.NewBid(
 			header.GetValue(),
 			header.GetPayload(),
@@ -480,6 +504,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			"",
 			blockSequenceNumber,
 			header.GetHidden(),
+			adjustmentData,
 		)
 
 		if !getPayloadOnly {
@@ -496,7 +521,6 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			attribute.String("relayReceiveAt", header.GetRelayReceiveTime().AsTime().String()),
 			attribute.String("streamSentAt", header.GetSendTime().AsTime().String()),
 			attribute.Int64("streamLatencyInMs", latency),
-
 			attribute.String("keyForCachingBids", keyForCachingBids),
 			attribute.Int64("slot", int64(header.GetSlot())),
 			attribute.String("in.ParentHash", header.GetParentHash()),
@@ -511,7 +535,12 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			attribute.String("accountID", header.GetAccountId()),
 			attribute.String("payloadFetchUrl", header.GetPayloadFetchUrl()),
 			attribute.Bool("hidden", header.GetHidden()),
+			attribute.String("originalSubmissionMethod", header.GetOriginalSubmissionMethod()),
+			attribute.Int64("blockSequenceNumber", int64(header.GetBlockSequenceNumber())),
+			attribute.Bool("adjustmentDataExists", adjustmentDataExists),
+			attribute.Int64("adjustmentDataVersion", int64(adjustmentDataVersion)),
 		)
+
 		if duplicateReceiveTime > 0 {
 			storeBidsSpan.SetAttributes(
 				attribute.String("blockHash", header.GetBlockHash()),

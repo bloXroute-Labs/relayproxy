@@ -437,6 +437,7 @@ type Bid struct {
 	AuthHeader          string
 	BlockSequenceNumber *uint64
 	Hidden              bool
+	AdjustmentData      *bidadjustment.VersionedAdjustmentData
 }
 
 func NewBid(Value []byte,
@@ -452,6 +453,7 @@ func NewBid(Value []byte,
 	authHeader string,
 	blockSequenceNumber *uint64,
 	hidden bool,
+	adjustmentData *bidadjustment.VersionedAdjustmentData,
 ) *Bid {
 	return &Bid{
 		Value:               Value,
@@ -467,6 +469,7 @@ func NewBid(Value []byte,
 		AuthHeader:          authHeader,
 		BlockSequenceNumber: blockSequenceNumber,
 		Hidden:              hidden,
+		AdjustmentData:      adjustmentData,
 	}
 }
 
