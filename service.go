@@ -128,8 +128,8 @@ type Service struct {
 
 	delayer Delayer
 
-	enableFixedBidAdjustmentLookbackTime bool  // TODO: will be implemented in future PR
-	bidAdjustmentBufferTimeMs            int64 // TODO: will be implemented in future PR
+	enableFixedBidAdjustmentLookbackTime bool // TODO: will be implemented in future PR
+	bidAdjustmentBufferTimeMs            int64
 	bidAdjustmentLookbackMs              int64
 }
 
