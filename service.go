@@ -481,7 +481,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 		//}(headerStream)
 
 		// Store the bid for builder pubkey
-		_, storeBidsSpan := s.tracer.Start(streamReceiveCtx, "StreamHeader-storeBids")
+		_, storeBidsSpan := s.tracer.Start(streamReceiveCtx, "receiveStreamHeader-storeBids")
 		payloadURL := "grpc;" + client.URL
 		forkVersion := common.GetCurrentForkVersion()
 		headerSubmissionV3, err := optimisticv3.RelayGrpcHeaderSubmissionToVersioned(header, []byte(payloadURL), forkVersion)
