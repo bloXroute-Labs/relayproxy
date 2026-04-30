@@ -177,7 +177,7 @@ func WithGetPayloadResponseForProxySlot(cache *cache.Cache) ServiceOption {
 	}
 }
 
-func WithPreFetchPayloadChan(ch chan preFetcherFields) ServiceOption {
+func WithPreFetchPayloadChan(ch chan PreFetcherFields) ServiceOption {
 	return func(s *Service) {
 		s.preFetchPayloadChan = ch
 	}
@@ -421,17 +421,6 @@ func WithAccounts(accounts *cache.Cache) DataServiceOption {
 func WithAccountChannel(ch chan account) DataServiceOption {
 	return func(s *DataService) {
 		s.accountCh = ch
-	}
-}
-func WithGetHeaderDelay(delay int64) DataServiceOption {
-	return func(s *DataService) {
-		s.getHeaderDelay = delay
-	}
-}
-
-func WithGetHeaderMaxDelay(maxDelay int64) DataServiceOption {
-	return func(s *DataService) {
-		s.getHeaderMaxDelay = maxDelay
 	}
 }
 

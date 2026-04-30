@@ -48,8 +48,6 @@ type DataService struct {
 	secondsPerSlot         int64
 	httpClient             *http.Client
 	externalRelay          string
-	getHeaderDelay         int64
-	getHeaderMaxDelay      int64
 	getHeaderDelaySettings map[string]DelaySettings
 	accounts               *cache.Cache // list of accountID:validatorID
 	accountCh              chan account

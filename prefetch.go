@@ -50,7 +50,7 @@ func getPrefetchHttpClient() *http.Client {
 
 func (s *Service) StartPreFetcher(ctx context.Context) {
 	for fields := range s.preFetchPayloadChan {
-		go func(fields preFetcherFields) {
+		go func(fields PreFetcherFields) {
 			prefetchCtx, cancel := context.WithTimeout(ctx, preFetcherRequestTimeout)
 			defer cancel()
 			s.PreFetchGetPayload(prefetchCtx, fields)
@@ -58,7 +58,7 @@ func (s *Service) StartPreFetcher(ctx context.Context) {
 	}
 }
 
-func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherFields) {
+func (s *Service) PreFetchGetPayload(ctx context.Context, fields PreFetcherFields) {
 	startTime := time.Now().UTC()
 	var (
 		successGRPC    bool
@@ -66,31 +66,31 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		successBuilder bool
 	)
 	var msIntoSlotPrefetchStart int64
-	if !fields.slotStartTime.IsZero() {
-		msIntoSlotPrefetchStart = time.Since(fields.slotStartTime).Milliseconds()
+	if !fields.SlotStartTime.IsZero() {
+		msIntoSlotPrefetchStart = time.Since(fields.SlotStartTime).Milliseconds()
 	}
 	prefetchID := uuid.NewString()
 
 	// record prefetch start into flow cache
-	go s.IDataService.GetFlowService().RecordPrefetchStart(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey, fields.blockValue, s.nodeID, PrefetchFlowEvent{
+	go s.IDataService.GetFlowService().RecordPrefetchStart(fields.Slot, fields.ParentHash, fields.BlockHash, fields.ProposerPubKey, fields.BlockValue, s.nodeID, PrefetchFlowEvent{
 		PrefetchID:              prefetchID,
-		GetHeaderReqID:          fields.getHeaderReqID,
+		GetHeaderReqID:          fields.GetHeaderReqID,
 		StartedAt:               startTime,
 		MsIntoSlotPrefetchStart: msIntoSlotPrefetchStart,
 	})
 	clients := s.clients
 	clientURL := ""
-	if fields.client != nil {
-		clients = append(clients, fields.client)
-		clientURL = fields.client.String()
+	if fields.Client != nil {
+		clients = append(clients, fields.Client)
+		clientURL = fields.Client.String()
 	}
 
 	spanCtx, span := s.tracer.Start(ctx, GetSpanName("prefetch", "START"))
 	defer func() {
 		totalMs := time.Since(startTime).Milliseconds()
 		var msIntoSlotPrefetchEnd int64
-		if !fields.slotStartTime.IsZero() {
-			msIntoSlotPrefetchEnd = time.Since(fields.slotStartTime).Milliseconds()
+		if !fields.SlotStartTime.IsZero() {
+			msIntoSlotPrefetchEnd = time.Since(fields.SlotStartTime).Milliseconds()
 		}
 
 		span.SetAttributes(
@@ -98,14 +98,14 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 			attribute.Bool("successCache", successCache),
 			attribute.Bool("successGRPC", successGRPC),
 			attribute.Bool("successBuilder", successBuilder),
-			attribute.Int64("slot", int64(fields.slot)),
-			attribute.String("blockHash", fields.blockHash),
-			attribute.String("parentHash", fields.parentHash),
-			attribute.String("proposerPubkey", fields.proposerPubKey),
+			attribute.Int64("slot", int64(fields.Slot)),
+			attribute.String("blockHash", fields.BlockHash),
+			attribute.String("parentHash", fields.ParentHash),
+			attribute.String("proposerPubkey", fields.ProposerPubKey),
 			attribute.Int64("msIntoSlot_start", msIntoSlotPrefetchStart),
 			attribute.Int64("msIntoSlot_end", msIntoSlotPrefetchEnd),
-			attribute.Int64("msIntoSlot_getHeader_including_delay", fields.msIntoSlotGetHeaderIncludingDelay),
-			attribute.String("getHeader_req_id", fields.getHeaderReqID),
+			attribute.Int64("msIntoSlot_getHeader_including_delay", fields.MsIntoSlotGetHeaderIncludingDelay),
+			attribute.String("getHeader_req_id", fields.GetHeaderReqID),
 			attribute.String("id", prefetchID),
 			attribute.String("clientURL", clientURL),
 		)
@@ -119,28 +119,28 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		)
 	}()
 
-	uKey := "slot_" + strconv.FormatUint(fields.slot, 10) + "_bHash_" + fields.blockHash + "_pHash_" + fields.parentHash
+	uKey := "slot_" + strconv.FormatUint(fields.Slot, 10) + "_bHash_" + fields.BlockHash + "_pHash_" + fields.ParentHash
 	prefetchLogger := s.logger.With().
 		Time("currentTime", time.Now().UTC()).
 		Str("method", preFetchPayload).
 		Time("prefetchStartedAt", startTime).
-		Str("clientIP", fields.clientIP).
+		Str("clientIP", fields.ClientIP).
 		Str("clientURL", clientURL).
 		Int("clientCount", len(clients)).
 		Str("prefetchID", prefetchID).
 		Str("traceID", span.SpanContext().TraceID().String()).
 		Str("uKey", uKey).
-		Int64("slot", int64(fields.slot)). // or Uint64 if you prefer
-		Str("parentHash", fields.parentHash).
-		Str("blockHash", fields.blockHash).
+		Int64("slot", int64(fields.Slot)). // or Uint64 if you prefer
+		Str("parentHash", fields.ParentHash).
+		Str("blockHash", fields.BlockHash).
 		Int64("msIntoSlotStart", msIntoSlotPrefetchStart).
-		Int64("msIntoSlotGetHeaderIncludingDelay", fields.msIntoSlotGetHeaderIncludingDelay).
-		Str("getheaderReqID", fields.getHeaderReqID).
-		Str("builderPayloadFetchURL", fields.payloadFetchUrl).
+		Int64("msIntoSlotGetHeaderIncludingDelay", fields.MsIntoSlotGetHeaderIncludingDelay).
+		Str("getheaderReqID", fields.GetHeaderReqID).
+		Str("builderPayloadFetchURL", fields.PayloadFetchUrl).
 		Logger()
 	prefetchLogger.Info().Msg("received prefetchPayload")
 
-	if fields.payloadFetchUrl != "" {
+	if fields.PayloadFetchUrl != "" {
 		subStart := time.Now()
 		_, sub := s.tracer.Start(spanCtx, GetSpanName("prefetch", "builderHTTPorGRPC"))
 		successBuilder = s.prefetchPayloadFromBuilder(ctx, spanCtx, &fields, prefetchLogger)
@@ -160,7 +160,7 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		payloadSize int
 		errMsg      string
 	)
-	payloadCacheKey := common.GetKeyForCachingPayload(fields.slot, fields.parentHash, fields.blockHash, fields.proposerPubKey)
+	payloadCacheKey := common.GetKeyForCachingPayload(fields.Slot, fields.ParentHash, fields.BlockHash, fields.ProposerPubKey)
 	cachedValue, exists := s.getPayloadResponseForProxySlot.Get(payloadCacheKey)
 	cacheLookupDurationMs := time.Since(cacheLookupStart).Milliseconds()
 	prefetchLogger = prefetchLogger.With().Int64("cacheLookupDurationMs", cacheLookupDurationMs).Logger()
@@ -195,12 +195,12 @@ func (s *Service) PreFetchGetPayload(ctx context.Context, fields preFetcherField
 		errMsg = "payload cache unavailable, key: " + payloadCacheKey
 	}
 	go s.IDataService.GetFlowService().RecordPrefetchDone(
-		fields.slot,
-		fields.parentHash,
-		fields.blockHash,
-		fields.proposerPubKey,
+		fields.Slot,
+		fields.ParentHash,
+		fields.BlockHash,
+		fields.ProposerPubKey,
 		prefetchID,
-		fields.getHeaderReqID,
+		fields.GetHeaderReqID,
 		successCache,
 		cacheLookupDurationMs,
 		FlowSourcePrefetchCache,
@@ -237,7 +237,7 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 	spanCtx context.Context,
 	clients []*common.ParentClient,
 	baseLogger zerolog.Logger,
-	fields preFetcherFields,
+	fields PreFetcherFields,
 	reqID string,
 	prefetchStartTime time.Time) (result *prefetchResultHTTP, err error) {
 
@@ -258,8 +258,8 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 		}
 
 		targetClientIP := ""
-		if fields.client != nil {
-			targetClientIP = fields.client.String()
+		if fields.Client != nil {
+			targetClientIP = fields.Client.String()
 		}
 
 		//source := FlowSourcePrefetchGRPC
@@ -286,21 +286,21 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 				Msg("prefetchHTTP :: failed")
 		}
 		span.SetAttributes(
-			attribute.Int64("slot", int64(fields.slot)),
-			attribute.String("parentHash", fields.parentHash),
-			attribute.String("blockHash", fields.blockHash),
+			attribute.Int64("slot", int64(fields.Slot)),
+			attribute.String("parentHash", fields.ParentHash),
+			attribute.String("blockHash", fields.BlockHash),
 			attribute.Bool("success", success),
 			attribute.String("targetClientIP", targetClientIP),
 			attribute.String("error", errMsg),
 		)
 		span.End()
 		go s.IDataService.GetFlowService().RecordPrefetchDone(
-			fields.slot,
-			fields.parentHash,
-			fields.blockHash,
-			fields.proposerPubKey,
+			fields.Slot,
+			fields.ParentHash,
+			fields.BlockHash,
+			fields.ProposerPubKey,
 			reqID,
-			fields.getHeaderReqID,
+			fields.GetHeaderReqID,
 			success,
 			durationMs,
 			FlowSourcePrefetchHTTP,
@@ -381,14 +381,14 @@ func (s *Service) prefetchHTTP(ctx context.Context,
 				result = res
 				err = nil
 				payloadCacheKey = common.GetKeyForCachingPayload(
-					fields.slot,
-					fields.parentHash,
-					fields.blockHash,
-					fields.proposerPubKey,
+					fields.Slot,
+					fields.ParentHash,
+					fields.BlockHash,
+					fields.ProposerPubKey,
 				)
 				payloadResponse := &common.PayloadResponseForProxy{
 					SszMarshalledPayloadResponse: result.resp.SszVersionedExecutionPayload,
-					BlockValue:                   fields.blockValue,
+					BlockValue:                   fields.BlockValue,
 				}
 				payloadSize = len(result.resp.SszVersionedExecutionPayload)
 				_ = s.getPayloadResponseForProxySlot.Add(
@@ -412,7 +412,7 @@ func (s *Service) prefetchHTTPSingle(ctx context.Context,
 	spanCtx context.Context,
 	client *common.Client,
 	baseLogger zerolog.Logger,
-	fields preFetcherFields,
+	fields PreFetcherFields,
 	reqID string,
 	prefetchStartTime time.Time,
 ) (*prefetchResultHTTP, error) {
@@ -425,13 +425,13 @@ func (s *Service) prefetchHTTPSingle(ctx context.Context,
 	}
 
 	req := common.PreFetchGetPayloadRequestHTTP{
-		Slot:           fields.slot,
-		ParentHash:     fields.parentHash,
-		BlockHash:      fields.blockHash,
-		Pubkey:         fields.proposerPubKey,
-		ClientIp:       fields.clientIP,
+		Slot:           fields.Slot,
+		ParentHash:     fields.ParentHash,
+		BlockHash:      fields.BlockHash,
+		Pubkey:         fields.ProposerPubKey,
+		ClientIp:       fields.ClientIP,
 		ReceivedAt:     timestamppb.New(prefetchStartTime),
-		GetHeaderReqID: fields.getHeaderReqID,
+		GetHeaderReqID: fields.GetHeaderReqID,
 		PrefetchReqID:  reqID,
 		NodeID:         s.nodeID,
 	}
@@ -543,7 +543,7 @@ func (s *Service) prefetchGRPC(
 	spanCtx context.Context,
 	clients []*common.ParentClient,
 	baseLogger zerolog.Logger,
-	fields preFetcherFields,
+	fields PreFetcherFields,
 	reqID string,
 	prefetchStartTime time.Time,
 ) (result *prefetchResult, err error) {
@@ -565,8 +565,8 @@ func (s *Service) prefetchGRPC(
 		}
 
 		targetClientIP := ""
-		if fields.client != nil {
-			targetClientIP = fields.client.String()
+		if fields.Client != nil {
+			targetClientIP = fields.Client.String()
 		}
 
 		//source := FlowSourcePrefetchGRPC
@@ -593,21 +593,21 @@ func (s *Service) prefetchGRPC(
 				Msg("prefetchGRPC :: failed")
 		}
 		span.SetAttributes(
-			attribute.Int64("slot", int64(fields.slot)),
-			attribute.String("parentHash", fields.parentHash),
-			attribute.String("blockHash", fields.blockHash),
+			attribute.Int64("slot", int64(fields.Slot)),
+			attribute.String("parentHash", fields.ParentHash),
+			attribute.String("blockHash", fields.BlockHash),
 			attribute.Bool("success", success),
 			attribute.String("targetClientIP", targetClientIP),
 			attribute.String("error", errMsg),
 		)
 		span.End()
 		go s.IDataService.GetFlowService().RecordPrefetchDone(
-			fields.slot,
-			fields.parentHash,
-			fields.blockHash,
-			fields.proposerPubKey,
+			fields.Slot,
+			fields.ParentHash,
+			fields.BlockHash,
+			fields.ProposerPubKey,
 			reqID,
-			fields.getHeaderReqID,
+			fields.GetHeaderReqID,
 			success,
 			durationMs,
 			FlowSourcePrefetchGRPC,
@@ -635,11 +635,11 @@ func (s *Service) prefetchGRPC(
 		ReqId:       reqID,
 		Version:     s.version,
 		SecretToken: s.secretToken,
-		Slot:        fields.slot,
-		ParentHash:  fields.parentHash,
-		BlockHash:   fields.blockHash,
-		Pubkey:      fields.proposerPubKey,
-		ClientIp:    fields.clientIP,
+		Slot:        fields.Slot,
+		ParentHash:  fields.ParentHash,
+		BlockHash:   fields.BlockHash,
+		Pubkey:      fields.ProposerPubKey,
+		ClientIp:    fields.ClientIP,
 		ReceivedAt:  timestamppb.New(prefetchStartTime),
 	}
 
@@ -703,14 +703,14 @@ func (s *Service) prefetchGRPC(
 				result = res
 				err = nil
 				payloadCacheKey = common.GetKeyForCachingPayload(
-					fields.slot,
-					fields.parentHash,
-					fields.blockHash,
-					fields.proposerPubKey,
+					fields.Slot,
+					fields.ParentHash,
+					fields.BlockHash,
+					fields.ProposerPubKey,
 				)
 				payloadResponse := &common.PayloadResponseForProxy{
 					SszMarshalledPayloadResponse: result.resp.SszVersionedExecutionPayload,
-					BlockValue:                   fields.blockValue,
+					BlockValue:                   fields.BlockValue,
 				}
 				payloadSize = len(result.resp.SszVersionedExecutionPayload)
 				_ = s.getPayloadResponseForProxySlot.Add(
@@ -805,7 +805,7 @@ func (s *Service) prefetchGRPCSingle(
 func (s *Service) prefetchPayloadFromBuilder(
 	ctx context.Context,
 	spanCtx context.Context,
-	fields *preFetcherFields,
+	fields *PreFetcherFields,
 	log zerolog.Logger,
 ) bool {
 	_, span := s.tracer.Start(spanCtx, GetSpanName("prefetch", "fromBuilder"))
@@ -815,7 +815,7 @@ func (s *Service) prefetchPayloadFromBuilder(
 		span.End()
 	}()
 
-	payloadUrlsData := common.SafeSplit(fields.payloadFetchUrl, optimisticv3.PayloadUrlsTypeSeparator)
+	payloadUrlsData := common.SafeSplit(fields.PayloadFetchUrl, optimisticv3.PayloadUrlsTypeSeparator)
 	if len(payloadUrlsData) != optimisticv3.PayloadUrlsDataExpectedLength {
 		err := errors.New("invalid payload URL format")
 
@@ -863,22 +863,22 @@ func (s *Service) prefetchPayloadFromBuilder(
 func (s *Service) builderPreFetchGetPayloadHTTP(
 	ctx context.Context,
 	log zerolog.Logger,
-	fields *preFetcherFields,
+	fields *PreFetcherFields,
 	payloadUrls []string,
 ) bool {
 	_, fetchSpan := s.tracer.Start(ctx, GetSpanName("prefetch", "builderHttpFanout"))
 	defer func() {
 		fetchSpan.SetAttributes(
-			attribute.Int64("slot", int64(fields.slot)),
-			attribute.String("blockHash", fields.blockHash),
-			attribute.String("parentHash", fields.parentHash),
-			attribute.String("proposerPubkey", fields.proposerPubKey),
-			attribute.String("builderPubkey", fields.builderPubKey),
+			attribute.Int64("slot", int64(fields.Slot)),
+			attribute.String("blockHash", fields.BlockHash),
+			attribute.String("parentHash", fields.ParentHash),
+			attribute.String("proposerPubkey", fields.ProposerPubKey),
+			attribute.String("builderPubkey", fields.BuilderPubKey),
 		)
 		fetchSpan.End()
 	}()
 
-	payload, err := s.prepareGetPayloadV3Request(fields.blockHash)
+	payload, err := s.prepareGetPayloadV3Request(fields.BlockHash)
 	if err != nil {
 		log.Debug().
 			Err(err).
@@ -953,10 +953,10 @@ func (s *Service) builderPreFetchGetPayloadHTTP(
 				s.fluentD.LogToFluentD(fluentstats.Record{
 					Type: "StatsPrefetchPayloadHttp",
 					Data: PrefetchPayloadHttpRecord{
-						Slot:               fields.slot,
+						Slot:               fields.Slot,
 						BlockNumber:        blockNumber,
-						BlockHash:          fields.blockHash,
-						BuilderPubkey:      fields.builderPubKey,
+						BlockHash:          fields.BlockHash,
+						BuilderPubkey:      fields.BuilderPubKey,
 						ExtraData:          builderExtraData,
 						Url:                url,
 						HttpStatusCode:     code,
@@ -978,7 +978,7 @@ func (s *Service) processGetPayloadV3Responses(
 	ctx context.Context,
 	responseChan <-chan *common.VersionedSubmitBlockRequest,
 	log zerolog.Logger,
-	fields *preFetcherFields,
+	fields *PreFetcherFields,
 ) bool {
 	for {
 		select {
@@ -1003,15 +1003,15 @@ func (s *Service) processGetPayloadV3Responses(
 			}
 
 			proxyCacheKey := common.GetKeyForCachingPayload(
-				fields.slot,
-				fields.parentHash,
-				fields.blockHash,
-				fields.proposerPubKey,
+				fields.Slot,
+				fields.ParentHash,
+				fields.BlockHash,
+				fields.ProposerPubKey,
 			)
 
 			payloadResponse := &common.PayloadResponseForProxy{
 				PayloadResponse: getPayloadResponse,
-				BlockValue:      fields.blockValue,
+				BlockValue:      fields.BlockValue,
 			}
 
 			if err := s.getPayloadResponseForProxySlot.Add(proxyCacheKey, payloadResponse, cache.DefaultExpiration); err != nil {
@@ -1028,7 +1028,7 @@ func (s *Service) processGetPayloadV3Responses(
 				case s.optimisticV3FetchedPayloadsChan <- response:
 				default:
 					log.Error().
-						Str("blockHash", fields.blockHash).
+						Str("blockHash", fields.BlockHash).
 						Msg("PreFetchPayloadV3 :: failed to send Optimistic V3 block fetched payload for processing, channel is full")
 				}
 			}

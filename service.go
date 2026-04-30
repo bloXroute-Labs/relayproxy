@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -86,7 +87,7 @@ type Service struct {
 	allBidsMetadataForProxySlot     *common.BidMetadataCache
 	builderExistingBlockHash        *cache.Cache
 	getPayloadResponseForProxySlot  *cache.Cache
-	preFetchPayloadChan             chan preFetcherFields
+	preFetchPayloadChan             chan PreFetcherFields
 	optimisticV3FetchedPayloadsChan chan *common.VersionedSubmitBlockRequest
 	performancestats                *stat.PerformanceStats
 
@@ -125,6 +126,7 @@ type Service struct {
 	BlockPublishFunc             func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, blockPublishingGatewayClient interface{}, authKey string)
 	OnPayloadRequested           func(slot uint64, blockHash string, parentHash string, proposerPubkey string, getPayloadRequestClientIP string, receivedAt time.Time, signedBlindedBeaconBlock *eth2Api.VersionedSignedBlindedBeaconBlock, ProposerRequestStartTimeUnixMS int64, validatorID string) error
 	OnHeaderBidRetrieved         func(ctx context.Context, topBid *common.Bid, bidAdjustmentTargetBid *common.BidMetadata, log zerolog.Logger, slot uint64, parentHash string, accountID string, replacemendDelayMs int64, clients []*common.ParentClient) (*common.Bid, bool, error)
+	GetHeaderFunc                func(ctx context.Context, parentSpan trace.Span, log *zerolog.Logger, in *HeaderRequestParams, req *http.Request, isValidatorIP bool, validatorInfo *common.MiniValidatorLatency, headerRequestID string, preFetchPayloadChan chan PreFetcherFields) (*common.Bid, *common.Bid, GetHeaderSleepData, error)
 
 	delayer Delayer
 
@@ -139,27 +141,27 @@ type slotStatsEvent struct {
 	UserAgent string
 }
 
-type preFetcherFields struct {
-	clientIP        string
-	authHeader      string
-	slot            uint64
-	parentHash      string
-	blockHash       string
-	proposerPubKey  string
-	builderPubKey   string
-	blockValue      string
-	client          *common.ParentClient
-	payloadFetchUrl string
+type PreFetcherFields struct {
+	ClientIP        string
+	AuthHeader      string
+	Slot            uint64
+	ParentHash      string
+	BlockHash       string
+	ProposerPubKey  string
+	BuilderPubKey   string
+	BlockValue      string
+	Client          *common.ParentClient
+	PayloadFetchUrl string
 
-	slotStartTime                     time.Time
-	msIntoSlotGetHeaderIncludingDelay int64 // when getHeader was called + include delay
-	getHeaderReqID                    string
+	SlotStartTime                     time.Time
+	MsIntoSlotGetHeaderIncludingDelay int64 // when getHeader was called + include delay
+	GetHeaderReqID                    string
 }
 
 func NewService(opts ...ServiceOption) *Service {
 
 	svc := &Service{
-		preFetchPayloadChan:           make(chan preFetcherFields, preFetchPayloadChanBufSize),
+		preFetchPayloadChan:           make(chan PreFetcherFields, preFetchPayloadChanBufSize),
 		slotStatsHeaderEvents:         cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
 		slotStatsPayloadEvent:         cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
 		duplicateSlotCache:            cache.New(duplicateSlotCacheCleanupInterval, duplicateSlotCacheCleanupInterval), // cache to avoid emitting duplicate stats
@@ -584,10 +586,11 @@ func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, *
 	builderBidsMap.Range(func(builderPubkey string, bid *common.Bid) bool {
 		bidValue := new(big.Int).SetBytes(bid.Value)
 		if bidValue.Cmp(topBidValue) > 0 {
-			secondBid = topBid
-			secondBidValue.Set(topBidValue)
 			topBid = bid
 			topBidValue.Set(bidValue)
+
+			secondBid = topBid
+			secondBidValue.Set(topBidValue)
 		}
 		return true
 	})

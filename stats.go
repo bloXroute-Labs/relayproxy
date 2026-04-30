@@ -91,7 +91,7 @@ type GetHeaderStatsRecord struct {
 	HeaderStartTimeUnixMs     string        `json:"header_start_time_unix_ms"`
 }
 
-type headerProvidedToValidatorIP struct {
+type HeaderProvidedToValidatorIP struct {
 	IPMatches                bool   `json:"ip_matches"`
 	Slot                     string `json:"slot"`
 	ProposerPublicKey        string `json:"proposer_public_key"`

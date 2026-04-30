@@ -348,8 +348,6 @@ func main() {
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithDataSvcSecondsPerSlot(*secondsPerSlot))
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithHttpClient(httpClient))
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithExternalRelay(*externalRelayURL))
-	dataSvcOpts = append(dataSvcOpts, relayproxy.WithGetHeaderDelay(*getHeaderDelayInMS))
-	dataSvcOpts = append(dataSvcOpts, relayproxy.WithGetHeaderMaxDelay(*getHeaderMaxDelayInMS))
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithGetHeaderDelaySettings(delaySettings))
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithGetHeaderTimeout(timeout))
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithAccountImportLists(accountsLists))
