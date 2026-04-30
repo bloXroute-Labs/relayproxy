@@ -55,7 +55,7 @@ type DataService struct {
 	getHeaderTimeout       map[string]int64 // MEV Boost get header timeout for each validator
 	ipCacheStore           *cache.Cache     // list of ip to verify delay eligibility
 	accountsLists          *AccountsLists
-	delayerPlugin          func(accountID string, msIntoSlot int64, cluster, userAgent string, latency int64, clientIP string, logger zerolog.Logger, getHeaderTimeout map[string]int64, clientTimeoutMS int64) (int64, int64, int64, error)
+	delayerPlugin          func(accountID string, msIntoSlot int64, cluster, userAgent string, latency int64, clientIP string, logger zerolog.Logger, getHeaderTimeout map[string]int64, clientTimeoutMS int64, bidAdjustmentBufferTimeMs int64) (int64, int64, int64, error)
 	miniProposerSlotMap    *SyncMap[uint64, *common.MiniValidatorLatency]
 
 	flowSvc *FlowService
@@ -165,7 +165,7 @@ func (s *DataService) DelayGetHeader(ctx context.Context, in DelayGetHeaderParam
 	if GetHeaderRequestCutoffMs > 0 && msIntoSlot > GetHeaderRequestCutoffMs {
 		return DelayGetHeaderResponse{}, common.ErrLateHeader
 	}
-	sleep, maxSleep, replacementDelayMs, err = s.dynamicFuncWrapper(in.AccountID, msIntoSlot, in.Cluster, in.UserAgent, in.Latency, in.ClientIP, int64(in.HeaderTimeoutMS))
+	sleep, maxSleep, replacementDelayMs, err = s.dynamicFuncWrapper(in.AccountID, msIntoSlot, in.Cluster, in.UserAgent, in.Latency, in.ClientIP, int64(in.HeaderTimeoutMS), in.BidAdjustmentBufferTimeMs)
 	if err != nil {
 		return DelayGetHeaderResponse{}, err
 	}
@@ -253,9 +253,9 @@ func (s *DataService) SendAccount(accountID, validatorID string) {
 	}
 }
 
-func (s *DataService) dynamicFuncWrapper(accountID string, msIntoSlot int64, cluster, userAgent string, latency int64, clientIP string, clientTimeoutMS int64) (int64, int64, int64, error) {
+func (s *DataService) dynamicFuncWrapper(accountID string, msIntoSlot int64, cluster, userAgent string, latency int64, clientIP string, clientTimeoutMS int64, bidAdjustmentBufferTimeMs int64) (int64, int64, int64, error) {
 	if s.delayerPlugin != nil {
-		return s.delayerPlugin(accountID, msIntoSlot, cluster, userAgent, latency, clientIP, s.logger, s.getHeaderTimeout, clientTimeoutMS)
+		return s.delayerPlugin(accountID, msIntoSlot, cluster, userAgent, latency, clientIP, s.logger, s.getHeaderTimeout, clientTimeoutMS, bidAdjustmentBufferTimeMs)
 	}
 
 	return 0, 0, 0, nil

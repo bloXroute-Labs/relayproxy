@@ -130,8 +130,8 @@ type Service struct {
 
 	delayer Delayer
 
-	enableFixedBidAdjustmentLookbackTime bool  // TODO: will be implemented in future PR
-	bidAdjustmentBufferTimeMs            int64 // TODO: will be implemented in future PR
+	enableFixedBidAdjustmentLookbackTime bool // TODO: will be implemented in future PR
+	bidAdjustmentBufferTimeMs            int64
 	bidAdjustmentLookbackMs              int64
 }
 
@@ -483,7 +483,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 		//}(headerStream)
 
 		// Store the bid for builder pubkey
-		_, storeBidsSpan := s.tracer.Start(streamReceiveCtx, "StreamHeader-storeBids")
+		_, storeBidsSpan := s.tracer.Start(streamReceiveCtx, "receiveStreamHeader-storeBids")
 		payloadURL := "grpc;" + client.URL
 		forkVersion := common.GetCurrentForkVersion()
 		headerSubmissionV3, err := optimisticv3.RelayGrpcHeaderSubmissionToVersioned(header, []byte(payloadURL), forkVersion)
