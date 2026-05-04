@@ -94,6 +94,9 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	}
 	storingHeaderSpan.End()
 
+	// TODO: remove after testing
+	log.Info().Msg("Calling RelayProxy GetHeaderFunc")
+
 	slotBestHeader, _, getHeaderSleepData, err := s.GetHeaderFunc(
 		parentCtx,
 		parentSpan,
@@ -105,15 +108,16 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	)
 
 	*log = log.With().
-		Str("reqID", id).
-		Int64("slotStartTimeUnix", slotStartTime.Unix()).
-		Str("slotStartTime", slotStartTime.UTC().String()).
+		Bool("slotBestHeaderFound", slotBestHeader != nil).
 		Int64("sleep", getHeaderSleepData.SleepMs).
 		Int64("maxSleep", getHeaderSleepData.MaxSleepMs).
 		Int64("msIntoSlotIncludingDelay", getHeaderSleepData.MsIntoSlotIncludingDelay).
 		Bool("usedRepick", getHeaderSleepData.UsedRepick).
 		Uint64("headerTimeoutMS", in.HeaderTimeoutMs).
 		Logger()
+
+	// TODO: remove after testing
+	log.Info().Err(err).Msg("Exiting RelayProxy GetHeaderFunc")
 
 	if slotBestHeader == nil || err != nil {
 		keyForCachingBids := s.keyForCachingBids(_slot, in.ParentHash, in.PubKey)
