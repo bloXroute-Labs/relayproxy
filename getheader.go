@@ -241,24 +241,6 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		}, time.Now().UTC(), s.nodeID, StatsRelayProxyGetHeader)
 	}()
 
-	// TODO: Remove once verified this is handled properly in GetHeaderFunc
-	//// send in payload to pre fetcher event
-	//s.preFetchPayloadChan <- PreFetcherFields{
-	//	ClientIP:                          in.ClientIP,
-	//	AuthHeader:                        in.AuthHeader,
-	//	Slot:                              _slot,
-	//	ParentHash:                        in.ParentHash,
-	//	BlockHash:                         slotBestHeader.BlockHash,
-	//	ProposerPubKey:                    in.PubKey,
-	//	BuilderPubKey:                     slotBestHeader.BuilderPubkey,
-	//	BlockValue:                        weiToEther(blockValue),
-	//	Client:                            slotBestHeader.Client,
-	//	PayloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
-	//	SlotStartTime:                     slotStartTime,
-	//	MsIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
-	//	GetHeaderReqID:                    id,
-	//}
-
 	signedHeaderResponse, prevSigned, err := slotBestHeader.GetSignedHeaderResponse(s.secretKey, &s.publicKey, s.builderSigningDomain)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get signed header")
