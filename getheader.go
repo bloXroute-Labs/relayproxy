@@ -94,7 +94,6 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	}
 	storingHeaderSpan.End()
 
-	// TODO: remove after testing
 	log.Info().Msg("Calling RelayProxy GetHeaderFunc")
 
 	slotBestHeader, _, getHeaderSleepData, err := s.GetHeaderFunc(
@@ -116,7 +115,6 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		Uint64("headerTimeoutMS", in.HeaderTimeoutMs).
 		Logger()
 
-	// TODO: remove after testing
 	log.Info().Err(err).Msg("Exiting RelayProxy GetHeaderFunc")
 
 	if slotBestHeader == nil || err != nil {
