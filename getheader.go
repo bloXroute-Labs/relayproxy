@@ -239,65 +239,6 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			Type: TypeRelayProxyGetHeader,
 			Data: headerStats,
 		}, time.Now().UTC(), s.nodeID, StatsRelayProxyGetHeader)
-
-		// TODO: Remove once verified this is handled properly in GetHeaderFunc
-		//validatorInfo, found := s.miniProposerSlotMap.Load(_slot)
-		//if found && validatorInfo != nil && validatorInfo.Registration != nil {
-		//	record := HeaderProvidedToValidatorIP{
-		//		IPMatches:                true,
-		//		Slot:                     strconv.FormatUint(_slot, 10),
-		//		ProposerPublicKey:        in.PubKey,
-		//		Value:                    blockValue.String(),
-		//		BlockHash:                slotBestHeader.BlockHash,
-		//		ExtraData:                slotBestHeader.BuilderExtraData,
-		//		FeeRecipient:             validatorInfo.Registration.Message.FeeRecipient.String(),
-		//		BidPubkey:                slotBestHeader.BuilderPubkey,
-		//		BuilderPubkey:            slotBestHeader.BuilderPubkey,
-		//		MSIntoSlot:               msIntoSlot,
-		//		GetHeaderRequestSendTime: msIntoSlot - latency,
-		//		UserAgent:                in.UserAgent,
-		//		UsingRelayProxy:          true,
-		//		ClientIPAddress:          in.ClientIP,
-		//		RequestID:                in.ValidatorID,
-		//		Region:                   s.nodeID,
-		//		SleepAmount:              delayGetHeaderResponse.Sleep,
-		//		MaxSleepIntoSlot:         delayGetHeaderResponse.MaxSleep,
-		//		SleepType:                "proxy",
-		//		ISP:                      "",
-		//		IPOrganization:           "",
-		//		State:                    "",
-		//		Country:                  "",
-		//		DataSource:               "proxy",
-		//		Duration:                 time.Since(in.ReceivedAt).Milliseconds(),
-		//
-		//		OriginalValue:         originalValue.String(),
-		//		OriginalBlockHash:     originalBlockHash,
-		//		BidAdjustmentDuration: bidAdjustmentDurationMs,
-		//		UsedAdjustment:        usedRepick,
-		//		AdjustmentDataExist:   repickDataExist,
-		//		AdjustmentDataSuccess: repickDataSuccess,
-		//		AdjustmentError:       repickErr,
-		//
-		//		SecondPlaceBuilderValue:         "",
-		//		SecondPlaceBuilderBlockHash:     "",
-		//		SecondPlaceBuilderBuilderPubkey: "",
-		//		SecondPlaceBuilderExtraData:     "",
-		//		SecondPlaceBuilderFeeRecipient:  validatorInfo.Registration.Message.FeeRecipient.String(),
-		//
-		//		Type: "StatsHeaderProvidedToValidatorIP",
-		//	}
-		//	if secondBestHeader != nil {
-		//		record.SecondPlaceBuilderBlockHash = secondBestHeader.BlockHash
-		//		record.SecondPlaceBuilderValue = weiToEther(new(big.Int).SetBytes(secondBestHeader.Value))
-		//		record.SecondPlaceBuilderBuilderPubkey = secondBestHeader.BuilderPubkey
-		//		record.SecondPlaceBuilderExtraData = secondBestHeader.BuilderExtraData
-		//	}
-		//
-		//	s.fluentD.LogToFluentD(fluentstats.Record{
-		//		Type: "StatsHeaderProvidedToValidatorIP",
-		//		Data: record,
-		//	}, time.Now().UTC(), s.nodeID, "stats.header_provided_to_validator_ip")
-		//}
 	}()
 
 	// TODO: Remove once verified this is handled properly in GetHeaderFunc
