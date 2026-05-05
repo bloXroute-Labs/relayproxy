@@ -791,7 +791,6 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 
 	}()
 
-	// TODO: avoid extra unmarshal/marshal if not needed
 	if !sszResponse {
 		log.Info().Msg("Responding with JSON")
 		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer, true, receivedAt); err == nil {
