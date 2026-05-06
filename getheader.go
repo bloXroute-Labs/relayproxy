@@ -32,7 +32,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	ctx, span := s.tracer.Start(parentCtx, "getHeader-start")
 	defer span.End()
 
-	k := "slot-" + in.Slot + "-parentHash-" + in.ParentHash
+	slotKey := "slot-" + in.Slot + "-parentHash-" + in.ParentHash
 	var (
 		err                    error
 		delayGetHeaderResponse DelayGetHeaderResponse
@@ -171,7 +171,6 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		// overall timing
 		Int64("headerReqDurationMs", headerReqDuration.Milliseconds()).
 		Int64("fetchGetHeaderDurationMs", fetchGetHeaderDurationMS).
-		Int64("replacementDelayMs", delayGetHeaderResponse.ReplacementDelayMs).
 		Logger()
 
 	go func() {
@@ -201,20 +200,20 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 			HeaderSlotUID:             in.SlotUID,
 		}
 
-		if v, ok := s.slotStatsHeaderEvents.Get(k); !ok {
+		if v, ok := s.slotStatsHeaderEvents.Get(slotKey); !ok {
 			slotStatsSlice := make([]SlotStatsRecord, 0, 5)
 			slotStatsSlice = append(slotStatsSlice, slotStats)
-			s.slotStatsHeaderEvents.Set(k, slotStatsSlice, cache.DefaultExpiration)
+			s.slotStatsHeaderEvents.Set(slotKey, slotStatsSlice, cache.DefaultExpiration)
 
 			s.slotStatsEventCh <- slotStatsEvent{
 				Slot:      int64(_slot),
-				SlotKey:   k,
+				SlotKey:   slotKey,
 				UserAgent: in.UserAgent,
 			}
 		} else {
 			slotStatsSlice := v.([]SlotStatsRecord)
 			slotStatsSlice = append(slotStatsSlice, slotStats)
-			s.slotStatsHeaderEvents.Set(k, slotStatsSlice, cache.DefaultExpiration)
+			s.slotStatsHeaderEvents.Set(slotKey, slotStatsSlice, cache.DefaultExpiration)
 		}
 
 		headerStats := GetHeaderStatsRecord{
