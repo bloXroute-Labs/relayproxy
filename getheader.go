@@ -53,6 +53,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	startTime := time.Now().UTC()
 
 	*log = log.With().
+		Str("slotKey", slotKey).
 		Str("reqID", id).
 		Int64("slotStartTimeUnix", slotStartTime.Unix()).
 		Str("slotStartTime", slotStartTime.UTC().String()).
@@ -97,8 +98,6 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	}
 	storingHeaderSpan.End()
 
-	log.Info().Msg("Calling RelayProxy GetHeaderFunc")
-
 	slotBestHeader, _, getHeaderSleepData, err := s.GetHeaderFunc(
 		parentCtx,
 		parentSpan,
@@ -118,12 +117,13 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		Uint64("headerTimeoutMS", in.HeaderTimeoutMs).
 		Logger()
 
-	log.Info().Err(err).Msg("Exiting RelayProxy GetHeaderFunc")
-
 	if slotBestHeader == nil || err != nil {
 		keyForCachingBids := s.keyForCachingBids(_slot, in.ParentHash, in.PubKey)
 		msg := fmt.Sprintf("header value is not present for the requested key %v", keyForCachingBids)
 		span.AddEvent("Header value is not present", trace.WithAttributes(attribute.String("msg", msg)))
+
+		log.Error().Err(err).Bool("slotBestHeaderIsNil", slotBestHeader == nil).Msg("Header value is not present")
+
 		go func() {
 			headerStats := GetHeaderStatsRecord{
 				RequestReceivedAt:        in.ReceivedAt,
