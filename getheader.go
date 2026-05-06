@@ -41,7 +41,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 
 	_slot, err := fastParseUint(in.Slot)
 	if err != nil {
-		return nil, nil, toErrorResp(http.StatusNoContent, errInvalidSlot.Error())
+		return nil, nil, toErrorResp(http.StatusBadRequest, errInvalidSlot.Error())
 	}
 
 	validatorInfo, found := s.miniProposerSlotMap.Load(_slot)
@@ -69,16 +69,20 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 
 	_, storingHeaderSpan := s.tracer.Start(ctx, "getHeader-storingHeader")
 
-	//TODO: send fluentd stats for StatusNoContent error cases
+	//TODO: send fluentd stats for StatusBadRequest error cases
+
+	if msIntoSlot > GetHeaderRequestCutoffMs {
+		return nil, nil, toErrorResp(http.StatusBadRequest, common.ErrLateHeader.Error())
+	}
 
 	if len(in.PubKey) != 98 {
 		storingHeaderSpan.End(trace.WithTimestamp(time.Now()))
-		return nil, nil, toErrorResp(http.StatusNoContent, errInvalidPubkey.Error())
+		return nil, nil, toErrorResp(http.StatusBadRequest, errInvalidPubkey.Error())
 	}
 
 	if len(in.ParentHash) != 66 {
 		storingHeaderSpan.End(trace.WithTimestamp(time.Now()))
-		return nil, nil, toErrorResp(http.StatusNoContent, errInvalidHash.Error())
+		return nil, nil, toErrorResp(http.StatusBadRequest, errInvalidHash.Error())
 	}
 
 	fetchGetHeaderStartTime := time.Now().UTC()
