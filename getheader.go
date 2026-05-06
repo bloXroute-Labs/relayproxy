@@ -34,9 +34,8 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 
 	slotKey := "slot-" + in.Slot + "-parentHash-" + in.ParentHash
 	var (
-		err                    error
-		delayGetHeaderResponse DelayGetHeaderResponse
-		isValidatorIP          bool
+		err           error
+		isValidatorIP bool
 	)
 
 	_slot, err := fastParseUint(in.Slot)
@@ -49,8 +48,8 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		isValidatorIP = true
 	}
 
-	slotStartTime := delayGetHeaderResponse.SlotStartTime
-	latency := delayGetHeaderResponse.Latency
+	slotStartTime := GetSlotStartTime(s.beaconGenesisTime, int64(_slot), s.secondsPerSlot)
+	latency := in.Latency
 	startTime := time.Now().UTC()
 
 	*log = log.With().
