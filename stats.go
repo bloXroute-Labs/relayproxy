@@ -134,24 +134,6 @@ type HeaderProvidedToValidatorIP struct {
 	SecondPlaceBuilderFeeRecipient  string `json:"second_place_builder_fee_recipient"`
 }
 
-type ExternalRelayStats struct {
-	Slot             int64     `json:"slot"`
-	ParentHash       string    `json:"parent_hash"`
-	PubKey           string    `json:"pub_key"`
-	BlockHash        string    `json:"block_hash"`
-	BlockValue       string    `json:"block_value"`
-	Succeeded        bool      `json:"succeeded"`
-	NodeID           string    `json:"node_id"`
-	ReqStartTime     time.Time `json:"req_start_time"`
-	ResReceivedAt    time.Time `json:"res_received_at"`
-	ReqDurationInMS  int64     `json:"req_duration_in_ms"`
-	Err              string    `json:"Err"`
-	BuilderPubKey    string    `json:"builder_pub_key"`
-	BuilderExtraData string    `json:"builder_extra_data"`
-	AccountID        string    `json:"account_id"`
-	URL              string    `json:"url"`
-}
-
 type GetPayloadStatsRecord struct {
 	RequestReceivedAt time.Time     `json:"request_received_at"`
 	Duration          time.Duration `json:"duration"`

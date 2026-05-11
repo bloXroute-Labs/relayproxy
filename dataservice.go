@@ -47,7 +47,6 @@ type DataService struct {
 	beaconGenesisTime      int64
 	secondsPerSlot         int64
 	httpClient             *http.Client
-	externalRelay          string
 	getHeaderDelaySettings map[string]DelaySettings
 	accounts               *cache.Cache // list of accountID:validatorID
 	accountCh              chan account
@@ -114,15 +113,6 @@ type AccountInfo struct {
 type AccountsLists struct {
 	AccountIDToInfo   map[string]*AccountInfo
 	AccountNameToInfo map[AccountName]*AccountInfo
-}
-
-type ExternalRelayResponse struct {
-	URL             string
-	ReqStartTime    time.Time
-	ResReceivedAt   time.Time
-	ReqDurationInMS int64
-	Response        []byte
-	Err             error
 }
 
 func (s *DataService) shouldRequestDelayed(ip, slotWithParentHash string) bool {

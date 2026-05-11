@@ -407,11 +407,6 @@ func WithHttpClient(client *http.Client) DataServiceOption {
 	}
 }
 
-func WithExternalRelay(relay string) DataServiceOption {
-	return func(s *DataService) {
-		s.externalRelay = relay
-	}
-}
 func WithAccounts(accounts *cache.Cache) DataServiceOption {
 	return func(s *DataService) {
 		s.accounts = accounts
