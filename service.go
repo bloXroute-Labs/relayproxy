@@ -586,11 +586,10 @@ func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, *
 	builderBidsMap.Range(func(builderPubkey string, bid *common.Bid) bool {
 		bidValue := new(big.Int).SetBytes(bid.Value)
 		if bidValue.Cmp(topBidValue) > 0 {
-			topBid = bid
-			topBidValue.Set(bidValue)
-
 			secondBid = topBid
 			secondBidValue.Set(topBidValue)
+			topBid = bid
+			topBidValue.Set(bidValue)
 		}
 		return true
 	})
