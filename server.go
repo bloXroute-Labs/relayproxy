@@ -248,7 +248,6 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 				Str("id", id).
 				Str("url", parsedURL.String()).
 				Err(err).Msg("failed to decode auth header")
-			// TODO: Verify in production tests that it's OK to not return error here
 		}
 		if _, allowed = s.accessFilter.Accounts.AllowList[accountID]; !allowed {
 			if _, blocked := s.accessFilter.Accounts.BlockList[accountID]; blocked {
