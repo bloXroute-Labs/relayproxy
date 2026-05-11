@@ -125,7 +125,6 @@ type Service struct {
 	gatewayAuthKey               string
 	BlockPublishFunc             func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, blockPublishingGatewayClient interface{}, authKey string)
 	OnPayloadRequested           func(slot uint64, blockHash string, parentHash string, proposerPubkey string, getPayloadRequestClientIP string, receivedAt time.Time, signedBlindedBeaconBlock *eth2Api.VersionedSignedBlindedBeaconBlock, ProposerRequestStartTimeUnixMS int64, validatorID string) error
-	OnHeaderBidRetrieved         func(ctx context.Context, topBid *common.Bid, bidAdjustmentTargetBid *common.BidMetadata, log zerolog.Logger, slot uint64, parentHash string, accountID string, replacemendDelayMs int64, clients []*common.ParentClient) (*common.Bid, bool, error)
 	GetHeaderFunc                func(ctx context.Context, parentSpan trace.Span, log *zerolog.Logger, in *HeaderRequestParams, req *http.Request, isValidatorIP bool, validatorInfo *common.MiniValidatorLatency, headerRequestID string, preFetchPayloadChan chan PreFetcherFields) (*common.Bid, *common.Bid, GetHeaderSleepData, error)
 
 	delayer Delayer
