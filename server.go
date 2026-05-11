@@ -153,11 +153,11 @@ func (s *Server) InitHandler() *chi.Mux {
 
 	handler.Get(common.PathNode, s.HandleNode)
 	handler.Get(common.PathIndex, s.HandleStatus)
-	handler.With(s.Middleware).Get(common.PathStatus, s.HandleStatus)
+	handler.Get(common.PathStatus, s.HandleStatus)
 	handler.With(s.Middleware).Post(common.PathRegisterValidator, s.HandleRegistration)
 	handler.With(s.MiddlewareGetHeader).Get(common.PathGetHeader, s.HandleGetHeader)
-	handler.With(s.Middleware).Post(common.PathGetPayload, s.HandleGetPayload)
-	handler.With(s.Middleware).Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
+	handler.Post(common.PathGetPayload, s.HandleGetPayload)
+	handler.Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
 	s.logger.Info().Msg("Init relay proxy")
 	return handler
 }
@@ -371,6 +371,7 @@ func (s *Server) HandleOptions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	w.WriteHeader(http.StatusOK)
 }
+
 func (s *Server) HandleStatus(w http.ResponseWriter, req *http.Request) {
 	parentSpan := trace.SpanFromContext(req.Context())
 	ctx := trace.ContextWithSpan(context.Background(), parentSpan)
