@@ -153,11 +153,10 @@ func (s *Server) InitHandler() *chi.Mux {
 
 	handler.Get(common.PathNode, s.HandleNode)
 	handler.Get(common.PathIndex, s.HandleStatus)
-	handler.Get(common.PathStatus, s.HandleStatus)
 	handler.With(s.Middleware).Post(common.PathRegisterValidator, s.HandleRegistration)
-	handler.With(s.MiddlewareGetHeader).Get(common.PathGetHeader, s.HandleGetHeader)
-	handler.Post(common.PathGetPayload, s.HandleGetPayload)
-	handler.Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
+	handler.With(s.Middleware).Get(common.PathGetHeader, s.HandleGetHeader)
+	handler.With(s.Middleware).Post(common.PathGetPayload, s.HandleGetPayload)
+	handler.With(s.Middleware).Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
 	s.logger.Info().Msg("Init relay proxy")
 	return handler
 }
@@ -185,13 +184,7 @@ func (s *Server) MiddlewareAdmin(next http.Handler) http.Handler {
 
 func (s *Server) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.authorize(w, r, next, false)
-	})
-}
-
-func (s *Server) MiddlewareGetHeader(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.authorize(w, r, next, true)
+		s.authorize(w, r, next)
 	})
 }
 
@@ -214,7 +207,7 @@ func (s *Server) authorizeAdmin(w http.ResponseWriter, r *http.Request, next htt
 	next.ServeHTTP(w, r)
 }
 
-func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Handler, isGetHeader bool) {
+func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Handler) {
 	parsedURL, err := ParseURL(r)
 	if err != nil {
 		s.logger.Warn().Err(err).Msg("url parsing failed")
@@ -235,10 +228,8 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 		return
 	}
 
-	var (
-		accountID     string
-		isWhitelisted bool
-	)
+	var accountID string
+
 	if _, allowed := s.accessFilter.IPs.AllowList[clientIP]; !allowed {
 		if _, blocked := s.accessFilter.IPs.BlockList[clientIP]; blocked {
 			s.logger.Warn().
@@ -257,12 +248,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 				Str("id", id).
 				Str("url", parsedURL.String()).
 				Err(err).Msg("failed to decode auth header")
-			s.logger.Warn().
-				Str("ip", clientIP).
-				Str("id", id).
-				Str("url", parsedURL.String()).Err(err)
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-			return
+			// TODO: verify it's ok to not return error here
 		}
 		if _, allowed = s.accessFilter.Accounts.AllowList[accountID]; !allowed {
 			if _, blocked := s.accessFilter.Accounts.BlockList[accountID]; blocked {
@@ -277,8 +263,6 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 				return
 			}
 		}
-		isWhitelisted = s.accountsLists.AccountIDToInfo[accountID] != nil &&
-			s.accountsLists.AccountIDToInfo[accountID].IsWhitelisted
 	} else {
 		// fetch account id for ip allowed case
 		//authHeader = GetAuth(r, parsedURL)
@@ -298,25 +282,8 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 				ctx = context.WithValue(ctx, keyOrgID, customCtx)
 			}
 		}
-		isWhitelisted = s.accountsLists.AccountIDToInfo[accountID] != nil &&
-			s.accountsLists.AccountIDToInfo[accountID].IsWhitelisted
 	}
 
-	if isGetHeader && !isWhitelisted {
-		currentSlot := uint64(CalculateCurrentSlot(s.beaconGenesisTime, s.secondsPerSlot))
-
-		if !s.allowGetHeaderForSlot(clientIP, currentSlot) {
-			s.logger.Warn().
-				Str("authHeader", authHeader).
-				Str("accountID", accountID).
-				Str("ip", clientIP).
-				Str("url", parsedURL.String()).
-				Uint64("slot", currentSlot).
-				Err(err).Msg("get header rate limit exceeded")
-			http.Error(w, "only one getheader request allowed per slot per ip", http.StatusTooManyRequests)
-			return
-		}
-	}
 	ctx = context.WithValue(ctx, keyParsedURL, parsedURL)
 	ctx = context.WithValue(ctx, keyClientIP, clientIP)
 	ctx = context.WithValue(ctx, keyAuthHeader, authHeader)
