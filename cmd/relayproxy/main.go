@@ -452,7 +452,7 @@ func main() {
 
 	go server.CleanupGetHeaderRateLimitData(ctx)
 
-	if err := server.Start(); err != nil {
+	if err := server.Start(nil); err != nil {
 		l.Fatal().Err(err).Msg("failed to start relay proxy server")
 	}
 	<-exit

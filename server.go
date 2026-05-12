@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	gjson "github.com/goccy/go-json"
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -124,10 +125,10 @@ func NewServer(opts ...ServerOption) *Server {
 	return server
 }
 
-func (s *Server) Start() error {
+func (s *Server) Start(fallbackHandler http.Handler) error {
 	s.server = &http.Server{
 		Addr:              s.listenAddress,
-		Handler:           s.InitHandler(),
+		Handler:           s.InitHandler(fallbackHandler),
 		ReadTimeout:       0,
 		ReadHeaderTimeout: 0,
 		WriteTimeout:      0,
@@ -135,13 +136,13 @@ func (s *Server) Start() error {
 	}
 
 	err := s.server.ListenAndServe()
-	if err == http.ErrServerClosed {
+	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
 	return err
 }
 
-func (s *Server) InitHandler() *chi.Mux {
+func (s *Server) InitHandler(fallbackHandler http.Handler) *chi.Mux {
 	// This router is for server with default listen port 18550
 	handler := chi.NewRouter()
 	handler.Group(func(r chi.Router) {
@@ -160,6 +161,12 @@ func (s *Server) InitHandler() *chi.Mux {
 	handler.With(s.Middleware).Get(common.PathGetHeader, s.HandleGetHeader)
 	handler.With(s.Middleware).Post(common.PathGetPayload, s.HandleGetPayload)
 	handler.With(s.Middleware).Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
+
+	if fallbackHandler != nil {
+		handler.MethodNotAllowed(fallbackHandler.ServeHTTP)
+		handler.NotFound(fallbackHandler.ServeHTTP)
+	}
+
 	s.logger.Info().Msg("Init relay proxy")
 	return handler
 }
