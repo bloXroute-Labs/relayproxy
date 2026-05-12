@@ -141,6 +141,7 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) InitHandler() *chi.Mux {
+	// This router is for server with default listen port 18550
 	handler := chi.NewRouter()
 	handler.Group(func(r chi.Router) {
 		r.Use(addCORS())
