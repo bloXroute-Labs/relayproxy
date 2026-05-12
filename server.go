@@ -61,6 +61,7 @@ type Server struct {
 	server        *http.Server
 	svc           IService
 	listenAddress string
+	relayRedirect string
 
 	beaconGenesisTime int64
 	secondsPerSlot    int64
@@ -153,7 +154,7 @@ func (s *Server) InitHandler() *chi.Mux {
 	})
 
 	handler.Get(common.PathNode, s.HandleNode)
-	handler.Get(common.PathIndex, s.HandleStatus)
+	handler.Get(common.PathIndex, s.HandleIndex)
 	handler.Get(common.PathStatus, s.HandleStatus)
 	handler.With(s.Middleware).Post(common.PathRegisterValidator, s.HandleRegistration)
 	handler.With(s.Middleware).Get(common.PathGetHeader, s.HandleGetHeader)
@@ -338,6 +339,21 @@ func (s *Server) HandleOptions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) HandleIndex(w http.ResponseWriter, req *http.Request) {
+	start := time.Now().UTC()
+	success := false
+	defer func() {
+		s.performanceStats.SetEndpointStats(
+			common.PathIndex,
+			uint64(time.Since(start).Microseconds()),
+			success,
+			100)
+	}()
+
+	http.Redirect(w, req, fmt.Sprintf("%s%s", s.relayRedirect, common.PathIndex), http.StatusSeeOther)
+	success = true
 }
 
 func (s *Server) HandleStatus(w http.ResponseWriter, req *http.Request) {

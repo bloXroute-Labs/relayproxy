@@ -86,7 +86,9 @@ var (
 
 	// external relay
 	externalRelayURL = flag.String("external-relay", "", "external relay to be called")
+	relayRedirect    = flag.String("relay-redirect", "https://bloxroute.max-profit.blxrbdn.com", "redirect url for relay")
 )
+
 var (
 	grpcPort          = flag.String("grpc-port", "5001", "grpc port")
 	secondsPerSlot    = flag.Int64("seconds-per-slot", 12, "seconds per slot")
@@ -403,6 +405,7 @@ func main() {
 	serverOpts = append(serverOpts, relayproxy.WithServerNodeID(*nodeID))
 	serverOpts = append(serverOpts, relayproxy.WithAdminAccountID(*adminAccountID))
 	serverOpts = append(serverOpts, relayproxy.WithPerformanceStats(performanceStats))
+	serverOpts = append(serverOpts, relayproxy.WithRelayRedirect(*relayRedirect))
 
 	// init server
 	server := relayproxy.NewServer(serverOpts...)

@@ -103,6 +103,12 @@ func WithPerformanceStats(performanceStats *stat.PerformanceStats) ServerOption 
 	}
 }
 
+func WithRelayRedirect(relayRedirect string) ServerOption {
+	return func(s *Server) {
+		s.relayRedirect = relayRedirect
+	}
+}
+
 type ServiceOption func(*Service)
 
 func WithSvcLogger(logger zerolog.Logger) ServiceOption {
