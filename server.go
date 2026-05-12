@@ -154,6 +154,7 @@ func (s *Server) InitHandler() *chi.Mux {
 
 	handler.Get(common.PathNode, s.HandleNode)
 	handler.Get(common.PathIndex, s.HandleStatus)
+	handler.Get(common.PathStatus, s.HandleStatus)
 	handler.With(s.Middleware).Post(common.PathRegisterValidator, s.HandleRegistration)
 	handler.With(s.Middleware).Get(common.PathGetHeader, s.HandleGetHeader)
 	handler.With(s.Middleware).Post(common.PathGetPayload, s.HandleGetPayload)
