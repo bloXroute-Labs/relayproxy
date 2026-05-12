@@ -155,12 +155,14 @@ func (s *Server) InitHandler(fallbackHandler http.Handler) *chi.Mux {
 	})
 
 	handler.Get(common.PathNode, s.HandleNode)
-	handler.Get(common.PathIndex, s.HandleIndex)
 	handler.Get(common.PathStatus, s.HandleStatus)
 	handler.With(s.Middleware).Post(common.PathRegisterValidator, s.HandleRegistration)
 	handler.With(s.Middleware).Get(common.PathGetHeader, s.HandleGetHeader)
 	handler.With(s.Middleware).Post(common.PathGetPayload, s.HandleGetPayload)
 	handler.With(s.Middleware).Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
+
+	// Redirects
+	handler.Get(common.PathIndex, s.HandleIndex)
 
 	if fallbackHandler != nil {
 		handler.MethodNotAllowed(fallbackHandler.ServeHTTP)
@@ -346,21 +348,6 @@ func (s *Server) HandleOptions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	w.WriteHeader(http.StatusOK)
-}
-
-func (s *Server) HandleIndex(w http.ResponseWriter, req *http.Request) {
-	start := time.Now().UTC()
-	success := false
-	defer func() {
-		s.performanceStats.SetEndpointStats(
-			common.PathIndex,
-			uint64(time.Since(start).Microseconds()),
-			success,
-			100)
-	}()
-
-	http.Redirect(w, req, fmt.Sprintf("%s%s", s.relayRedirect, common.PathIndex), http.StatusSeeOther)
-	success = true
 }
 
 func (s *Server) HandleStatus(w http.ResponseWriter, req *http.Request) {
@@ -1319,4 +1306,29 @@ func (s *Server) respondOKWithContextSSZMarshalled(ctx context.Context, parentSp
 		Time("respondedAt", time.Now().UTC()).
 		Str("method", method).Msg(method + " succeeded")
 	return true
+}
+
+func (s *Server) redirectToMEVRelay(w http.ResponseWriter, req *http.Request, path string) {
+	start := time.Now().UTC()
+	success := false
+	defer func() {
+		s.performanceStats.SetEndpointStats(
+			path,
+			uint64(time.Since(start).Microseconds()),
+			success,
+			100)
+	}()
+
+	redirectURL := s.relayRedirect + path
+
+	if req.URL.RawQuery != "" {
+		redirectURL += "?" + req.URL.RawQuery
+	}
+
+	http.Redirect(w, req, redirectURL, http.StatusSeeOther)
+	success = true
+}
+
+func (s *Server) HandleIndex(w http.ResponseWriter, req *http.Request) {
+	s.redirectToMEVRelay(w, req, common.PathIndex)
 }
