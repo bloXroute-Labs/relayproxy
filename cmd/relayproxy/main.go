@@ -346,6 +346,8 @@ func main() {
 		Interface("externalRelays", *externalRelayURL).
 		Interface("delaySettings", delaySettings).
 		Str("ipAllowList", *ipAllowList).
+		Strs("mainMEVRelays", mainMEVRelaysSlice).
+		Strs("dataMEVRelays", dataMEVRelaysSlice).
 		Msg("Starting relay proxy server")
 
 	var (
