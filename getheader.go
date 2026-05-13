@@ -104,8 +104,10 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		log,
 		in,
 		in.HttpRequest,
-		isValidatorIP, validatorInfo,
-		id, s.preFetchPayloadChan,
+		isValidatorIP,
+		validatorInfo,
+		id,
+		s.preFetchPayloadChan,
 	)
 
 	*log = log.With().
