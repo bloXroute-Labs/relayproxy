@@ -58,11 +58,12 @@ var (
 )
 
 type Server struct {
-	logger        zerolog.Logger
-	server        *http.Server
-	svc           IService
-	listenAddress string
-	relayRedirect string
+	logger                zerolog.Logger
+	server                *http.Server
+	svc                   IService
+	listenAddress         string
+	mainMEVRelayRedirects []string
+	dataMEVRelayRedirects []string
 
 	beaconGenesisTime int64
 	secondsPerSlot    int64
@@ -161,7 +162,7 @@ func (s *Server) InitHandler(fallbackHandler http.Handler) *chi.Mux {
 	handler.With(s.Middleware).Post(common.PathGetPayload, s.HandleGetPayload)
 	handler.With(s.Middleware).Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
 
-	// Redirects
+	// Redirects (intended destinations mirror AWS target group behavior)
 	handler.Get(common.PathIndex, s.HandleIndex)
 
 	if fallbackHandler != nil {
@@ -1308,7 +1309,7 @@ func (s *Server) respondOKWithContextSSZMarshalled(ctx context.Context, parentSp
 	return true
 }
 
-func (s *Server) redirectToMEVRelay(w http.ResponseWriter, req *http.Request, path string) {
+func (s *Server) redirectToMEVRelay(w http.ResponseWriter, req *http.Request, relayEndpoints []string, path string) {
 	start := time.Now().UTC()
 	success := false
 	defer func() {
@@ -1319,7 +1320,19 @@ func (s *Server) redirectToMEVRelay(w http.ResponseWriter, req *http.Request, pa
 			100)
 	}()
 
-	redirectURL := s.relayRedirect + path
+	relayRedirect, err := common.RandomStringSliceEntry(relayEndpoints)
+	if err != nil {
+		s.logger.Error().
+			Err(err).
+			Str("clientIP", GetIPXForwardedFor(req)).
+			Str("requestURL", req.URL.String()).
+			Msg("failed to select random relay redirect")
+
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	redirectURL := relayRedirect + path
 
 	if req.URL.RawQuery != "" {
 		redirectURL += "?" + req.URL.RawQuery
@@ -1330,5 +1343,5 @@ func (s *Server) redirectToMEVRelay(w http.ResponseWriter, req *http.Request, pa
 }
 
 func (s *Server) HandleIndex(w http.ResponseWriter, req *http.Request) {
-	s.redirectToMEVRelay(w, req, common.PathIndex)
+	s.redirectToMEVRelay(w, req, s.dataMEVRelayRedirects, common.PathIndex)
 }

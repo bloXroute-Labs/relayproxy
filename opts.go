@@ -103,9 +103,10 @@ func WithPerformanceStats(performanceStats *stat.PerformanceStats) ServerOption 
 	}
 }
 
-func WithRelayRedirect(relayRedirect string) ServerOption {
+func WithRelayRedirects(mainMEVRelaysSlice []string, dataMEVRelaysSlice []string) ServerOption {
 	return func(s *Server) {
-		s.relayRedirect = relayRedirect
+		s.mainMEVRelayRedirects = mainMEVRelaysSlice
+		s.dataMEVRelayRedirects = dataMEVRelaysSlice
 	}
 }
 

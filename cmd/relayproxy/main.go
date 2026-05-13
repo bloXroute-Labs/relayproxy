@@ -86,7 +86,8 @@ var (
 
 	// external relay
 	externalRelayURL = flag.String("external-relay", "", "external relay to be called")
-	relayRedirect    = flag.String("relay-redirect", "https://bloxroute.max-profit.blxrbdn.com", "redirect url for relay")
+	mainMEVRelays    = flag.String("main-mev-relays", "", "CSV of redirect urls for Main MEV Relays")
+	dataMEVRelays    = flag.String("data-mev-relays", "", "CSV of redirect urls for Data MEV Relays")
 )
 
 var (
@@ -318,6 +319,16 @@ func main() {
 		l.Fatal().Err(err).Msg("failed to compute builder signing domain")
 	}
 
+	mainMEVRelaysSlice := common.SafeSplit(*mainMEVRelays, ",")
+	if len(mainMEVRelaysSlice) == 0 {
+		l.Fatal().Msg("empty mainMEVRelays startup argument")
+	}
+
+	dataMEVRelaysSlice := common.SafeSplit(*dataMEVRelays, ",")
+	if len(dataMEVRelaysSlice) == 0 {
+		l.Fatal().Msg("empty dataMEVRelays startup argument")
+	}
+
 	l.Info().
 		Str("listenAddr", *listenAddr).
 		Str("uptraceDSN", *uptraceDSN).
@@ -405,7 +416,7 @@ func main() {
 	serverOpts = append(serverOpts, relayproxy.WithServerNodeID(*nodeID))
 	serverOpts = append(serverOpts, relayproxy.WithAdminAccountID(*adminAccountID))
 	serverOpts = append(serverOpts, relayproxy.WithPerformanceStats(performanceStats))
-	serverOpts = append(serverOpts, relayproxy.WithRelayRedirect(*relayRedirect))
+	serverOpts = append(serverOpts, relayproxy.WithRelayRedirects(mainMEVRelaysSlice, dataMEVRelaysSlice))
 
 	// init server
 	server := relayproxy.NewServer(serverOpts...)
