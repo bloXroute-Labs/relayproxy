@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"strconv"
 	"strings"
@@ -58,12 +60,12 @@ var (
 )
 
 type Server struct {
-	logger                zerolog.Logger
-	server                *http.Server
-	svc                   IService
-	listenAddress         string
-	mainMEVRelayRedirects []string
-	dataMEVRelayRedirects []string
+	logger                     zerolog.Logger
+	server                     *http.Server
+	svc                        IService
+	listenAddress              string
+	mainMEVRelayReverseProxies []*httputil.ReverseProxy
+	dataMEVRelayReverseProxies []*httputil.ReverseProxy
 
 	beaconGenesisTime int64
 	secondsPerSlot    int64
@@ -1309,7 +1311,7 @@ func (s *Server) respondOKWithContextSSZMarshalled(ctx context.Context, parentSp
 	return true
 }
 
-func (s *Server) redirectToMEVRelay(w http.ResponseWriter, req *http.Request, relayEndpoints []string, path string) {
+func (s *Server) proxyToMEVRelay(w http.ResponseWriter, req *http.Request, proxies []*httputil.ReverseProxy, path string) {
 	start := time.Now().UTC()
 	success := false
 	defer func() {
@@ -1320,28 +1322,16 @@ func (s *Server) redirectToMEVRelay(w http.ResponseWriter, req *http.Request, re
 			100)
 	}()
 
-	relayRedirect, err := common.RandomStringSliceEntry(relayEndpoints)
-	if err != nil {
-		s.logger.Error().
-			Err(err).
-			Str("clientIP", GetIPXForwardedFor(req)).
-			Str("requestURL", req.URL.String()).
-			Msg("failed to select random relay redirect")
-
+	if len(proxies) == 0 {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	redirectURL := relayRedirect + path
-
-	if req.URL.RawQuery != "" {
-		redirectURL += "?" + req.URL.RawQuery
-	}
-
-	http.Redirect(w, req, redirectURL, http.StatusSeeOther)
+	proxy := proxies[rand.Intn(len(proxies))]
+	proxy.ServeHTTP(w, req)
 	success = true
 }
 
 func (s *Server) HandleIndex(w http.ResponseWriter, req *http.Request) {
-	s.redirectToMEVRelay(w, req, s.dataMEVRelayRedirects, common.PathIndex)
+	s.proxyToMEVRelay(w, req, s.dataMEVRelayReverseProxies, common.PathIndex)
 }
