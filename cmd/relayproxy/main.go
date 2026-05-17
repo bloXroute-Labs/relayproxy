@@ -86,7 +86,10 @@ var (
 
 	// external relay
 	externalRelayURL = flag.String("external-relay", "", "external relay to be called")
+	mainMEVRelays    = flag.String("main-mev-relays", "", "CSV of redirect urls for Main MEV Relays")
+	dataMEVRelays    = flag.String("data-mev-relays", "", "CSV of redirect urls for Data MEV Relays")
 )
+
 var (
 	grpcPort          = flag.String("grpc-port", "5001", "grpc port")
 	secondsPerSlot    = flag.Int64("seconds-per-slot", 12, "seconds per slot")
@@ -316,6 +319,16 @@ func main() {
 		l.Fatal().Err(err).Msg("failed to compute builder signing domain")
 	}
 
+	mainMEVRelaysSlice := common.SafeSplit(*mainMEVRelays, ",")
+	if len(mainMEVRelaysSlice) == 0 {
+		l.Fatal().Msg("empty mainMEVRelays startup argument")
+	}
+
+	dataMEVRelaysSlice := common.SafeSplit(*dataMEVRelays, ",")
+	if len(dataMEVRelaysSlice) == 0 {
+		l.Fatal().Msg("empty dataMEVRelays startup argument")
+	}
+
 	l.Info().
 		Str("listenAddr", *listenAddr).
 		Str("uptraceDSN", *uptraceDSN).
@@ -333,6 +346,8 @@ func main() {
 		Interface("externalRelays", *externalRelayURL).
 		Interface("delaySettings", delaySettings).
 		Str("ipAllowList", *ipAllowList).
+		Strs("mainMEVRelays", mainMEVRelaysSlice).
+		Strs("dataMEVRelays", dataMEVRelaysSlice).
 		Msg("Starting relay proxy server")
 
 	var (
@@ -347,7 +362,6 @@ func main() {
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithDataSvcBeaconGenesisTime(*beaconGenesisTime))
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithDataSvcSecondsPerSlot(*secondsPerSlot))
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithHttpClient(httpClient))
-	dataSvcOpts = append(dataSvcOpts, relayproxy.WithExternalRelay(*externalRelayURL))
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithGetHeaderDelaySettings(delaySettings))
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithGetHeaderTimeout(timeout))
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithAccountImportLists(accountsLists))
@@ -404,6 +418,7 @@ func main() {
 	serverOpts = append(serverOpts, relayproxy.WithServerNodeID(*nodeID))
 	serverOpts = append(serverOpts, relayproxy.WithAdminAccountID(*adminAccountID))
 	serverOpts = append(serverOpts, relayproxy.WithPerformanceStats(performanceStats))
+	serverOpts = append(serverOpts, relayproxy.WithRelayRedirects(mainMEVRelaysSlice, dataMEVRelaysSlice))
 
 	// init server
 	server := relayproxy.NewServer(serverOpts...)
@@ -450,7 +465,7 @@ func main() {
 
 	go server.CleanupGetHeaderRateLimitData(ctx)
 
-	if err := server.Start(); err != nil {
+	if err := server.Start(nil); err != nil {
 		l.Fatal().Err(err).Msg("failed to start relay proxy server")
 	}
 	<-exit

@@ -2,6 +2,7 @@ package relayproxy
 
 import (
 	"net/http"
+	"net/http/httputil"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/bloXroute-Labs/relay-grpc/stat"
@@ -100,6 +101,13 @@ func WithAdminAccountID(accountId string) ServerOption {
 func WithPerformanceStats(performanceStats *stat.PerformanceStats) ServerOption {
 	return func(s *Server) {
 		s.performanceStats = performanceStats
+	}
+}
+
+func MEVRelayReverseProxies(mainMEVRelayReverseProxies []*httputil.ReverseProxy, dataMEVRelayReverseProxies []*httputil.ReverseProxy) ServerOption {
+	return func(s *Server) {
+		s.mainMEVRelayReverseProxies = mainMEVRelayReverseProxies
+		s.dataMEVRelayReverseProxies = dataMEVRelayReverseProxies
 	}
 }
 
@@ -407,11 +415,6 @@ func WithHttpClient(client *http.Client) DataServiceOption {
 	}
 }
 
-func WithExternalRelay(relay string) DataServiceOption {
-	return func(s *DataService) {
-		s.externalRelay = relay
-	}
-}
 func WithAccounts(accounts *cache.Cache) DataServiceOption {
 	return func(s *DataService) {
 		s.accounts = accounts

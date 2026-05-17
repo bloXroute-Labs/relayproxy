@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"math/rand"
 	"mime"
 	"net/http"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/attestantio/go-eth2-client/spec"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	goacceptheaders "github.com/timewasted/go-accept-headers"
 )
@@ -231,4 +233,11 @@ func WeiToEth(valueString string) string {
 	ethValue := prefix + valueString
 	decimalIndex := len(ethValue) - weiToEthSignificantDigits
 	return ethValue[:decimalIndex] + "." + ethValue[decimalIndex:]
+}
+
+func RandomStringSliceEntry(array []string) (string, error) {
+	if len(array) == 0 {
+		return "", errors.New("array is empty")
+	}
+	return array[rand.Intn(len(array))], nil
 }

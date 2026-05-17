@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"strconv"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	gjson "github.com/goccy/go-json"
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -57,10 +60,12 @@ var (
 )
 
 type Server struct {
-	logger        zerolog.Logger
-	server        *http.Server
-	svc           IService
-	listenAddress string
+	logger                     zerolog.Logger
+	server                     *http.Server
+	svc                        IService
+	listenAddress              string
+	mainMEVRelayReverseProxies []*httputil.ReverseProxy
+	dataMEVRelayReverseProxies []*httputil.ReverseProxy
 
 	beaconGenesisTime int64
 	secondsPerSlot    int64
@@ -123,10 +128,10 @@ func NewServer(opts ...ServerOption) *Server {
 	return server
 }
 
-func (s *Server) Start() error {
+func (s *Server) Start(fallbackHandler http.Handler) error {
 	s.server = &http.Server{
 		Addr:              s.listenAddress,
-		Handler:           s.InitHandler(),
+		Handler:           s.InitHandler(fallbackHandler),
 		ReadTimeout:       0,
 		ReadHeaderTimeout: 0,
 		WriteTimeout:      0,
@@ -134,13 +139,14 @@ func (s *Server) Start() error {
 	}
 
 	err := s.server.ListenAndServe()
-	if err == http.ErrServerClosed {
+	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
 	return err
 }
 
-func (s *Server) InitHandler() *chi.Mux {
+func (s *Server) InitHandler(fallbackHandler http.Handler) *chi.Mux {
+	// This router is for server with default listen port 18550
 	handler := chi.NewRouter()
 	handler.Group(func(r chi.Router) {
 		r.Use(addCORS())
@@ -152,12 +158,20 @@ func (s *Server) InitHandler() *chi.Mux {
 	})
 
 	handler.Get(common.PathNode, s.HandleNode)
-	handler.Get(common.PathIndex, s.HandleStatus)
-	handler.With(s.Middleware).Get(common.PathStatus, s.HandleStatus)
+	handler.Get(common.PathStatus, s.HandleStatus)
 	handler.With(s.Middleware).Post(common.PathRegisterValidator, s.HandleRegistration)
-	handler.With(s.MiddlewareGetHeader).Get(common.PathGetHeader, s.HandleGetHeader)
+	handler.With(s.Middleware).Get(common.PathGetHeader, s.HandleGetHeader)
 	handler.With(s.Middleware).Post(common.PathGetPayload, s.HandleGetPayload)
 	handler.With(s.Middleware).Post(common.PathGetPayloadV2, s.HandleGetPayloadV2)
+
+	// Redirects (intended destinations mirror AWS target group behavior)
+	handler.Get(common.PathIndex, s.HandleIndex)
+
+	if fallbackHandler != nil {
+		handler.MethodNotAllowed(fallbackHandler.ServeHTTP)
+		handler.NotFound(fallbackHandler.ServeHTTP)
+	}
+
 	s.logger.Info().Msg("Init relay proxy")
 	return handler
 }
@@ -185,13 +199,7 @@ func (s *Server) MiddlewareAdmin(next http.Handler) http.Handler {
 
 func (s *Server) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.authorize(w, r, next, false)
-	})
-}
-
-func (s *Server) MiddlewareGetHeader(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.authorize(w, r, next, true)
+		s.authorize(w, r, next)
 	})
 }
 
@@ -214,7 +222,7 @@ func (s *Server) authorizeAdmin(w http.ResponseWriter, r *http.Request, next htt
 	next.ServeHTTP(w, r)
 }
 
-func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Handler, isGetHeader bool) {
+func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Handler) {
 	parsedURL, err := ParseURL(r)
 	if err != nil {
 		s.logger.Warn().Err(err).Msg("url parsing failed")
@@ -235,10 +243,8 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 		return
 	}
 
-	var (
-		accountID     string
-		isWhitelisted bool
-	)
+	var accountID string
+
 	if _, allowed := s.accessFilter.IPs.AllowList[clientIP]; !allowed {
 		if _, blocked := s.accessFilter.IPs.BlockList[clientIP]; blocked {
 			s.logger.Warn().
@@ -257,12 +263,6 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 				Str("id", id).
 				Str("url", parsedURL.String()).
 				Err(err).Msg("failed to decode auth header")
-			s.logger.Warn().
-				Str("ip", clientIP).
-				Str("id", id).
-				Str("url", parsedURL.String()).Err(err)
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-			return
 		}
 		if _, allowed = s.accessFilter.Accounts.AllowList[accountID]; !allowed {
 			if _, blocked := s.accessFilter.Accounts.BlockList[accountID]; blocked {
@@ -277,8 +277,6 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 				return
 			}
 		}
-		isWhitelisted = s.accountsLists.AccountIDToInfo[accountID] != nil &&
-			s.accountsLists.AccountIDToInfo[accountID].IsWhitelisted
 	} else {
 		// fetch account id for ip allowed case
 		//authHeader = GetAuth(r, parsedURL)
@@ -298,25 +296,8 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, next http.Han
 				ctx = context.WithValue(ctx, keyOrgID, customCtx)
 			}
 		}
-		isWhitelisted = s.accountsLists.AccountIDToInfo[accountID] != nil &&
-			s.accountsLists.AccountIDToInfo[accountID].IsWhitelisted
 	}
 
-	if isGetHeader && !isWhitelisted {
-		currentSlot := uint64(CalculateCurrentSlot(s.beaconGenesisTime, s.secondsPerSlot))
-
-		if !s.allowGetHeaderForSlot(clientIP, currentSlot) {
-			s.logger.Warn().
-				Str("authHeader", authHeader).
-				Str("accountID", accountID).
-				Str("ip", clientIP).
-				Str("url", parsedURL.String()).
-				Uint64("slot", currentSlot).
-				Err(err).Msg("get header rate limit exceeded")
-			http.Error(w, "only one getheader request allowed per slot per ip", http.StatusTooManyRequests)
-			return
-		}
-	}
 	ctx = context.WithValue(ctx, keyParsedURL, parsedURL)
 	ctx = context.WithValue(ctx, keyClientIP, clientIP)
 	ctx = context.WithValue(ctx, keyAuthHeader, authHeader)
@@ -371,6 +352,7 @@ func (s *Server) HandleOptions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	w.WriteHeader(http.StatusOK)
 }
+
 func (s *Server) HandleStatus(w http.ResponseWriter, req *http.Request) {
 	parentSpan := trace.SpanFromContext(req.Context())
 	ctx := trace.ContextWithSpan(context.Background(), parentSpan)
@@ -1327,4 +1309,29 @@ func (s *Server) respondOKWithContextSSZMarshalled(ctx context.Context, parentSp
 		Time("respondedAt", time.Now().UTC()).
 		Str("method", method).Msg(method + " succeeded")
 	return true
+}
+
+func (s *Server) proxyToMEVRelay(w http.ResponseWriter, req *http.Request, proxies []*httputil.ReverseProxy, path string) {
+	start := time.Now().UTC()
+	success := false
+	defer func() {
+		s.performanceStats.SetEndpointStats(
+			path,
+			uint64(time.Since(start).Microseconds()),
+			success,
+			100)
+	}()
+
+	if len(proxies) == 0 {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	proxy := proxies[rand.Intn(len(proxies))]
+	proxy.ServeHTTP(w, req)
+	success = true
+}
+
+func (s *Server) HandleIndex(w http.ResponseWriter, req *http.Request) {
+	s.proxyToMEVRelay(w, req, s.dataMEVRelayReverseProxies, common.PathIndex)
 }
