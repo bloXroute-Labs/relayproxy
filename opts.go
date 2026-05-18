@@ -104,7 +104,7 @@ func WithPerformanceStats(performanceStats *stat.PerformanceStats) ServerOption 
 	}
 }
 
-func MEVRelayReverseProxies(mainMEVRelayReverseProxies []*httputil.ReverseProxy, dataMEVRelayReverseProxies []*httputil.ReverseProxy) ServerOption {
+func WithMEVRelayReverseProxies(mainMEVRelayReverseProxies []*httputil.ReverseProxy, dataMEVRelayReverseProxies []*httputil.ReverseProxy) ServerOption {
 	return func(s *Server) {
 		s.mainMEVRelayReverseProxies = mainMEVRelayReverseProxies
 		s.dataMEVRelayReverseProxies = dataMEVRelayReverseProxies

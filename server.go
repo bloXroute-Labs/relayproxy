@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -1311,27 +1310,6 @@ func (s *Server) respondOKWithContextSSZMarshalled(ctx context.Context, parentSp
 	return true
 }
 
-func (s *Server) proxyToMEVRelay(w http.ResponseWriter, req *http.Request, proxies []*httputil.ReverseProxy, path string) {
-	start := time.Now().UTC()
-	success := false
-	defer func() {
-		s.performanceStats.SetEndpointStats(
-			path,
-			uint64(time.Since(start).Microseconds()),
-			success,
-			100)
-	}()
-
-	if len(proxies) == 0 {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	proxy := proxies[rand.Intn(len(proxies))]
-	proxy.ServeHTTP(w, req)
-	success = true
-}
-
 func (s *Server) HandleIndex(w http.ResponseWriter, req *http.Request) {
-	s.proxyToMEVRelay(w, req, s.dataMEVRelayReverseProxies, common.PathIndex)
+	common.ProxyToMEVRelay(w, req, s.dataMEVRelayReverseProxies, common.PathIndex, s.performanceStats)
 }
