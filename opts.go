@@ -355,12 +355,6 @@ func WithSvcPerformanceStats(performanceStats *stat.PerformanceStats) ServiceOpt
 	}
 }
 
-func WithDelayer(delayer Delayer) ServiceOption {
-	return func(s *Service) {
-		s.delayer = delayer
-	}
-}
-
 func WithBidAdjustmentConfig(enableFixedBidAdjustmentLookbackTime bool, bidAdjustmentBufferTimeMs int64, bidAdjustmentLookbackMs int64) ServiceOption {
 	return func(s *Service) {
 		s.enableFixedBidAdjustmentLookbackTime = enableFixedBidAdjustmentLookbackTime
