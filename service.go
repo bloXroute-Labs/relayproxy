@@ -585,6 +585,7 @@ func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, *
 		if bidValue.Cmp(topBidValue) > 0 {
 			secondBid = topBid
 			secondBidValue.Set(topBidValue)
+
 			topBid = bid
 			topBidValue.Set(bidValue)
 		}
