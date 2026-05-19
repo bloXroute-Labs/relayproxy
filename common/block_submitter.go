@@ -35,7 +35,7 @@ type BlockSubmission struct {
 
 func NewBlockSubmitter() BlockSubmitter {
 	return &BlockSubmission{
-		blobCache: cache.New(1*time.Minute, 1*time.Minute),
+		blobCache: cache.New(20*time.Second, 20*time.Second),
 		bundlePool: sync.Pool{
 			New: func() any { return new(apideneb.BlobsBundle) },
 		},
