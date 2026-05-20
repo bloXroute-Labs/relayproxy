@@ -36,6 +36,8 @@ const (
 	HeaderBlxrContentType     = "Blxr-Extra-Content-Type"
 	HeaderEthConsensusVersion = "Eth-Consensus-Version"
 	HeaderUserAgent           = "User-Agent"
+
+	DefaultBlobCacheExpiration = 20 * time.Second
 )
 
 func GetCurrentForkVersion() spec.DataVersion {

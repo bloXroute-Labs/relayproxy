@@ -3,7 +3,6 @@ package common
 import (
 	"crypto/sha256"
 	"sync"
-	"time"
 
 	apideneb "github.com/attestantio/go-builder-client/api/deneb"
 	builderApiElectra "github.com/attestantio/go-builder-client/api/electra"
@@ -35,7 +34,7 @@ type BlockSubmission struct {
 
 func NewBlockSubmitter() BlockSubmitter {
 	return &BlockSubmission{
-		blobCache: cache.New(20*time.Second, 20*time.Second),
+		blobCache: cache.New(DefaultBlobCacheExpiration, DefaultBlobCacheExpiration),
 		bundlePool: sync.Pool{
 			New: func() any { return new(apideneb.BlobsBundle) },
 		},
