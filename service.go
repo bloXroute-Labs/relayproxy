@@ -127,8 +127,6 @@ type Service struct {
 	OnPayloadRequested           func(slot uint64, blockHash string, parentHash string, proposerPubkey string, getPayloadRequestClientIP string, receivedAt time.Time, signedBlindedBeaconBlock *eth2Api.VersionedSignedBlindedBeaconBlock, ProposerRequestStartTimeUnixMS int64, validatorID string) error
 	GetHeaderFunc                func(ctx context.Context, parentSpan trace.Span, log *zerolog.Logger, in *HeaderRequestParams, req *http.Request, isValidatorIP bool, validatorInfo *common.MiniValidatorLatency, headerRequestID string, preFetchPayloadChan chan PreFetcherFields) (*common.Bid, *common.Bid, GetHeaderSleepData, error)
 
-	delayer Delayer
-
 	enableFixedBidAdjustmentLookbackTime bool // TODO: will be implemented in future PR
 	bidAdjustmentBufferTimeMs            int64
 	bidAdjustmentLookbackMs              int64
@@ -587,6 +585,7 @@ func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, *
 		if bidValue.Cmp(topBidValue) > 0 {
 			secondBid = topBid
 			secondBidValue.Set(topBidValue)
+
 			topBid = bid
 			topBidValue.Set(bidValue)
 		}

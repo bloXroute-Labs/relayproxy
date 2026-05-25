@@ -44,7 +44,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	}
 
 	validatorInfo, found := s.miniProposerSlotMap.Load(_slot)
-	if found && validatorInfo != nil && validatorInfo.Registration != nil {
+	if found && validatorInfo != nil && IsValidatorIP(validatorInfo.IPAddresses, validatorInfo.IPAddress, in.ClientIP) {
 		isValidatorIP = true
 	}
 
@@ -321,4 +321,16 @@ func (s *Service) prefetchPayloadToSignedBlindedBeaconBlock(ctx context.Context,
 	}
 	decodeJSONSpan.End(trace.WithTimestamp(time.Now()))
 	return signedBlindedBeaconBlock, nil
+}
+
+func IsValidatorIP(ipAddresses map[string]struct{}, ipAddress string, ip string) bool {
+	if ipAddresses != nil {
+		if _, found := ipAddresses[ip]; found {
+			return true
+		}
+	}
+	if ipAddress == ip {
+		return true
+	}
+	return ip == "127.0.0.1"
 }

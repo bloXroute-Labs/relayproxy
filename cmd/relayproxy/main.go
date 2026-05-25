@@ -329,6 +329,16 @@ func main() {
 		l.Fatal().Msg("empty dataMEVRelays startup argument")
 	}
 
+	mainMEVRelayReverseProxies, err := common.NewReverseProxies(mainMEVRelaysSlice)
+	if err != nil {
+		l.Fatal().Err(err).Msg("failed to create Main MEV Relay reverse proxies")
+	}
+
+	dataMEVRelayReverseProxies, err := common.NewReverseProxies(dataMEVRelaysSlice)
+	if err != nil {
+		l.Fatal().Err(err).Msg("failed to create Data MEV Relay reverse proxies")
+	}
+
 	l.Info().
 		Str("listenAddr", *listenAddr).
 		Str("uptraceDSN", *uptraceDSN).
@@ -418,7 +428,7 @@ func main() {
 	serverOpts = append(serverOpts, relayproxy.WithServerNodeID(*nodeID))
 	serverOpts = append(serverOpts, relayproxy.WithAdminAccountID(*adminAccountID))
 	serverOpts = append(serverOpts, relayproxy.WithPerformanceStats(performanceStats))
-	serverOpts = append(serverOpts, relayproxy.WithRelayRedirects(mainMEVRelaysSlice, dataMEVRelaysSlice))
+	serverOpts = append(serverOpts, relayproxy.WithMEVRelayReverseProxies(mainMEVRelayReverseProxies, dataMEVRelayReverseProxies))
 
 	// init server
 	server := relayproxy.NewServer(serverOpts...)

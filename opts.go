@@ -104,7 +104,7 @@ func WithPerformanceStats(performanceStats *stat.PerformanceStats) ServerOption 
 	}
 }
 
-func MEVRelayReverseProxies(mainMEVRelayReverseProxies []*httputil.ReverseProxy, dataMEVRelayReverseProxies []*httputil.ReverseProxy) ServerOption {
+func WithMEVRelayReverseProxies(mainMEVRelayReverseProxies []*httputil.ReverseProxy, dataMEVRelayReverseProxies []*httputil.ReverseProxy) ServerOption {
 	return func(s *Server) {
 		s.mainMEVRelayReverseProxies = mainMEVRelayReverseProxies
 		s.dataMEVRelayReverseProxies = dataMEVRelayReverseProxies
@@ -352,12 +352,6 @@ func WithGatewayAuthKey(key string) ServiceOption {
 func WithSvcPerformanceStats(performanceStats *stat.PerformanceStats) ServiceOption {
 	return func(s *Service) {
 		s.performancestats = performanceStats
-	}
-}
-
-func WithDelayer(delayer Delayer) ServiceOption {
-	return func(s *Service) {
-		s.delayer = delayer
 	}
 }
 

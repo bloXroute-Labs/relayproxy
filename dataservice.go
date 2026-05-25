@@ -33,7 +33,6 @@ type IDataService interface {
 	GetDelaySettings(ctx context.Context) map[string]DelaySettings
 	SetDelayForValidator(id string, delay, maxDelay int64)
 	SetDelayForValidators(settings map[string]DelaySettings)
-	DelayGetHeader(ctx context.Context, in DelayGetHeaderParams) (DelayGetHeaderResponse, error)
 	GetSlotDuty(slot uint64) (*common.MiniValidatorLatency, error)
 
 	GetFlowService() IFlowService
@@ -126,59 +125,6 @@ func (s *DataService) shouldRequestDelayed(ip, slotWithParentHash string) bool {
 	}
 	s.logger.Warn().Str("key", slotWithParentHash).Msg("received empty client IP, unable to verify delay eligibility")
 	return false
-}
-
-func (s *DataService) DelayGetHeader(ctx context.Context, in DelayGetHeaderParams) (DelayGetHeaderResponse, error) {
-
-	slotInt := AToI(in.Slot)
-	slotStartTime := GetSlotStartTime(s.beaconGenesisTime, slotInt, s.secondsPerSlot)
-	msIntoSlot := in.ReceivedAt.Sub(slotStartTime).Milliseconds()
-
-	// first request from an IP is responded immediately
-	// subsequent request from same IP will be delayed
-	if s.accountsLists.AccountIDToInfo[in.AccountID] != nil &&
-		s.accountsLists.AccountIDToInfo[in.AccountID].InstantReturnFirstRequest {
-		if ok := s.shouldRequestDelayed(in.ClientIP, in.SlotWithParentHash); !ok {
-			return DelayGetHeaderResponse{
-				Sleep:              0,
-				MaxSleep:           0,
-				Latency:            in.Latency,
-				SlotStartTime:      slotStartTime,
-				ReplacementDelayMs: 0,
-			}, nil
-		}
-	}
-	var (
-		sleep, maxSleep, replacementDelayMs int64
-		err                                 error
-	)
-	if GetHeaderRequestCutoffMs > 0 && msIntoSlot > GetHeaderRequestCutoffMs {
-		return DelayGetHeaderResponse{}, common.ErrLateHeader
-	}
-	sleep, maxSleep, replacementDelayMs, err = s.dynamicFuncWrapper(in.AccountID, msIntoSlot, in.Cluster, in.UserAgent, in.Latency, in.ClientIP, int64(in.HeaderTimeoutMS), in.BidAdjustmentBufferTimeMs)
-	if err != nil {
-		return DelayGetHeaderResponse{}, err
-	}
-
-	delayFunc := func() {
-		maxSleepTime := slotStartTime.Add(time.Duration(maxSleep) * time.Millisecond)
-		if time.Now().UTC().Add(time.Duration(sleep) * time.Millisecond).After(maxSleepTime) {
-			time.Sleep(maxSleepTime.Sub(time.Now().UTC()))
-		} else {
-			time.Sleep(time.Duration(sleep) * time.Millisecond)
-		}
-	}
-	if msIntoSlot < maxSleep {
-		delayFunc()
-	}
-
-	return DelayGetHeaderResponse{
-		Sleep:              sleep + replacementDelayMs,
-		MaxSleep:           maxSleep,
-		Latency:            in.Latency,
-		SlotStartTime:      slotStartTime,
-		ReplacementDelayMs: replacementDelayMs,
-	}, nil
 }
 
 func (s *DataService) GetDelaySettings(ctx context.Context) map[string]DelaySettings {
