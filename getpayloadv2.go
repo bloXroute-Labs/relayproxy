@@ -184,15 +184,29 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 			start := time.Now()
 			log.Info().
 				Time("currentTime", start).
+				Uint64("slot", uint64(slot)).
+				Str("parentHash", parentHash.String()).
+				Str("blockHash", blockHash.String()).
 				Str("SafeClientURL", c.SafeClient.URL).
 				Str("SafeClientNodeID", c.SafeClient.NodeID).
 				Msg("Start getPayloadWithRetry-GetPayloadV2 from remote node")
 
 			resp, err := s.getPayloadWithRetry(ctx, c.SafeClient, childSpan, req, maxGetPayloadRetry)
-			if err == nil && resp != nil {
+			if err != nil {
+				log.Error().
+					Err(err).
+					Time("currentTime", start).
+					Uint64("slot", uint64(slot)).
+					Str("parentHash", parentHash.String()).
+					Str("blockHash", blockHash.String()).
+					Str("SafeClientURL", c.SafeClient.URL).
+					Str("SafeClientNodeID", c.SafeClient.NodeID).
+					Msg("Failed getPayloadWithRetry-GetPayloadV2")
+			} else if resp != nil {
 				select {
 				case payloadInfoChan <- resp:
 				default:
+					log.Warn().Str("blockHash", blockHash.String()).Msg("Failed getPayloadWithRetry-GetPayload, payloadInfoChan is full")
 				}
 			}
 
