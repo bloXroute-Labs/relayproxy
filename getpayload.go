@@ -178,8 +178,14 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 			Msg("Finished validateAndFetchPayload-GetPayload from local cache")
 	}(ctx, *log, parentSpan)
 
-	// fetch payload relay
+	// Fetch payload from relays
+	clientUrls := make([]string, 0, len(s.clients))
+	clientNodeIDs := make([]string, 0, len(s.clients))
+
 	for _, client := range s.clients {
+		clientUrls = append(clientUrls, client.SafeClient.URL)
+		clientNodeIDs = append(clientNodeIDs, client.SafeClient.NodeID)
+
 		go func(c *common.ParentClient, parent trace.Span) {
 			ctx, childSpan := s.tracer.Start(ctx, "getPayloadWithRetry")
 			defer childSpan.End()
@@ -237,9 +243,14 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		log.Info().Msg("Payload successfully fetched in GetPayload")
 
 		return payloadInfo, nil
-	case <-time.After(1500 * time.Millisecond):
+	case <-time.After(getPayloadRequestCutoffMs):
 	}
-	log.Error().Msg("timeout waiting for payload response")
+
+	log.Error().
+		Strs("clientUrls", clientUrls).
+		Strs("clientNodeIDs", clientNodeIDs).
+		Msg("timeout waiting for payload response")
+
 	go s.sendPayloadStats(in.Payload, log, false, nil, startTime, time.Now(), 0, id, latency, *in, "timeout waiting for payload response,no execution payload for this request")
 	return nil, toErrorResp(http.StatusBadRequest, "no execution payload for this request")
 }
