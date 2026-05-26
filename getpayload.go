@@ -196,8 +196,8 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 				Uint64("slot", uint64(slot)).
 				Str("parentHash", parentHash.String()).
 				Str("blockHash", blockHash.String()).
-				Str("SafeClientURL", c.SafeClient.URL).
-				Str("SafeClientNodeID", c.SafeClient.NodeID).
+				Str("safeClientNodeID", c.SafeClient.NodeID).
+				Str("safeClientURL", c.SafeClient.URL).
 				Msg("Start getPayloadWithRetry-GetPayload from remote node")
 
 			resp, err := s.getPayloadWithRetry(ctx, c.SafeClient, childSpan, req, maxGetPayloadRetry)
@@ -208,8 +208,8 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 					Uint64("slot", uint64(slot)).
 					Str("parentHash", parentHash.String()).
 					Str("blockHash", blockHash.String()).
-					Str("SafeClientURL", c.SafeClient.URL).
-					Str("SafeClientNodeID", c.SafeClient.NodeID).
+					Str("safeClientURL", c.SafeClient.URL).
+					Str("safeClientNodeID", c.SafeClient.NodeID).
 					Msg("Failed getPayloadWithRetry-GetPayload")
 			} else if resp != nil {
 				select {
@@ -225,8 +225,8 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 				Str("parentHash", parentHash.String()).
 				Str("blockHash", blockHash.String()).
 				Dur("duration", time.Since(start)).
-				Str("SafeClientURL", c.SafeClient.URL).
-				Str("SafeClientNodeID", c.SafeClient.NodeID).
+				Str("safeClientURL", c.SafeClient.URL).
+				Str("safeClientNodeID", c.SafeClient.NodeID).
 				Msg("Finished getPayloadWithRetry-GetPayload from remote node")
 		}(client, parentSpan)
 	}
