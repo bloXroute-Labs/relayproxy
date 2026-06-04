@@ -508,8 +508,9 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 		)
 
 		if !getPayloadOnly {
-			s.setBuilderBidForProxySlot(keyForCachingBids, header.GetBuilderPubkey(), bid, header.GetSlot())
-			s.allBidsMetadataForProxySlot.SetBidMetadataForProxySlot(&s.logger, keyForCachingBids, bid)
+			if s.setBuilderBidForProxySlot(keyForCachingBids, header.GetBuilderPubkey(), bid, header.GetSlot()) {
+				s.allBidsMetadataForProxySlot.SetBidMetadataForProxySlot(&s.logger, keyForCachingBids, bid)
+			}
 		}
 
 		storeBidsSpan.SetAttributes(
@@ -597,7 +598,7 @@ func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, *
 	return topBid, secondBid, bidAdjustmentTargetBid, nil
 }
 
-func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey string, bid *common.Bid, slot uint64) {
+func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey string, bid *common.Bid, slot uint64) bool {
 	var builderBidsMap *SyncMap[string, *common.Bid]
 
 	// if the cache key does not exist, create a new syncmap and store it in the cache
@@ -622,13 +623,11 @@ func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey strin
 
 	// Disable bid replacement
 	if found && !replace && !common.ReplaceBid(bid, existingBid) {
-		return
+		return false
 	}
 
-	builderBidsMap.Store(builderPubkey, bid)
-
 	if found && common.OutdatedBlockSequenceNumber(existingBid.BlockSequenceNumber, bid.BlockSequenceNumber) {
-		// Warn if we are replacing a bid with an outdated sequence number.
+		// Warn if we are attempting to replace a bid with an outdated bid.
 		// This should not happen in production!
 		s.logger.Warn().
 			Str("component", "RelayProxy").
@@ -641,8 +640,13 @@ func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey strin
 			Str("newBlockHash", bid.BlockHash).
 			Str("newBlockExtraData", bid.BuilderExtraData).
 			Uint64("newBlockSequenceNumber", *bid.BlockSequenceNumber).
-			Msg("Replaced higher sequence number builder bid with outdated bid")
+			Msg("Attempted to replace higher sequence number builder bid with outdated bid")
+
+		return false
 	}
+
+	builderBidsMap.Store(builderPubkey, bid)
+	return true
 }
 
 func (s *Service) getBuilderBidForSlot(cacheKey string, builderPubkey string) (*common.Bid, bool) {
