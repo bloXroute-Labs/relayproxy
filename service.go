@@ -641,7 +641,7 @@ func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey strin
 			Str("newBlockHash", bid.BlockHash).
 			Str("newBlockExtraData", bid.BuilderExtraData).
 			Uint64("newBlockSequenceNumber", *bid.BlockSequenceNumber).
-			Msg("Replaced builder bid with outdated sequence number")
+			Msg("Replaced higher sequence number builder bid with outdated bid")
 	}
 }
 
