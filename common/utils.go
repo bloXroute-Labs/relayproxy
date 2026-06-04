@@ -232,3 +232,7 @@ func WeiToEth(valueString string) string {
 	decimalIndex := len(ethValue) - weiToEthSignificantDigits
 	return ethValue[:decimalIndex] + "." + ethValue[decimalIndex:]
 }
+
+func OutdatedBlockSequenceNumber(existing *uint64, new *uint64) bool {
+	return existing != nil && new != nil && *existing > *new
+}

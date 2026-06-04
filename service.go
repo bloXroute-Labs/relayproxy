@@ -618,15 +618,29 @@ func (s *Service) setBuilderBidForProxySlot(cacheKey string, builderPubkey strin
 		replace = slotDuty.IsOptedIn
 	}
 
-	// disable bid replacement
-	if !replace {
-		if bidEntry, found := builderBidsMap.Load(builderPubkey); found {
-			if !common.ReplaceBid(bid, bidEntry) {
-				return
-			}
-		}
+	existingBid, found := builderBidsMap.Load(builderPubkey)
+
+	// Disable bid replacement
+	if found && !replace && !common.ReplaceBid(bid, existingBid) {
+		return
 	}
+
 	builderBidsMap.Store(builderPubkey, bid)
+
+	if found && common.OutdatedBlockSequenceNumber(existingBid.BlockSequenceNumber, bid.BlockSequenceNumber) {
+		// Warn if we are replacing a bid with an outdated sequence number.
+		// This should not happen in production!
+		s.logger.Warn().
+			Str("component", "RelayProxy").
+			Str("cacheKey", cacheKey).
+			Uint64("slot", slot).
+			Str("builderPubkey", builderPubkey).
+			Str("oldBlockHash", existingBid.BlockHash).
+			Str("oldBlockExtraData", existingBid.BuilderExtraData).
+			Str("newBlockHash", bid.BlockHash).
+			Str("newBlockExtraData", bid.BuilderExtraData).
+			Msg("Replaced builder bid with outdated sequence number")
+	}
 }
 
 func (s *Service) getBuilderBidForSlot(cacheKey string, builderPubkey string) (*common.Bid, bool) {
