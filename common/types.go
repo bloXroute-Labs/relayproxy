@@ -377,6 +377,7 @@ type Client struct {
 type ParentClient struct {
 	FastClient *Client
 	SafeClient *Client
+	Region     string
 }
 
 func (p *ParentClient) String() string {
@@ -390,7 +391,13 @@ func (p *ParentClient) GetActiveClient(lastConnectTime time.Time) (*Client, bool
 	return p.FastClient, false
 }
 
-func NewParentClient(safeUrl string, safeConn *grpc.ClientConn, fastUrl string, fastConn *grpc.ClientConn) *ParentClient {
+func NewParentClient(
+	safeUrl string,
+	safeConn *grpc.ClientConn,
+	fastUrl string,
+	fastConn *grpc.ClientConn,
+	region string,
+) *ParentClient {
 	return &ParentClient{
 		FastClient: &Client{
 			URL:         fastUrl,
@@ -400,6 +407,7 @@ func NewParentClient(safeUrl string, safeConn *grpc.ClientConn, fastUrl string, 
 			URL:         safeUrl,
 			RelayClient: relaygrpc.NewRelayClient(safeConn),
 		},
+		Region: region,
 	}
 }
 
