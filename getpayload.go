@@ -254,7 +254,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		log.Info().Msg("Payload successfully fetched in GetPayload")
 
 		return payloadInfo, nil
-	case <-time.After(getPayloadRequestCutoffMs):
+	case <-time.After(getPayloadRequestCutoffMs * time.Millisecond):
 	}
 
 	log.Error().

@@ -250,7 +250,7 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 		// return success response only
 		return nil
 
-	case <-time.After(getPayloadRequestCutoffMs):
+	case <-time.After(getPayloadRequestCutoffMs * time.Millisecond):
 	}
 
 	// if timeout → failure
