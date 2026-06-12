@@ -596,6 +596,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		MsIntoSlot:               msIntoSlot,
 		MsIntoSlotWithDelay:      msIntoSlotIncludingDelay,
 		BlockHash:                slotBestHeader.BlockHash,
+		PayloadFetchUrl:          slotBestHeader.PayloadFetchUrl,
 	}
 	relayURL := ""
 	if slotBestHeader.Client != nil {
