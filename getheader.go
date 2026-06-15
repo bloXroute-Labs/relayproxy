@@ -177,7 +177,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	// Send in an early prefetch payload request for Optimistic V3 block payloads
 	if slotBestHeader != nil && slotBestHeader.PayloadFetchUrl != "" {
 		select {
-		case s.preFetchPayloadChan <- preFetcherFields{
+		case s.preFetchPayloadChan <- PreFetcherFields{
 			clientIP:                          in.ClientIP,
 			authHeader:                        in.AuthHeader,
 			slot:                              _slot,
@@ -558,7 +558,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	}()
 
 	// send in payload to pre fetcher event
-	s.preFetchPayloadChan <- preFetcherFields{
+	s.preFetchPayloadChan <- PreFetcherFields{
 		clientIP:                          in.ClientIP,
 		authHeader:                        in.AuthHeader,
 		slot:                              _slot,

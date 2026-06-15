@@ -37,7 +37,7 @@ import (
 
 const (
 	regRequestTimeout        = 7 * time.Second // Corresponds to the recent stats where p90 was 1.3s and p99 6.68s
-	preFetcherRequestTimeout = 3 * time.Second
+	PreFetcherRequestTimeout = 3 * time.Second
 
 	// cache
 	threeSlotsExpiration            = 36 * time.Second
@@ -86,7 +86,7 @@ type Service struct {
 	allBidsMetadataForProxySlot     *common.BidMetadataCache
 	builderExistingBlockHash        *cache.Cache
 	getPayloadResponseForProxySlot  *cache.Cache
-	preFetchPayloadChan             chan preFetcherFields
+	preFetchPayloadChan             chan PreFetcherFields
 	optimisticV3FetchedPayloadsChan chan *common.VersionedSubmitBlockRequest
 	performancestats                *stat.PerformanceStats
 
@@ -139,27 +139,25 @@ type slotStatsEvent struct {
 	UserAgent string
 }
 
-type preFetcherFields struct {
-	clientIP        string
-	authHeader      string
-	slot            uint64
-	parentHash      string
-	blockHash       string
-	proposerPubKey  string
-	builderPubKey   string
-	blockValue      string
-	client          *common.ParentClient
-	payloadFetchUrl string
-
-	slotStartTime                     time.Time
-	msIntoSlotGetHeaderIncludingDelay int64 // when getHeader was called + include delay
-	getHeaderReqID                    string
+type PreFetcherFields struct {
+	ClientIP                          string
+	AuthHeader                        string
+	Slot                              uint64
+	ParentHash                        string
+	BlockHash                         string
+	ProposerPubKey                    string
+	BuilderPubKey                     string
+	BlockValue                        string
+	Client                            *common.ParentClient
+	PayloadFetchUrl                   string
+	SlotStartTime                     time.Time
+	MsIntoSlotGetHeaderIncludingDelay int64 // when getHeader was called + include delay
+	GetHeaderReqID                    string
 }
 
 func NewService(opts ...ServiceOption) *Service {
-
 	svc := &Service{
-		preFetchPayloadChan:           make(chan preFetcherFields, preFetchPayloadChanBufSize),
+		preFetchPayloadChan:           make(chan PreFetcherFields, preFetchPayloadChanBufSize),
 		slotStatsHeaderEvents:         cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
 		slotStatsPayloadEvent:         cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
 		duplicateSlotCache:            cache.New(duplicateSlotCacheCleanupInterval, duplicateSlotCacheCleanupInterval), // cache to avoid emitting duplicate stats
