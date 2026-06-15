@@ -150,7 +150,7 @@ type PreFetcherFields struct {
 	Client                            *common.ParentClient
 	PayloadFetchUrl                   string
 	SlotStartTime                     time.Time
-	MsIntoSlotGetHeaderIncludingDelay int64 // when getHeader was called + include delay
+	MsIntoSlotGetHeaderIncludingDelay int64 // When getHeader was called + include delay
 	GetHeaderReqID                    string
 }
 
