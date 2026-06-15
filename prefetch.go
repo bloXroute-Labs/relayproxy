@@ -51,7 +51,7 @@ func getPrefetchHttpClient() *http.Client {
 func (s *Service) StartPreFetcher(ctx context.Context) {
 	for fields := range s.preFetchPayloadChan {
 		go func(fields PreFetcherFields) {
-			prefetchCtx, cancel := context.WithTimeout(ctx, preFetcherRequestTimeout)
+			prefetchCtx, cancel := context.WithTimeout(ctx, PreFetcherRequestTimeout)
 			defer cancel()
 			s.PreFetchGetPayload(prefetchCtx, fields)
 		}(fields)
@@ -920,6 +920,7 @@ func (s *Service) builderPreFetchGetPayloadHTTP(
 
 			durationMsMeasured := time.Since(reqStart).Milliseconds()
 			blockNumber := uint64(0)
+			builderPubKey := fields.BuilderPubKey
 			builderExtraData := ""
 
 			// Success path
@@ -940,6 +941,15 @@ func (s *Service) builderPreFetchGetPayloadHTTP(
 					log.Warn().Err(err).Msg("Failed to get block number from HTTP prefetched block")
 				}
 
+				if builderPubKey == "" {
+					builderPubkeyBytes, err := result.Builder()
+					if err != nil {
+						log.Warn().Err(err).Msg("Failed to get builder pubkey from HTTP prefetched block")
+					} else {
+						builderPubKey = builderPubkeyBytes.String()
+					}
+				}
+
 				extraDataBytes, err := result.ExecutionPayloadExtraData()
 				if err != nil {
 					log.Warn().Err(err).Msg("Failed to get extra data from HTTP prefetched block")
@@ -951,12 +961,12 @@ func (s *Service) builderPreFetchGetPayloadHTTP(
 			// Record stats record
 			if s.fluentD != nil {
 				s.fluentD.LogToFluentD(fluentstats.Record{
-					Type: "StatsPrefetchPayloadHttp",
+					Type: "PrefetchPayloadHttp",
 					Data: PrefetchPayloadHttpRecord{
 						Slot:               fields.Slot,
 						BlockNumber:        blockNumber,
 						BlockHash:          fields.BlockHash,
-						BuilderPubkey:      fields.BuilderPubKey,
+						BuilderPubkey:      builderPubKey,
 						ExtraData:          builderExtraData,
 						Url:                url,
 						HttpStatusCode:     code,
