@@ -951,7 +951,7 @@ func (s *Service) builderPreFetchGetPayloadHTTP(
 			// Record stats record
 			if s.fluentD != nil {
 				s.fluentD.LogToFluentD(fluentstats.Record{
-					Type: "StatsPrefetchPayloadHttp",
+					Type: "PrefetchPayloadHttp",
 					Data: PrefetchPayloadHttpRecord{
 						Slot:               fields.Slot,
 						BlockNumber:        blockNumber,
