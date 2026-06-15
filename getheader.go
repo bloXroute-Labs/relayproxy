@@ -178,19 +178,19 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	if slotBestHeader != nil && slotBestHeader.PayloadFetchUrl != "" {
 		select {
 		case s.preFetchPayloadChan <- PreFetcherFields{
-			clientIP:                          in.ClientIP,
-			authHeader:                        in.AuthHeader,
-			slot:                              _slot,
-			parentHash:                        in.ParentHash,
-			blockHash:                         slotBestHeader.BlockHash,
-			proposerPubKey:                    in.PubKey,
-			builderPubKey:                     slotBestHeader.BuilderPubkey,
-			blockValue:                        weiToEther(new(big.Int).SetBytes(slotBestHeader.Value)),
-			client:                            slotBestHeader.Client,
-			payloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
-			slotStartTime:                     slotStartTime,
-			msIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
-			getHeaderReqID:                    id,
+			ClientIP:                          in.ClientIP,
+			AuthHeader:                        in.AuthHeader,
+			Slot:                              _slot,
+			ParentHash:                        in.ParentHash,
+			BlockHash:                         slotBestHeader.BlockHash,
+			ProposerPubKey:                    in.PubKey,
+			BuilderPubKey:                     slotBestHeader.BuilderPubkey,
+			BlockValue:                        weiToEther(new(big.Int).SetBytes(slotBestHeader.Value)),
+			Client:                            slotBestHeader.Client,
+			PayloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
+			SlotStartTime:                     slotStartTime,
+			MsIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
+			GetHeaderReqID:                    id,
 		}:
 		default:
 			log.Warn().Msg("prefetch channel full; skipping prefetch")
@@ -559,19 +559,19 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 
 	// send in payload to pre fetcher event
 	s.preFetchPayloadChan <- PreFetcherFields{
-		clientIP:                          in.ClientIP,
-		authHeader:                        in.AuthHeader,
-		slot:                              _slot,
-		parentHash:                        in.ParentHash,
-		blockHash:                         slotBestHeader.BlockHash,
-		proposerPubKey:                    in.PubKey,
-		builderPubKey:                     slotBestHeader.BuilderPubkey,
-		blockValue:                        weiToEther(blockValue),
-		client:                            slotBestHeader.Client,
-		payloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
-		slotStartTime:                     slotStartTime,
-		msIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
-		getHeaderReqID:                    id,
+		ClientIP:                          in.ClientIP,
+		AuthHeader:                        in.AuthHeader,
+		Slot:                              _slot,
+		ParentHash:                        in.ParentHash,
+		BlockHash:                         slotBestHeader.BlockHash,
+		ProposerPubKey:                    in.PubKey,
+		BuilderPubKey:                     slotBestHeader.BuilderPubkey,
+		BlockValue:                        weiToEther(blockValue),
+		Client:                            slotBestHeader.Client,
+		PayloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
+		SlotStartTime:                     slotStartTime,
+		MsIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
+		GetHeaderReqID:                    id,
 	}
 
 	signedHeaderResponse, prevSigned, err := slotBestHeader.GetSignedHeaderResponse(s.secretKey, &s.publicKey, s.builderSigningDomain)
