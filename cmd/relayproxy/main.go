@@ -603,7 +603,7 @@ func getClientsAndConnsFromURLs(l zerolog.Logger, relaysGRPCURL string, conns []
 			fastUrl = relayURL
 			fastConn = conn
 		}
-		clients = append(clients, common.NewParentClient(relayURL, conn, fastUrl, fastConn))
+		clients = append(clients, common.NewParentClient(relayURL, conn, fastUrl, fastConn, ""))
 	}
 	// if len(conns) == 0 {
 	// 	l.Fatal().Msg("failed to create grpc connection")

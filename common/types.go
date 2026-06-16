@@ -575,6 +575,7 @@ type OnHeaderDeliveredParams struct {
 	MsIntoSlot               int64
 	MsIntoSlotWithDelay      int64
 	BlockHash                string
+	PayloadFetchUrl          string
 }
 
 type BuilderInfo struct {
