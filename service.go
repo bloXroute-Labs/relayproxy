@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -124,9 +125,7 @@ type Service struct {
 	gatewayAuthKey               string
 	BlockPublishFunc             func(tracer trace.Tracer, logger zerolog.Logger, payloadInfo *common.VersionedPayloadInfo, signedBeaconBlock *common.VersionedSignedBlindedBeaconBlock, blockPublishingGatewayClient interface{}, authKey string)
 	OnPayloadRequested           func(slot uint64, blockHash string, parentHash string, proposerPubkey string, getPayloadRequestClientIP string, receivedAt time.Time, signedBlindedBeaconBlock *eth2Api.VersionedSignedBlindedBeaconBlock, ProposerRequestStartTimeUnixMS int64, validatorID string) error
-	OnHeaderBidRetrieved         func(ctx context.Context, topBid *common.Bid, bidAdjustmentTargetBid *common.BidMetadata, log zerolog.Logger, slot uint64, parentHash string, accountID string, replacemendDelayMs int64, clients []*common.ParentClient) (*common.Bid, bool, error)
-
-	delayer Delayer
+	GetHeaderFunc                func(ctx context.Context, parentSpan trace.Span, log *zerolog.Logger, in *HeaderRequestParams, req *http.Request, isValidatorIP bool, validatorInfo *common.MiniValidatorLatency, headerRequestID string, preFetchPayloadChan chan PreFetcherFields) (*common.Bid, *common.Bid, GetHeaderSleepData, error)
 
 	enableFixedBidAdjustmentLookbackTime bool // TODO: will be implemented in future PR
 	bidAdjustmentBufferTimeMs            int64
@@ -584,6 +583,7 @@ func (s *Service) GetTopBuilderBid(cacheKey string) (*common.Bid, *common.Bid, *
 		if bidValue.Cmp(topBidValue) > 0 {
 			secondBid = topBid
 			secondBidValue.Set(topBidValue)
+
 			topBid = bid
 			topBidValue.Set(bidValue)
 		}

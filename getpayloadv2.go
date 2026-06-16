@@ -169,8 +169,14 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 			Msg("Finished validateAndFetchPayload-GetPayloadV2 from local cache")
 	}(ctx, *log, parentSpan)
 
-	// fetch payload from relays
+	// Fetch payload from relays
+	clientUrls := make([]string, 0, len(s.clients))
+	clientNodeIDs := make([]string, 0, len(s.clients))
+
 	for _, client := range s.clients {
+		clientUrls = append(clientUrls, client.SafeClient.URL)
+		clientNodeIDs = append(clientNodeIDs, client.SafeClient.NodeID)
+
 		go func(c *common.ParentClient, parent trace.Span) {
 			ctx, childSpan := s.tracer.Start(ctx, "getPayloadWithRetry")
 			defer childSpan.End()
@@ -178,23 +184,37 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 			start := time.Now()
 			log.Info().
 				Time("currentTime", start).
-				Str("SafeClientURL", c.SafeClient.URL).
-				Str("SafeClientNodeID", c.SafeClient.NodeID).
+				Uint64("slot", uint64(slot)).
+				Str("parentHash", parentHash.String()).
+				Str("blockHash", blockHash.String()).
+				Str("safeClientURL", c.SafeClient.URL).
+				Str("safeClientNodeID", c.SafeClient.NodeID).
 				Msg("Start getPayloadWithRetry-GetPayloadV2 from remote node")
 
 			resp, err := s.getPayloadWithRetry(ctx, c.SafeClient, childSpan, req, maxGetPayloadRetry)
-			if err == nil && resp != nil {
+			if err != nil {
+				log.Error().
+					Err(err).
+					Time("currentTime", start).
+					Uint64("slot", uint64(slot)).
+					Str("parentHash", parentHash.String()).
+					Str("blockHash", blockHash.String()).
+					Str("safeClientURL", c.SafeClient.URL).
+					Str("safeClientNodeID", c.SafeClient.NodeID).
+					Msg("Failed getPayloadWithRetry-GetPayloadV2")
+			} else if resp != nil {
 				select {
 				case payloadInfoChan <- resp:
 				default:
+					log.Warn().Str("blockHash", blockHash.String()).Msg("Failed getPayloadWithRetry-GetPayload, payloadInfoChan is full")
 				}
 			}
 
 			log.Info().
 				Time("currentTime", start).
 				Dur("duration", time.Since(start)).
-				Str("SafeClientURL", c.SafeClient.URL).
-				Str("SafeClientNodeID", c.SafeClient.NodeID).
+				Str("safeClientURL", c.SafeClient.URL).
+				Str("safeClientNodeID", c.SafeClient.NodeID).
 				Msg("Finished getPayloadWithRetry-GetPayloadV2 from remote node")
 		}(client, parentSpan)
 	}
@@ -230,11 +250,15 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 		// return success response only
 		return nil
 
-	case <-time.After(1500 * time.Millisecond):
+	case <-time.After(getPayloadRequestCutoffMs * time.Millisecond):
 	}
 
 	// if timeout → failure
-	log.Error().Msg("timeout waiting for payload response")
+	log.Error().
+		Strs("clientUrls", clientUrls).
+		Strs("clientNodeIDs", clientNodeIDs).
+		Msg("timeout waiting for payload response")
+
 	go s.sendPayloadStats(in.Payload, log, false, nil, startTime, time.Now(), 0, id, latency, *in, "timeout waiting for payload response,no execution payload for this request")
 	return &ErrorResp{http.StatusBadRequest, "no execution payload for this request"}
 }

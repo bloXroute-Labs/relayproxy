@@ -601,6 +601,9 @@ type MiniValidatorLatency struct {
 	LastUpdatedBlock        uint64      `json:"last_updated_block"`
 	IsEOA                   bool        `json:"is_eoa"`
 	ExpectedParentBlockRoot phase0.Root `json:"expected_parent_block_root"`
+
+	IPAddress   string              `json:"ip_address"`
+	IPAddresses map[string]struct{} `json:"ip_addresses"`
 }
 
 type PreFetchGetPayloadResponseHTTP struct {

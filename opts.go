@@ -2,6 +2,7 @@ package relayproxy
 
 import (
 	"net/http"
+	"net/http/httputil"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/bloXroute-Labs/relay-grpc/stat"
@@ -100,6 +101,13 @@ func WithAdminAccountID(accountId string) ServerOption {
 func WithPerformanceStats(performanceStats *stat.PerformanceStats) ServerOption {
 	return func(s *Server) {
 		s.performanceStats = performanceStats
+	}
+}
+
+func WithMEVRelayReverseProxies(mainMEVRelayReverseProxies []*httputil.ReverseProxy, dataMEVRelayReverseProxies []*httputil.ReverseProxy) ServerOption {
+	return func(s *Server) {
+		s.mainMEVRelayReverseProxies = mainMEVRelayReverseProxies
+		s.dataMEVRelayReverseProxies = dataMEVRelayReverseProxies
 	}
 }
 
@@ -347,12 +355,6 @@ func WithSvcPerformanceStats(performanceStats *stat.PerformanceStats) ServiceOpt
 	}
 }
 
-func WithDelayer(delayer Delayer) ServiceOption {
-	return func(s *Service) {
-		s.delayer = delayer
-	}
-}
-
 func WithBidAdjustmentConfig(enableFixedBidAdjustmentLookbackTime bool, bidAdjustmentBufferTimeMs int64, bidAdjustmentLookbackMs int64) ServiceOption {
 	return func(s *Service) {
 		s.enableFixedBidAdjustmentLookbackTime = enableFixedBidAdjustmentLookbackTime
@@ -407,11 +409,6 @@ func WithHttpClient(client *http.Client) DataServiceOption {
 	}
 }
 
-func WithExternalRelay(relay string) DataServiceOption {
-	return func(s *DataService) {
-		s.externalRelay = relay
-	}
-}
 func WithAccounts(accounts *cache.Cache) DataServiceOption {
 	return func(s *DataService) {
 		s.accounts = accounts
@@ -421,17 +418,6 @@ func WithAccounts(accounts *cache.Cache) DataServiceOption {
 func WithAccountChannel(ch chan account) DataServiceOption {
 	return func(s *DataService) {
 		s.accountCh = ch
-	}
-}
-func WithGetHeaderDelay(delay int64) DataServiceOption {
-	return func(s *DataService) {
-		s.getHeaderDelay = delay
-	}
-}
-
-func WithGetHeaderMaxDelay(maxDelay int64) DataServiceOption {
-	return func(s *DataService) {
-		s.getHeaderMaxDelay = maxDelay
 	}
 }
 
