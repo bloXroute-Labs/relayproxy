@@ -177,20 +177,20 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	// Send in an early prefetch payload request for Optimistic V3 block payloads
 	if slotBestHeader != nil && slotBestHeader.PayloadFetchUrl != "" {
 		select {
-		case s.preFetchPayloadChan <- preFetcherFields{
-			clientIP:                          in.ClientIP,
-			authHeader:                        in.AuthHeader,
-			slot:                              _slot,
-			parentHash:                        in.ParentHash,
-			blockHash:                         slotBestHeader.BlockHash,
-			proposerPubKey:                    in.PubKey,
-			builderPubKey:                     slotBestHeader.BuilderPubkey,
-			blockValue:                        weiToEther(new(big.Int).SetBytes(slotBestHeader.Value)),
-			client:                            slotBestHeader.Client,
-			payloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
-			slotStartTime:                     slotStartTime,
-			msIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
-			getHeaderReqID:                    id,
+		case s.preFetchPayloadChan <- PreFetcherFields{
+			ClientIP:                          in.ClientIP,
+			AuthHeader:                        in.AuthHeader,
+			Slot:                              _slot,
+			ParentHash:                        in.ParentHash,
+			BlockHash:                         slotBestHeader.BlockHash,
+			ProposerPubKey:                    in.PubKey,
+			BuilderPubKey:                     slotBestHeader.BuilderPubkey,
+			BlockValue:                        weiToEther(new(big.Int).SetBytes(slotBestHeader.Value)),
+			Client:                            slotBestHeader.Client,
+			PayloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
+			SlotStartTime:                     slotStartTime,
+			MsIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
+			GetHeaderReqID:                    id,
 		}:
 		default:
 			log.Warn().Msg("prefetch channel full; skipping prefetch")
@@ -558,20 +558,20 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 	}()
 
 	// send in payload to pre fetcher event
-	s.preFetchPayloadChan <- preFetcherFields{
-		clientIP:                          in.ClientIP,
-		authHeader:                        in.AuthHeader,
-		slot:                              _slot,
-		parentHash:                        in.ParentHash,
-		blockHash:                         slotBestHeader.BlockHash,
-		proposerPubKey:                    in.PubKey,
-		builderPubKey:                     slotBestHeader.BuilderPubkey,
-		blockValue:                        weiToEther(blockValue),
-		client:                            slotBestHeader.Client,
-		payloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
-		slotStartTime:                     slotStartTime,
-		msIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
-		getHeaderReqID:                    id,
+	s.preFetchPayloadChan <- PreFetcherFields{
+		ClientIP:                          in.ClientIP,
+		AuthHeader:                        in.AuthHeader,
+		Slot:                              _slot,
+		ParentHash:                        in.ParentHash,
+		BlockHash:                         slotBestHeader.BlockHash,
+		ProposerPubKey:                    in.PubKey,
+		BuilderPubKey:                     slotBestHeader.BuilderPubkey,
+		BlockValue:                        weiToEther(blockValue),
+		Client:                            slotBestHeader.Client,
+		PayloadFetchUrl:                   slotBestHeader.PayloadFetchUrl,
+		SlotStartTime:                     slotStartTime,
+		MsIntoSlotGetHeaderIncludingDelay: msIntoSlotIncludingDelay,
+		GetHeaderReqID:                    id,
 	}
 
 	signedHeaderResponse, prevSigned, err := slotBestHeader.GetSignedHeaderResponse(s.secretKey, &s.publicKey, s.builderSigningDomain)
@@ -596,6 +596,7 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		MsIntoSlot:               msIntoSlot,
 		MsIntoSlotWithDelay:      msIntoSlotIncludingDelay,
 		BlockHash:                slotBestHeader.BlockHash,
+		PayloadFetchUrl:          slotBestHeader.PayloadFetchUrl,
 	}
 	relayURL := ""
 	if slotBestHeader.Client != nil {
