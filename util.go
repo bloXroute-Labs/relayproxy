@@ -50,15 +50,23 @@ func ParseURL(r *http.Request) (*url.URL, error) {
 }
 
 func GetAuth(r *http.Request, parsedURL *url.URL) string {
-	//authHeader := r.Header.Get("Authorization")
-	//if authHeader != "" {
-	//	return authHeader
-	//}
-	auth := r.Header.Get("auth")
-	if auth != "" {
-		return auth
+	// First try regular Auth header for Relay compatibility
+	authHeader := r.Header.Get("authorization")
+	if authHeader != "" {
+		return authHeader
 	}
-	// fallback to query param
+
+	authQueryParam := parsedURL.Query().Get("authorization")
+	if authQueryParam != "" {
+		return authQueryParam
+	}
+
+	authHeader = r.Header.Get("auth")
+	if authHeader != "" {
+		return authHeader
+	}
+
+	// Fallback to query param
 	return parsedURL.Query().Get("auth")
 }
 

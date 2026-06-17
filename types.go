@@ -1,6 +1,9 @@
 package relayproxy
 
-import "time"
+import (
+	"net/http"
+	"time"
+)
 
 // RegistrationParams holds the input parameters for registering a validator.
 type RegistrationParams struct {
@@ -26,6 +29,8 @@ type RegistrationParams struct {
 
 // HeaderRequestParams holds the input parameters for getting header information.
 type HeaderRequestParams struct {
+	// The actual HTTP request
+	HttpRequest *http.Request
 	// The time when the header request was received.
 	ReceivedAt time.Time
 	// The Unix timestamp (as string) when getHeader processing started.
@@ -95,12 +100,11 @@ type DelayGetHeaderParams struct {
 }
 
 type DelayGetHeaderResponse struct {
-	Sleep, MaxSleep       int64
-	SlotStartTime         time.Time
-	Latency               int64
-	ExternalRelayResponse ExternalRelayResponse
-	ReplacementDelayMs    int64
-	DelayInfo             DelayInfo
+	Sleep, MaxSleep    int64
+	SlotStartTime      time.Time
+	Latency            int64
+	ReplacementDelayMs int64
+	DelayInfo          DelayInfo
 }
 
 type DelayInfo struct {

@@ -634,11 +634,11 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	defer conn.Close()
 	dSvc := NewDataService(WithDataSvcLogger(zerolog.Nop()))
 	svcOpts := make([]ServiceOption, 0)
-	c := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn)
+	c := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn, "")
 	clients := []*common.ParentClient{c}
-	sc := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn)
+	sc := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn, "")
 	streamingClients := []*common.ParentClient{sc}
-	registrationClient := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn)
+	registrationClient := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn, "")
 	registrationClients := []*common.ParentClient{registrationClient}
 	tracer := noop.NewTracerProvider().Tracer("test")
 	svcOpts = append(svcOpts, WithSvcLogger(l))
@@ -663,7 +663,7 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	server := &Server{svc: service, logger: zerolog.Nop(), listenAddress: "127.0.0.1:9090", accountsLists: &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 		AccountNameToInfo: make(map[AccountName]*AccountInfo)}}
 	go func() {
-		if err := server.Start(); err != nil {
+		if err := server.Start(nil); err != nil {
 			panic(err)
 		}
 	}()
