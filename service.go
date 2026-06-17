@@ -212,12 +212,8 @@ func (s *Service) handleStream(ctx context.Context, client *common.ParentClient)
 
 		default:
 
-			active, safe := client.GetActiveClient(lastConnectTime)
-			if safe {
-				s.logger.Warn().Str("method", "streamHeader").Time("lastConnectTime", lastConnectTime).Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("Fallback to safe IP used")
-			} else {
-				s.logger.Info().Str("method", "streamHeader").Time("lastConnectTime", lastConnectTime).Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("fast IP used")
-			}
+			active := client.GetActiveClient(lastConnectTime)
+			s.logger.Info().Str("method", "streamHeader").Time("lastConnectTime", lastConnectTime).Str("safeURL", client.SafeClient.URL).Msg("connecting to relay")
 			lastConnectTime = time.Now()
 
 			if _, err := s.StreamHeader(ctx, active, client); err != nil {
@@ -762,10 +758,7 @@ func (s *Service) handleBuilderInfoStream(ctx context.Context, client *common.Pa
 				Msg("stream block context cancelled")
 			return
 		default:
-			active, safe := client.GetActiveClient(lastConnectTime)
-			if safe {
-				s.logger.Warn().Str("method", "streamBuilderInfo").Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("Fallback to safe IP used")
-			}
+			active := client.GetActiveClient(lastConnectTime)
 			lastConnectTime = time.Now()
 
 			if _, err := s.StreamBuilderInfo(ctx, active); err != nil {
@@ -1070,10 +1063,7 @@ func (s *Service) handleSlotInfoStream(ctx context.Context, client *common.Paren
 				Msg("stream block context cancelled")
 			return
 		default:
-			active, safe := client.GetActiveClient(lastConnectTime)
-			if safe {
-				s.logger.Warn().Str("method", "streamSlotInfo").Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("Fallback to safe IP used")
-			}
+			active := client.GetActiveClient(lastConnectTime)
 			lastConnectTime = time.Now()
 
 			if _, err := s.StreamSlotInfo(ctx, active); err != nil {
