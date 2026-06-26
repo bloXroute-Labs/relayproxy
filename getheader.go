@@ -155,18 +155,6 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		return nil, nil, toErrorResp(http.StatusNoContent, "Header value is not present")
 	}
 
-	if slotBestHeader.AccountID != "" {
-		in.AccountID = slotBestHeader.AccountID
-		if s.accountsLists.AccountIDToInfo[in.AccountID] != nil &&
-			s.accountsLists.AccountIDToInfo[in.AccountID].UseAccountAsValidator {
-			log.Info().
-				Str("oldHeaderParamsValidatorID", in.ValidatorID).
-				Str("headerParamsValidatorID", in.AccountID).
-				Str("slotBestHeaderAccountID", slotBestHeader.AccountID).
-				Msg("Replacing HeaderRequestParams validator ID with slotBestHeader AccountID")
-			in.ValidatorID = in.AccountID
-		}
-	}
 	_, signAndFinishSpan := s.tracer.Start(ctx, "getHeader-finalize")
 	defer signAndFinishSpan.End()
 

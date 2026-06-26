@@ -490,7 +490,6 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			header.GetBlockHash(),
 			header.GetBuilderPubkey(),
 			header.GetBuilderExtraData(),
-			header.GetAccountId(),
 			parentClient,
 			header.GetPayloadFetchUrl(),
 			header.GetRelayReceiveTime().AsTime(),

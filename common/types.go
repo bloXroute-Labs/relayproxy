@@ -428,7 +428,6 @@ type Bid struct {
 	BlockHash           string
 	BuilderPubkey       string
 	BuilderExtraData    string
-	AccountID           string
 	Client              *ParentClient
 	PayloadFetchUrl     string
 	ReceivedAt          time.Time
@@ -444,7 +443,6 @@ func NewBid(Value []byte,
 	blockHash string,
 	builderPubkey string,
 	builderExtraData string,
-	accountID string,
 	client *ParentClient,
 	payloadFetchUrl string,
 	receivedAt time.Time,
@@ -460,7 +458,6 @@ func NewBid(Value []byte,
 		BlockHash:           blockHash,
 		BuilderPubkey:       builderPubkey,
 		BuilderExtraData:    builderExtraData,
-		AccountID:           accountID,
 		Client:              client,
 		PayloadFetchUrl:     payloadFetchUrl,
 		ReceivedAt:          receivedAt,
