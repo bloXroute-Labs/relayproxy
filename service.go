@@ -933,12 +933,14 @@ func (s *Service) handleStreamBuilderInfoResponse(
 	builderInfoPubkeys := make([]string, numBuilderInfos)
 	optimisticBuilders := make([]string, 0, numBuilderInfos)
 	demotedBuilders := make([]string, 0, numBuilderInfos)
+	externalBuilderAccountIDs := make(map[string]string, numBuilderInfos)
 
 	for i := 0; i < numBuilderInfos; i++ {
 		builderInfo := builderInfos[i]
 		builderPubkey := phase0.BLSPubKey(builderInfo.BuilderPubkey)
 		builderPubkeyStr := builderPubkey.String()
 		builderInfoPubkeys[i] = builderPubkeyStr
+		externalBuilderAccountIDs[builderPubkeyStr] = builderInfo.GetExternalBuilderAccountId()
 
 		grpcWalletAccounts := builderInfo.GetWalletAccounts()
 		walletAccounts := make([]common.WalletAccount, 0, len(grpcWalletAccounts))
@@ -993,11 +995,12 @@ func (s *Service) handleStreamBuilderInfoResponse(
 	}
 
 	lm.Fields(map[string]any{
-		"builderInfoPubkeys": builderInfoPubkeys,
-		"demotedBuilders":    demotedBuilders,
-		"optimisticBuilders": optimisticBuilders,
-		"receivedAt":         receivedAt,
-		"duration":           time.Since(handleStart),
+		"builderInfoPubkeys":        builderInfoPubkeys,
+		"demotedBuilders":           demotedBuilders,
+		"optimisticBuilders":        optimisticBuilders,
+		"externalBuilderAccountIDs": externalBuilderAccountIDs,
+		"receivedAt":                receivedAt,
+		"duration":                  time.Since(handleStart),
 	})
 
 	s.logger.Info().Fields(lm.GetFields()).Msg("Received builder info stream event")
