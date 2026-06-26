@@ -1000,7 +1000,7 @@ func (s *Service) handleStreamBuilderInfoResponse(
 		"duration":           time.Since(handleStart),
 	})
 
-	s.logger.Debug().Fields(lm.GetFields()).Msg("received builderInfo")
+	s.logger.Info().Fields(lm.GetFields()).Msg("Received builder info stream event")
 }
 
 func (s *Service) logRecord(record SlotStatsRecord, slotKey string, userAgent string) {
