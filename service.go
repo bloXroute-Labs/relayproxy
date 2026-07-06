@@ -38,7 +38,7 @@ import (
 
 const (
 	regRequestTimeout        = 7 * time.Second // Corresponds to the recent stats where p90 was 1.3s and p99 6.68s
-	preFetcherRequestTimeout = 3 * time.Second
+	PreFetcherRequestTimeout = 3 * time.Second
 
 	// cache
 	threeSlotsExpiration            = 36 * time.Second
@@ -139,24 +139,22 @@ type slotStatsEvent struct {
 }
 
 type PreFetcherFields struct {
-	ClientIP        string
-	AuthHeader      string
-	Slot            uint64
-	ParentHash      string
-	BlockHash       string
-	ProposerPubKey  string
-	BuilderPubKey   string
-	BlockValue      string
-	Client          *common.ParentClient
-	PayloadFetchUrl string
-
+	ClientIP                          string
+	AuthHeader                        string
+	Slot                              uint64
+	ParentHash                        string
+	BlockHash                         string
+	ProposerPubKey                    string
+	BuilderPubKey                     string
+	BlockValue                        string
+	Client                            *common.ParentClient
+	PayloadFetchUrl                   string
 	SlotStartTime                     time.Time
 	MsIntoSlotGetHeaderIncludingDelay int64 // when getHeader was called + include delay
 	GetHeaderReqID                    string
 }
 
 func NewService(opts ...ServiceOption) *Service {
-
 	svc := &Service{
 		preFetchPayloadChan:           make(chan PreFetcherFields, preFetchPayloadChanBufSize),
 		slotStatsHeaderEvents:         cache.New(slotStatsCleanupInterval, slotStatsCleanupInterval),
@@ -214,12 +212,8 @@ func (s *Service) handleStream(ctx context.Context, client *common.ParentClient)
 
 		default:
 
-			active, safe := client.GetActiveClient(lastConnectTime)
-			if safe {
-				s.logger.Warn().Str("method", "streamHeader").Time("lastConnectTime", lastConnectTime).Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("Fallback to safe IP used")
-			} else {
-				s.logger.Info().Str("method", "streamHeader").Time("lastConnectTime", lastConnectTime).Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("fast IP used")
-			}
+			active := client.GetActiveClient(lastConnectTime)
+			s.logger.Info().Str("method", "streamHeader").Time("lastConnectTime", lastConnectTime).Str("safeURL", client.SafeClient.URL).Msg("connecting to relay")
 			lastConnectTime = time.Now()
 
 			if _, err := s.StreamHeader(ctx, active, client); err != nil {
@@ -742,10 +736,7 @@ func (s *Service) handleBuilderInfoStream(ctx context.Context, client *common.Pa
 				Msg("stream block context cancelled")
 			return
 		default:
-			active, safe := client.GetActiveClient(lastConnectTime)
-			if safe {
-				s.logger.Warn().Str("method", "streamBuilderInfo").Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("Fallback to safe IP used")
-			}
+			active := client.GetActiveClient(lastConnectTime)
 			lastConnectTime = time.Now()
 
 			if _, err := s.StreamBuilderInfo(ctx, active); err != nil {
@@ -1050,10 +1041,7 @@ func (s *Service) handleSlotInfoStream(ctx context.Context, client *common.Paren
 				Msg("stream block context cancelled")
 			return
 		default:
-			active, safe := client.GetActiveClient(lastConnectTime)
-			if safe {
-				s.logger.Warn().Str("method", "streamSlotInfo").Str("fastURL", client.FastClient.URL).Str("safeURL", client.SafeClient.URL).Msg("Fallback to safe IP used")
-			}
+			active := client.GetActiveClient(lastConnectTime)
 			lastConnectTime = time.Now()
 
 			if _, err := s.StreamSlotInfo(ctx, active); err != nil {

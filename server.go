@@ -83,11 +83,8 @@ type Server struct {
 
 	// Callback
 	OnHeaderDelivered func(
-		VersionedSignedBuilderBid *common.VersionedSignedBuilderBid, Slot uint64,
-		GetHeaderRequestID string,
-		ProposerPubkey string,
-		GetHeaderStartTimeUnixMS string,
-		ExtraData string,
+		VersionedSignedBuilderBid *common.VersionedSignedBuilderBid,
+		onHeaderDeliveredParams *common.OnHeaderDeliveredParams,
 	) error
 }
 
@@ -758,14 +755,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 			log.Error().Err(err).Msg("failed to unmarshal signed header response")
 			return
 		}
-		err := s.OnHeaderDelivered(
-			versionedBid,
-			onHeaderDeliveredParams.Slot,
-			onHeaderDeliveredParams.GetHeaderRequestID,
-			onHeaderDeliveredParams.ProposerPubkey,
-			onHeaderDeliveredParams.GetHeaderStartTimeUnixMS,
-			onHeaderDeliveredParams.ExtraData,
-		)
+		err := s.OnHeaderDelivered(versionedBid, onHeaderDeliveredParams)
 		if err != nil {
 			s.logger.Error().Err(err).Msg("failed to call OnHeaderDelivered")
 		}

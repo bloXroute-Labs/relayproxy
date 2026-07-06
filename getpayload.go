@@ -178,8 +178,14 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 			Msg("Finished validateAndFetchPayload-GetPayload from local cache")
 	}(ctx, *log, parentSpan)
 
-	// fetch payload relay
+	// Fetch payload from relays
+	clientUrls := make([]string, 0, len(s.clients))
+	clientNodeIDs := make([]string, 0, len(s.clients))
+
 	for _, client := range s.clients {
+		clientUrls = append(clientUrls, client.SafeClient.URL)
+		clientNodeIDs = append(clientNodeIDs, client.SafeClient.NodeID)
+
 		go func(c *common.ParentClient, parent trace.Span) {
 			ctx, childSpan := s.tracer.Start(ctx, "getPayloadWithRetry")
 			defer childSpan.End()
@@ -190,15 +196,26 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 				Uint64("slot", uint64(slot)).
 				Str("parentHash", parentHash.String()).
 				Str("blockHash", blockHash.String()).
-				Str("SafeClientURL", c.SafeClient.URL).
-				Str("SafeClientNodeID", c.SafeClient.NodeID).
+				Str("safeClientNodeID", c.SafeClient.NodeID).
+				Str("safeClientURL", c.SafeClient.URL).
 				Msg("Start getPayloadWithRetry-GetPayload from remote node")
 
 			resp, err := s.getPayloadWithRetry(ctx, c.SafeClient, childSpan, req, maxGetPayloadRetry)
-			if err == nil && resp != nil {
+			if err != nil {
+				log.Error().
+					Err(err).
+					Time("currentTime", start).
+					Uint64("slot", uint64(slot)).
+					Str("parentHash", parentHash.String()).
+					Str("blockHash", blockHash.String()).
+					Str("safeClientURL", c.SafeClient.URL).
+					Str("safeClientNodeID", c.SafeClient.NodeID).
+					Msg("Failed getPayloadWithRetry-GetPayload")
+			} else if resp != nil {
 				select {
 				case payloadInfoChan <- resp:
 				default:
+					log.Warn().Str("blockHash", blockHash.String()).Msg("Failed getPayloadWithRetry-GetPayload, payloadInfoChan is full")
 				}
 			}
 
@@ -208,8 +225,8 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 				Str("parentHash", parentHash.String()).
 				Str("blockHash", blockHash.String()).
 				Dur("duration", time.Since(start)).
-				Str("SafeClientURL", c.SafeClient.URL).
-				Str("SafeClientNodeID", c.SafeClient.NodeID).
+				Str("safeClientURL", c.SafeClient.URL).
+				Str("safeClientNodeID", c.SafeClient.NodeID).
 				Msg("Finished getPayloadWithRetry-GetPayload from remote node")
 		}(client, parentSpan)
 	}
@@ -237,9 +254,14 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		log.Info().Msg("Payload successfully fetched in GetPayload")
 
 		return payloadInfo, nil
-	case <-time.After(1500 * time.Millisecond):
+	case <-time.After(getPayloadRequestCutoffMs * time.Millisecond):
 	}
-	log.Error().Msg("timeout waiting for payload response")
+
+	log.Error().
+		Strs("clientUrls", clientUrls).
+		Strs("clientNodeIDs", clientNodeIDs).
+		Msg("timeout waiting for payload response")
+
 	go s.sendPayloadStats(in.Payload, log, false, nil, startTime, time.Now(), 0, id, latency, *in, "timeout waiting for payload response,no execution payload for this request")
 	return nil, toErrorResp(http.StatusBadRequest, "no execution payload for this request")
 }
@@ -268,7 +290,7 @@ func (s *Service) getPayloadWithRetry(ctx context.Context, c *common.Client, par
 					attribute.String("relayError", resp.Message),
 					attribute.String("url", c.URL),
 					attribute.Int64("slot", int64(resp.GetSlot())),
-					attribute.String("BlockHash", resp.GetBlockHash()),
+					attribute.String("blockHash", resp.GetBlockHash()),
 					attribute.String("in.ParentHash", resp.GetParentHash()),
 					attribute.String("BlockValue", resp.GetBlockValue()),
 					attribute.String("uniqueKey", uKey),
@@ -297,7 +319,7 @@ func (s *Service) getPayloadWithRetry(ctx context.Context, c *common.Client, par
 			attribute.String("relayError", resp.Message),
 			attribute.String("url", c.URL),
 			attribute.Int64("slot", int64(resp.GetSlot())),
-			attribute.String("BlockHash", resp.GetBlockHash()),
+			attribute.String("blockHash", resp.GetBlockHash()),
 			attribute.String("in.ParentHash", resp.GetParentHash()),
 			attribute.String("BlockValue", resp.GetBlockValue()),
 			attribute.String("uniqueKey", uKey),

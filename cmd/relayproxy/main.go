@@ -158,7 +158,7 @@ func main() {
 	)
 
 	// Parse the relaysGRPCURL
-	newClients, newConns := getClientsAndConnsFromURLs(l, *relaysGRPCURL, conns, keepaliveOpts, clients, map[string]string{})
+	newClients, newConns := getClientsAndConnsFromURLs(l, *relaysGRPCURL, conns, keepaliveOpts, clients)
 	defer func() {
 		for _, conn := range newConns {
 			conn.Close()
@@ -166,7 +166,7 @@ func main() {
 	}()
 
 	// Parse the streamingRelaysGRPCURL
-	newStreamingClients, newStreamingConns := getClientsAndConnsFromURLs(l, *streamingRelaysGRPCURL, streamingConns, keepaliveOpts, streamingClients, map[string]string{})
+	newStreamingClients, newStreamingConns := getClientsAndConnsFromURLs(l, *streamingRelaysGRPCURL, streamingConns, keepaliveOpts, streamingClients)
 	defer func() {
 		for _, conn := range newStreamingConns {
 			conn.Close()
@@ -174,7 +174,7 @@ func main() {
 	}()
 
 	// Parse the registrationRelaysURL
-	newRegistrationClients, newRegConns := getClientsAndConnsFromURLs(l, *registrationRelaysGRPCURL, regConns, keepaliveOpts, registrationClients, map[string]string{})
+	newRegistrationClients, newRegConns := getClientsAndConnsFromURLs(l, *registrationRelaysGRPCURL, regConns, keepaliveOpts, registrationClients)
 	defer func() {
 		for _, conn := range newRegConns {
 			conn.Close()
@@ -554,7 +554,7 @@ func getEnv(key string, defaultValue string) string {
 	return defaultValue
 }
 
-func getClientsAndConnsFromURLs(l zerolog.Logger, relaysGRPCURL string, conns []*grpc.ClientConn, keepaliveOpts grpc.DialOption, clients []*common.ParentClient, fastAlternativeIPMapping map[string]string) ([]*common.ParentClient, []*grpc.ClientConn) {
+func getClientsAndConnsFromURLs(l zerolog.Logger, relaysGRPCURL string, conns []*grpc.ClientConn, keepaliveOpts grpc.DialOption, clients []*common.ParentClient) ([]*common.ParentClient, []*grpc.ClientConn) {
 	// Parse the relaysGRPCURL
 	relays := strings.Split(relaysGRPCURL, ",")
 	// Dial each relay and store the connections
@@ -575,35 +575,7 @@ func getClientsAndConnsFromURLs(l zerolog.Logger, relaysGRPCURL string, conns []
 			continue
 		}
 		conns = append(conns, conn)
-		var (
-			fastUrl  string
-			fastConn *grpc.ClientConn
-			found    bool
-		)
-		fastUrl, found = fastAlternativeIPMapping[relayURL]
-		if found {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
-			fastConn, err = grpc.DialContext( //nolint:staticcheck
-				ctx,
-				fastUrl,
-				grpc.WithTransportCredentials(insecure.NewCredentials()),
-				keepaliveOpts,
-				grpc.WithInitialConnWindowSize(windowSize),
-				grpc.WithWriteBufferSize(bufferSize),
-			)
-
-			cancel()
-			if err != nil {
-				// Handle error: failed to dial relay
-				l.Err(err).Str("url", relayURL).Msg("failed to dial relay")
-				continue
-			}
-			conns = append(conns, fastConn)
-		} else {
-			fastUrl = relayURL
-			fastConn = conn
-		}
-		clients = append(clients, common.NewParentClient(relayURL, conn, fastUrl, fastConn))
+		clients = append(clients, common.NewParentClient(relayURL, conn, ""))
 	}
 	// if len(conns) == 0 {
 	// 	l.Fatal().Msg("failed to create grpc connection")

@@ -375,31 +375,29 @@ type Client struct {
 }
 
 type ParentClient struct {
-	FastClient *Client
 	SafeClient *Client
+	Region     string
 }
 
 func (p *ParentClient) String() string {
-	return fmt.Sprintf("ParentClient{FastClient: %s, SafeClient: %s}", p.FastClient.URL, p.SafeClient.URL)
+	return fmt.Sprintf("ParentClient{SafeClient: %s}", p.SafeClient.URL)
 }
 
-func (p *ParentClient) GetActiveClient(lastConnectTime time.Time) (*Client, bool) {
-	if time.Since(lastConnectTime) <= clientFailureWindow {
-		return p.SafeClient, true
-	}
-	return p.FastClient, false
+func (p *ParentClient) GetActiveClient(lastConnectTime time.Time) *Client {
+	return p.SafeClient
 }
 
-func NewParentClient(safeUrl string, safeConn *grpc.ClientConn, fastUrl string, fastConn *grpc.ClientConn) *ParentClient {
+func NewParentClient(
+	safeUrl string,
+	safeConn *grpc.ClientConn,
+	region string,
+) *ParentClient {
 	return &ParentClient{
-		FastClient: &Client{
-			URL:         fastUrl,
-			RelayClient: relaygrpc.NewRelayClient(fastConn),
-		},
 		SafeClient: &Client{
 			URL:         safeUrl,
 			RelayClient: relaygrpc.NewRelayClient(safeConn),
 		},
+		Region: region,
 	}
 }
 
@@ -567,6 +565,7 @@ type OnHeaderDeliveredParams struct {
 	MsIntoSlot               int64
 	MsIntoSlotWithDelay      int64
 	BlockHash                string
+	PayloadFetchUrl          string
 }
 
 type BuilderInfo struct {
