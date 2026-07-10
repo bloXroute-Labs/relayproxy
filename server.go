@@ -131,7 +131,7 @@ func (s *Server) Start(fallbackHandler http.Handler) error {
 		ReadTimeout:       0,
 		ReadHeaderTimeout: 0,
 		WriteTimeout:      0,
-		IdleTimeout:       10 * time.Second,
+		IdleTimeout:       90 * time.Second,
 	}
 
 	err := s.server.ListenAndServe()
