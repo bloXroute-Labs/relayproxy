@@ -149,7 +149,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		defer childSpan.End()
 
 		start := time.Now()
-		log.Info().
+		l.Trace().
 			Time("currentTime", start).
 			Uint64("slot", uint64(slot)).
 			Str("parentHash", parentHash.String()).
@@ -169,7 +169,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 			l.Warn().Err(err).Msg("validateAndFetchPayload-GetPayload returned no payload")
 		}
 
-		log.Info().
+		l.Info().
 			Time("currentTime", start).
 			Uint64("slot", uint64(slot)).
 			Str("parentHash", parentHash.String()).
