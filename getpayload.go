@@ -144,7 +144,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 
 	payloadInfoChan := make(chan *common.VersionedPayloadInfo, 1)
 
-	// validate and  fetch payload from cache
+	// validate and fetch payload from cache
 	go func(ctx context.Context, l zerolog.Logger, parent trace.Span) {
 		ctx, childSpan := s.tracer.Start(ctx, "validateAndFetchPayload")
 		defer childSpan.End()
