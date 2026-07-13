@@ -156,11 +156,12 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 		}
 
 		l.Info().
-			Time("currentTime", start).
+			Time("startTime", start).
+			Time("currentTime", time.Now()).
+			Dur("duration", time.Since(start)).
 			Uint64("slot", uint64(slot)).
 			Str("parentHash", parentHash.String()).
 			Str("blockHash", blockHash.String()).
-			Dur("duration", time.Since(start)).
 			Msg("Finished validateAndFetchPayload-GetPayloadV2 from local cache")
 	}(ctx, *log, parentSpan)
 
