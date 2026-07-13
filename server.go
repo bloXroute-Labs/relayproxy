@@ -212,7 +212,7 @@ func (s *Server) authorizeAdmin(w http.ResponseWriter, r *http.Request, next htt
 		return
 	}
 	if accountID != s.AdminAccountID { // TODO:set admin account id
-		s.writeErrorResponse(w, "access denied", fmt.Errorf("acdess denied accountID: %v, auth header %v, url: %v", accountID, authHeader, parsedURL.String()), http.StatusUnauthorized)
+		s.writeErrorResponse(w, "access denied", fmt.Errorf("access denied accountID: %v, auth header %v, url: %v", accountID, authHeader, parsedURL.String()), http.StatusUnauthorized)
 		return
 	}
 	next.ServeHTTP(w, r)
