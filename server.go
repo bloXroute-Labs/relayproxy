@@ -759,7 +759,6 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.logger.Error().Err(err).Msg("failed to call OnHeaderDelivered")
 		}
-
 	}()
 
 	if !sszResponse {
