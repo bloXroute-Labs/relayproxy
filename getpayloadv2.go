@@ -140,12 +140,6 @@ func (s *Service) GetPayloadV2(ctx context.Context, log *zerolog.Logger, in *Pay
 		defer childSpan.End()
 
 		start := time.Now()
-		l.Trace().
-			Time("currentTime", start).
-			Uint64("slot", uint64(slot)).
-			Str("parentHash", parentHash.String()).
-			Str("blockHash", blockHash.String()).
-			Msg("Start validateAndFetchPayload-GetPayloadV2 from local cache")
 
 		payloadInfo, err := s.validateAndFetchPayload(ctx, blindedBeaconBlock)
 		if err == nil && payloadInfo != nil {
