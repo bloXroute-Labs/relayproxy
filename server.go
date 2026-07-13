@@ -763,7 +763,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	if !sszResponse {
-		log.Info().Msg("Responding with JSON")
+		log = log.With().Str("responseContentType", "json").Logger()
 		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer, true, receivedAt); err == nil {
 			success = true
 		}
@@ -787,7 +787,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set(common.HeaderEthConsensusVersion, versionedBid.Version.String())
-	log.Info().Msg("Responding with SSZ")
+	log = log.With().Str("responseContentType", "ssz").Logger()
 	success = s.respondOKWithContextSSZMarshalled(handleGetHeaderCtx, span, getHeader, w, sszMarshal, &log, s.tracer, receivedAt)
 }
 
