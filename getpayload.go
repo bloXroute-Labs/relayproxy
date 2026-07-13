@@ -119,6 +119,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		Int64("slot", slotInt).
 		Str("blockHash", blockHashStr).
 		Str("parentHash", parentHashStr).
+		Str("validatorID", in.ValidatorID).
 		Str("uKey", uKey).
 		Logger()
 	prefetchPayloadToSignedBlindedBeaconBlockSpan.End()
