@@ -84,6 +84,8 @@ var (
 	network          = flag.String("network", defaultNetwork, "which network to use")
 	skipAuth         = flag.Bool("skip-auth", false, "auth header authentication skip flag")
 
+	disableFlowRecording = flag.Bool("disable-flow-recording", false, "disable in-memory request flow recording (/flows debug data)")
+
 	// external relay
 	externalRelayURL = flag.String("external-relay", "", "external relay to be called")
 	mainMEVRelays    = flag.String("main-mev-relays", "", "CSV of redirect urls for Main MEV Relays")
@@ -375,6 +377,7 @@ func main() {
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithGetHeaderDelaySettings(delaySettings))
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithGetHeaderTimeout(timeout))
 	dataSvcOpts = append(dataSvcOpts, relayproxy.WithAccountImportLists(accountsLists))
+	dataSvcOpts = append(dataSvcOpts, relayproxy.WithFlowRecordingDisabled(*disableFlowRecording))
 
 	dataSvc := relayproxy.NewDataService(dataSvcOpts...)
 

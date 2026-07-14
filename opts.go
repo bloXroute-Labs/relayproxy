@@ -379,6 +379,16 @@ func WithDataSvcNodeID(nodeID string) DataServiceOption {
 	}
 }
 
+// WithFlowRecordingDisabled turns off in-memory request flow recording (the /flows debug
+// data). A FlowService with a nil cache makes every Record*/Get* method a no-op.
+func WithFlowRecordingDisabled(disabled bool) DataServiceOption {
+	return func(s *DataService) {
+		if disabled {
+			s.flowSvc = &FlowService{}
+		}
+	}
+}
+
 func WithDataSvcTracer(tracer trace.Tracer) DataServiceOption {
 	return func(s *DataService) {
 		s.tracer = tracer
