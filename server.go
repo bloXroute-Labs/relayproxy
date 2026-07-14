@@ -212,7 +212,7 @@ func (s *Server) authorizeAdmin(w http.ResponseWriter, r *http.Request, next htt
 		return
 	}
 	if accountID != s.AdminAccountID { // TODO:set admin account id
-		s.writeErrorResponse(w, "access denied", fmt.Errorf("acdess denied accountID: %v, auth header %v, url: %v", accountID, authHeader, parsedURL.String()), http.StatusUnauthorized)
+		s.writeErrorResponse(w, "access denied", fmt.Errorf("access denied accountID: %v, auth header %v, url: %v", accountID, authHeader, parsedURL.String()), http.StatusUnauthorized)
 		return
 	}
 	next.ServeHTTP(w, r)
@@ -759,11 +759,10 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.logger.Error().Err(err).Msg("failed to call OnHeaderDelivered")
 		}
-
 	}()
 
 	if !sszResponse {
-		log.Info().Msg("Responding with JSON")
+		log = log.With().Str("responseContentType", "json").Logger()
 		if err := respondOK(handleGetHeaderCtx, span, getHeader, w, out, &log, s.tracer, true, receivedAt); err == nil {
 			success = true
 		}
@@ -787,7 +786,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set(common.HeaderEthConsensusVersion, versionedBid.Version.String())
-	log.Info().Msg("Responding with SSZ")
+	log = log.With().Str("responseContentType", "ssz").Logger()
 	success = s.respondOKWithContextSSZMarshalled(handleGetHeaderCtx, span, getHeader, w, sszMarshal, &log, s.tracer, receivedAt)
 }
 

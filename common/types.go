@@ -566,6 +566,7 @@ type OnHeaderDeliveredParams struct {
 	MsIntoSlotWithDelay      int64
 	BlockHash                string
 	PayloadFetchUrl          string
+	IsValidatorIP            bool
 }
 
 type BuilderInfo struct {
