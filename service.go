@@ -394,7 +394,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			"uniqueKey":                uniqueKey,
 			"receivedAt":               receivedAt,
 			"paidBlxr":                 header.GetPaidBlxr(),
-			"accountID":                header.GetAccountId(),
+			"builderAccountID":         header.GetAccountId(),
 			"payloadFetchUrl":          header.GetPayloadFetchUrl(),
 			"hidden":                   header.GetHidden(),
 			"blockSequenceNumber":      header.GetBlockSequenceNumber(),
@@ -490,7 +490,6 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			header.GetBlockHash(),
 			header.GetBuilderPubkey(),
 			header.GetBuilderExtraData(),
-			header.GetAccountId(),
 			parentClient,
 			header.GetPayloadFetchUrl(),
 			header.GetRelayReceiveTime().AsTime(),
@@ -525,7 +524,7 @@ func (s *Service) StreamHeader(ctx context.Context, client *common.Client, paren
 			attribute.String("uniqueKey", uniqueKey),
 			attribute.String("receivedAt", receivedAt.String()),
 			attribute.Bool("paidBlxr", header.GetPaidBlxr()),
-			attribute.String("accountID", header.GetAccountId()),
+			attribute.String("builderAccountID", header.GetAccountId()),
 			attribute.String("payloadFetchUrl", header.GetPayloadFetchUrl()),
 			attribute.Bool("hidden", header.GetHidden()),
 			attribute.String("originalSubmissionMethod", header.GetOriginalSubmissionMethod()),
@@ -933,12 +932,14 @@ func (s *Service) handleStreamBuilderInfoResponse(
 	builderInfoPubkeys := make([]string, numBuilderInfos)
 	optimisticBuilders := make([]string, 0, numBuilderInfos)
 	demotedBuilders := make([]string, 0, numBuilderInfos)
+	externalBuilderAccountIDs := make(map[string]string, numBuilderInfos)
 
 	for i := 0; i < numBuilderInfos; i++ {
 		builderInfo := builderInfos[i]
 		builderPubkey := phase0.BLSPubKey(builderInfo.BuilderPubkey)
 		builderPubkeyStr := builderPubkey.String()
 		builderInfoPubkeys[i] = builderPubkeyStr
+		externalBuilderAccountIDs[builderPubkeyStr] = builderInfo.GetExternalBuilderAccountId()
 
 		grpcWalletAccounts := builderInfo.GetWalletAccounts()
 		walletAccounts := make([]common.WalletAccount, 0, len(grpcWalletAccounts))
@@ -993,14 +994,15 @@ func (s *Service) handleStreamBuilderInfoResponse(
 	}
 
 	lm.Fields(map[string]any{
-		"builderInfoPubkeys": builderInfoPubkeys,
-		"demotedBuilders":    demotedBuilders,
-		"optimisticBuilders": optimisticBuilders,
-		"receivedAt":         receivedAt,
-		"duration":           time.Since(handleStart),
+		"builderInfoPubkeys":        builderInfoPubkeys,
+		"demotedBuilders":           demotedBuilders,
+		"optimisticBuilders":        optimisticBuilders,
+		"externalBuilderAccountIDs": externalBuilderAccountIDs,
+		"receivedAt":                receivedAt,
+		"duration":                  time.Since(handleStart),
 	})
 
-	s.logger.Debug().Fields(lm.GetFields()).Msg("received builderInfo")
+	s.logger.Info().Fields(lm.GetFields()).Msg("Received builder info stream event")
 }
 
 func (s *Service) logRecord(record SlotStatsRecord, slotKey string, userAgent string) {

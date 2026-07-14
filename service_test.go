@@ -101,7 +101,6 @@ func TestService_RegisterValidator(t *testing.T) {
 			c := &common.Client{RelayClient: &mockRelayClient{RegisterValidatorFunc: tt.f}}
 			pc := &common.ParentClient{
 				SafeClient: c,
-				FastClient: c,
 			}
 			s := &Service{
 				logger:              zerolog.Nop(),
@@ -177,7 +176,6 @@ func TestService_GetHeader(t *testing.T) {
 			c := &common.Client{RelayClient: &mockRelayClient{}}
 			pc := &common.ParentClient{
 				SafeClient: c,
-				FastClient: c,
 			}
 			opts = append(opts, WithClients([]*common.ParentClient{pc}))
 			opts = append(opts, WithSvcTracer(noop.NewTracerProvider().Tracer("test")))
@@ -239,7 +237,6 @@ func TestService_getPayload(t *testing.T) {
 			c := &common.Client{RelayClient: &mockRelayClient{GetPayloadFunc: tt.f}}
 			pc := &common.ParentClient{
 				SafeClient: c,
-				FastClient: c,
 			}
 			svcOpts = append(svcOpts, WithClients([]*common.ParentClient{pc}))
 			svcOpts = append(svcOpts, WithSvcTracer(noop.NewTracerProvider().Tracer("test")))
@@ -340,7 +337,6 @@ func TestBlockCancellation(t *testing.T) {
 		hex.EncodeToString(testBlockHash1[:]),
 		testBuilderPubkey1,
 		"",
-		"",
 		nil,
 		"",
 		time.Now(),
@@ -359,7 +355,6 @@ func TestBlockCancellation(t *testing.T) {
 		hex.EncodeToString(testBlockHash2[:]),
 		testBuilderPubkey2,
 		"",
-		"",
 		nil,
 		"",
 		time.Now(),
@@ -377,7 +372,6 @@ func TestBlockCancellation(t *testing.T) {
 		nil,
 		hex.EncodeToString(testBlockHash3[:]),
 		testBuilderPubkey3,
-		"",
 		"",
 		nil,
 		"",
@@ -425,7 +419,6 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		hex.EncodeToString(testBlockHash1[:]),
 		testBuilderPubkey1,
 		"",
-		"",
 		nil,
 		"",
 		time.Now(),
@@ -444,7 +437,6 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		hex.EncodeToString(testBlockHash2[:]),
 		testBuilderPubkey1,
 		"",
-		"",
 		nil,
 		"",
 		time.Now(),
@@ -462,7 +454,6 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		nil,
 		hex.EncodeToString(testBlockHash3[:]),
 		testBuilderPubkey1,
-		"",
 		"",
 		nil,
 		"",
@@ -483,7 +474,6 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		hex.EncodeToString(testBlockHash1[:]),
 		testBuilderPubkey2,
 		"",
-		"",
 		nil,
 		"",
 		time.Now(),
@@ -502,7 +492,6 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		hex.EncodeToString(testBlockHash3[:]),
 		testBuilderPubkey2,
 		"",
-		"",
 		nil,
 		"",
 		time.Now(),
@@ -520,7 +509,6 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		nil,
 		hex.EncodeToString(testBlockHash2[:]),
 		testBuilderPubkey2,
-		"",
 		"",
 		nil,
 		"",
@@ -541,7 +529,6 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		hex.EncodeToString(testBlockHash3[:]),
 		testBuilderPubkey3,
 		"",
-		"",
 		nil,
 		"",
 		time.Now(),
@@ -560,7 +547,6 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		hex.EncodeToString(testBlockHash2[:]),
 		testBuilderPubkey3,
 		"",
-		"",
 		nil,
 		"",
 		time.Now(),
@@ -578,7 +564,6 @@ func TestBlockCancellationForSamePubKey(t *testing.T) {
 		nil,
 		hex.EncodeToString(testBlockHash1[:]),
 		testBuilderPubkey3,
-		"",
 		"",
 		nil,
 		"",
@@ -634,11 +619,11 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	defer conn.Close()
 	dSvc := NewDataService(WithDataSvcLogger(zerolog.Nop()))
 	svcOpts := make([]ServiceOption, 0)
-	c := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn, "")
+	c := common.NewParentClient(lis.Addr().String(), conn, "")
 	clients := []*common.ParentClient{c}
-	sc := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn, "")
+	sc := common.NewParentClient(lis.Addr().String(), conn, "")
 	streamingClients := []*common.ParentClient{sc}
-	registrationClient := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn, "")
+	registrationClient := common.NewParentClient(lis.Addr().String(), conn, "")
 	registrationClients := []*common.ParentClient{registrationClient}
 	tracer := noop.NewTracerProvider().Tracer("test")
 	svcOpts = append(svcOpts, WithSvcLogger(l))
@@ -655,7 +640,7 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	service.accountsLists = &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 		AccountNameToInfo: make(map[AccountName]*AccountInfo)}
 	go func() {
-		if _, err := service.StreamHeader(ctx, c.FastClient, c); err != nil {
+		if _, err := service.StreamHeader(ctx, c.SafeClient, c); err != nil {
 			panic(err)
 		}
 	}()
@@ -1117,7 +1102,6 @@ func TestGetPayloadWithRetry(t *testing.T) {
 			client := &common.Client{URL: "", NodeID: "", RelayClient: mockClient}
 			parentClient := &common.ParentClient{
 				SafeClient: client,
-				FastClient: client,
 			}
 			service := &Service{
 				clients: []*common.ParentClient{parentClient},
