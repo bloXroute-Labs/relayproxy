@@ -119,6 +119,7 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 		Int64("slot", slotInt).
 		Str("blockHash", blockHashStr).
 		Str("parentHash", parentHashStr).
+		Str("validatorID", in.ValidatorID).
 		Str("uKey", uKey).
 		Logger()
 	prefetchPayloadToSignedBlindedBeaconBlockSpan.End()
@@ -143,18 +144,12 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 
 	payloadInfoChan := make(chan *common.VersionedPayloadInfo, 1)
 
-	// validate and  fetch payload from cache
+	// validate and fetch payload from cache
 	go func(ctx context.Context, l zerolog.Logger, parent trace.Span) {
 		ctx, childSpan := s.tracer.Start(ctx, "validateAndFetchPayload")
 		defer childSpan.End()
 
 		start := time.Now()
-		log.Info().
-			Time("currentTime", start).
-			Uint64("slot", uint64(slot)).
-			Str("parentHash", parentHash.String()).
-			Str("blockHash", blockHash.String()).
-			Msg("Start validateAndFetchPayload-GetPayload from local cache")
 
 		payloadInfo, err := s.validateAndFetchPayload(ctx, blindedBeaconBlock)
 		if err == nil && payloadInfo != nil {
@@ -169,12 +164,13 @@ func (s *Service) GetPayload(ctx context.Context, log *zerolog.Logger, in *Paylo
 			l.Warn().Err(err).Msg("validateAndFetchPayload-GetPayload returned no payload")
 		}
 
-		log.Info().
-			Time("currentTime", start).
+		l.Info().
+			Time("startTime", start).
+			Time("currentTime", time.Now()).
+			Dur("duration", time.Since(start)).
 			Uint64("slot", uint64(slot)).
 			Str("parentHash", parentHash.String()).
 			Str("blockHash", blockHash.String()).
-			Dur("duration", time.Since(start)).
 			Msg("Finished validateAndFetchPayload-GetPayload from local cache")
 	}(ctx, *log, parentSpan)
 
