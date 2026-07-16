@@ -163,7 +163,7 @@ func TestServer_HandleRegistration(t *testing.T) {
 			},
 			expectedCode: http.StatusOK,
 		},
-		"When registration failed": {
+		"When registration forwarding fails the client still gets OK": {
 			requestBody: []byte(`{"key": "value"}`),
 			url:         "/eth/v1/builder/validators",
 			mockService: &MockService{
@@ -172,7 +172,18 @@ func TestServer_HandleRegistration(t *testing.T) {
 					return nil, toErrorResp(http.StatusInternalServerError, "")
 				},
 			},
-			expectedCode: http.StatusUnauthorized,
+			expectedCode: http.StatusOK,
+		},
+		"When registration queue is full": {
+			requestBody: []byte(`{"key": "value"}`),
+			url:         "/eth/v1/builder/validators",
+			mockService: &MockService{
+				logger: zap.NewNop(),
+				RegisterValidatorFunc: func(ctx context.Context, outgoingctx context.Context, in *RegistrationParams) (interface{}, error) {
+					return nil, toErrorResp(http.StatusServiceUnavailable, "registration queue is full")
+				},
+			},
+			expectedCode: http.StatusServiceUnavailable,
 		},
 	}
 

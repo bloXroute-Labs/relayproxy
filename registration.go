@@ -18,19 +18,37 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func (s *Service) RegisterValidator(ctx context.Context, log *zerolog.Logger, outgoingCtx context.Context, in *RegistrationParams) (any, error) {
-	var (
-		errChan  = make(chan *ErrorResp, len(s.clients))
-		respChan = make(chan *relaygrpc.RegisterValidatorResponse, len(s.clients))
-		_err     *ErrorResp
-	)
-	timer := time.NewTimer(regRequestTimeout)
-	defer timer.Stop()
+// Registration forwarding is asynchronous: RegisterValidator enqueues and a fixed
+// worker pool forwards to the registration relays, each attempt with its own
+// deadline. The queue is bounded by task count and total payload bytes, so a
+// registration burst against slow relays pins a bounded amount of memory instead
+// of accumulating unbounded gRPC send buffers (MEV-1984).
+const (
+	// maxRegistrationPayloadBytes is anti-abuse only and must stay far above any
+	// legitimate batch: every mainnet validator (~880k) registering in a single
+	// request is ~160MB SSZ / ~440MB JSON at ~180/~500 bytes per registration.
+	maxRegistrationPayloadBytes = 512 << 20
+	regQueueMaxTasks            = 4096 // max queued registrations
+	// regQueueMaxBytes must be >= maxRegistrationPayloadBytes so a max-size
+	// request can always enqueue into an empty queue; typical epoch-wide
+	// registration volume observed through one proxy is only tens of MB.
+	regQueueMaxBytes       = 768 << 20
+	regQueueWorkers        = 16
+	regForwardMaxAttempts  = 3
+	regForwardRetryBackoff = time.Second
+)
 
+// registrationTask is one registration waiting to be forwarded to the relays.
+type registrationTask struct {
+	req      *relaygrpc.RegisterValidatorRequest
+	md       metadata.MD // outgoing metadata captured from the handler (e.g. ssz content type)
+	log      zerolog.Logger
+	attempts int
+}
+
+func (s *Service) RegisterValidator(ctx context.Context, log *zerolog.Logger, outgoingCtx context.Context, in *RegistrationParams) (any, error) {
 	parentSpan := trace.SpanFromContext(ctx)
-	ctx = trace.ContextWithSpan(outgoingCtx, parentSpan)
-	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", s.authKey)
-	ctx, span := s.tracer.Start(ctx, "registerValidator-start")
+	_, span := s.tracer.Start(ctx, "registerValidator-enqueue")
 	defer span.End()
 
 	id := uuid.NewString()
@@ -70,41 +88,90 @@ func (s *Service) RegisterValidator(ctx context.Context, log *zerolog.Logger, ou
 		SkipOptimism:       in.SkipOptimism,
 	}
 
-	ctx, spanWait := s.tracer.Start(ctx, "RegisterValidator-waitForResponse")
-	go func(_ctx context.Context, req *relaygrpc.RegisterValidatorRequest) {
-		defer spanWait.End()
+	md, _ := metadata.FromOutgoingContext(outgoingCtx)
+	task := &registrationTask{req: req, md: md, log: *log}
 
-		out, err := s.registerValidatorForClient(ctx, req)
-		if err != nil {
-			spanWait.SetAttributes(attribute.String("error", err.Error()))
-			errChan <- err
+	s.ensureRegistrationWorkers()
+
+	payloadBytes := int64(len(in.Payload))
+	if s.registrationQueueBytes.Add(payloadBytes) > regQueueMaxBytes {
+		s.registrationQueueBytes.Add(-payloadBytes)
+		span.SetStatus(otelcodes.Error, "registration queue byte limit reached")
+		log.Error().Int64("payloadBytes", payloadBytes).Msg("registration queue byte limit reached, rejecting registration")
+		return nil, toErrorResp(http.StatusServiceUnavailable, "registration queue is full")
+	}
+
+	select {
+	case s.registrationQueue <- task:
+		return struct{}{}, nil
+	default:
+		s.registrationQueueBytes.Add(-payloadBytes)
+		span.SetStatus(otelcodes.Error, "registration queue task limit reached")
+		log.Error().Msg("registration queue task limit reached, rejecting registration")
+		return nil, toErrorResp(http.StatusServiceUnavailable, "registration queue is full")
+	}
+}
+
+func (s *Service) ensureRegistrationWorkers() {
+	s.registrationWorkersOnce.Do(func() {
+		if s.registrationQueue == nil {
+			s.registrationQueue = make(chan *registrationTask, regQueueMaxTasks)
+		}
+		for range regQueueWorkers {
+			go s.registrationWorker()
+		}
+	})
+}
+
+func (s *Service) registrationWorker() {
+	for task := range s.registrationQueue {
+		s.registrationQueueBytes.Add(-int64(len(task.req.Payload)))
+		s.forwardRegistration(task)
+	}
+}
+
+// forwardRegistration sends one queued registration to the registration relays,
+// retrying transient failures with backoff. Each attempt carries its own deadline
+// so a stalled relay connection cannot pin the payload in transport buffers.
+func (s *Service) forwardRegistration(task *registrationTask) {
+	for {
+		task.attempts++
+
+		attemptCtx := context.Background()
+		if task.md != nil {
+			attemptCtx = metadata.NewOutgoingContext(attemptCtx, task.md)
+		}
+		attemptCtx = metadata.AppendToOutgoingContext(attemptCtx, "authorization", s.authKey)
+		attemptCtx, cancel := context.WithTimeout(attemptCtx, regRequestTimeout)
+		attemptCtx, span := s.tracer.Start(attemptCtx, "registerValidator-forward")
+		span.SetAttributes(
+			attribute.String("reqID", task.req.ReqId),
+			attribute.Int("attempt", task.attempts),
+		)
+
+		_, errResp := s.registerValidatorForClient(attemptCtx, task.req)
+		span.End()
+		cancel()
+
+		if errResp == nil {
 			return
 		}
-		respChan <- out
-	}(ctx, req)
 
-	ctx, spanSuccess := s.tracer.Start(ctx, "RegisterValidator-waitForSuccessfulResponse")
-	select {
-	case <-ctx.Done():
-		return nil, toErrorResp(http.StatusInternalServerError, ctx.Err().Error())
-	case _err = <-errChan:
-		// first error captured
-	case <-respChan:
-		return struct{}{}, nil
-	case <-timer.C:
-		log.Warn().Dur("timeout", regRequestTimeout).Msg("timer hit: relay request timeout")
-		return struct{}{}, nil
-	}
-	spanSuccess.End(trace.WithTimestamp(time.Now()))
-
-	if _err != nil {
-		if _err.Code == http.StatusRequestTimeout {
-			log.Info().Msg("relay request timeout")
-			return struct{}{}, nil
+		if task.attempts >= regForwardMaxAttempts || !isRetryableRegistrationError(errResp) {
+			task.log.Error().Str("err", errResp.Error()).Int("attempts", task.attempts).Msg("dropping validator registration")
+			return
 		}
-	}
 
-	return nil, _err
+		task.log.Warn().Str("err", errResp.Error()).Int("attempts", task.attempts).Msg("retrying validator registration")
+		time.Sleep(regForwardRetryBackoff)
+	}
+}
+
+// isRetryableRegistrationError reports whether a forward attempt is worth
+// retrying: relay rejections (4xx other than timeout) are permanent — e.g. an
+// expired or malformed registration — while timeouts and 5xx are transient.
+func isRetryableRegistrationError(errResp *ErrorResp) bool {
+	return errResp.Code == http.StatusRequestTimeout || errResp.Code >= http.StatusInternalServerError
 }
 
 func (s *Service) registerValidatorForClient(_ctx context.Context, req *relaygrpc.RegisterValidatorRequest) (*relaygrpc.RegisterValidatorResponse, *ErrorResp) {

@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,61 +64,91 @@ const (
 	TestAuthHeader = "NzM2NWJiYzgtMTBkNS00OGZjLTk5NGQtNjFlODQzYjE0OGNjOmZiMmQ3NWU5LWIwY2YtNDIyMS1hZjMxLTZjYTYwOGYyZTExNA=="
 )
 
-func TestService_RegisterValidator(t *testing.T) {
-	tests := map[string]struct {
-		f               func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error)
-		expectedSuccess any
-		expectedErr     *ErrorResp
-	}{
-		"If registerValidator succeeded ": {
-			f: func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
-				return &relaygrpc.RegisterValidatorResponse{Code: 0, Message: "success"}, nil
-			},
-			expectedSuccess: struct{}{},
-			expectedErr:     nil,
-		},
-		"If registerValidator returns error": {
-			f: func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
-				return nil, fmt.Errorf("relays returned error")
-			},
-			expectedErr: toErrorResp(http.StatusInternalServerError, "relays returned error"),
-		},
-		"If registerValidator returns empty output": {
-			f: func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
-				return nil, nil
-			},
-			expectedErr: toErrorResp(http.StatusInternalServerError, "empty response from relay"),
-		},
-		"If registerValidator returns error output": {
-			f: func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
-				return &relaygrpc.RegisterValidatorResponse{Code: 2, Message: "failed"}, nil
-			},
-			expectedErr: toErrorResp(http.StatusInternalServerError, "relay returned failure response code 2"),
-		},
+func newRegistrationTestService(f func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error)) *Service {
+	c := &common.Client{RelayClient: &mockRelayClient{RegisterValidatorFunc: f}}
+	pc := &common.ParentClient{
+		SafeClient: c,
 	}
+	return &Service{
+		logger:              zerolog.Nop(),
+		clients:             []*common.ParentClient{pc},
+		registrationClients: []*common.ParentClient{pc},
+		tracer:              noop.NewTracerProvider().Tracer("test"),
+		fluentD:             fluentstats.NewStats(true, "0.0.0.0:24224"),
+	}
+}
 
-	for testName, tt := range tests {
-		t.Run(testName, func(t *testing.T) {
-			c := &common.Client{RelayClient: &mockRelayClient{RegisterValidatorFunc: tt.f}}
-			pc := &common.ParentClient{
-				SafeClient: c,
-				FastClient: c,
-			}
-			s := &Service{
-				logger:              zerolog.Nop(),
-				clients:             []*common.ParentClient{pc},
-				registrationClients: []*common.ParentClient{pc},
-				tracer:              noop.NewTracerProvider().Tracer("test"),
-				fluentD:             fluentstats.NewStats(true, "0.0.0.0:24224"),
-			}
-			got, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{})
-			if err == nil {
-				assert.Equal(t, tt.expectedSuccess, got)
-				return
-			}
-			assert.Equal(t, tt.expectedErr.Error(), err.Error())
+func TestService_RegisterValidator(t *testing.T) {
+	t.Run("enqueues and forwards to the relay", func(t *testing.T) {
+		forwarded := make(chan *relaygrpc.RegisterValidatorRequest, 1)
+		s := newRegistrationTestService(func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
+			forwarded <- req
+			return &relaygrpc.RegisterValidatorResponse{Code: 0, Message: "success"}, nil
 		})
-	}
+
+		got, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: []byte("registration")})
+		assert.Nil(t, err)
+		assert.Equal(t, struct{}{}, got)
+
+		select {
+		case req := <-forwarded:
+			assert.Equal(t, []byte("registration"), req.Payload)
+		case <-time.After(2 * time.Second):
+			t.Fatal("registration was not forwarded to the relay")
+		}
+		assert.Equal(t, int64(0), s.registrationQueueBytes.Load())
+	})
+
+	t.Run("retries transient failures then succeeds", func(t *testing.T) {
+		var attempts atomic.Int64
+		forwarded := make(chan struct{}, 1)
+		s := newRegistrationTestService(func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
+			if attempts.Add(1) == 1 {
+				return nil, fmt.Errorf("relays returned error")
+			}
+			forwarded <- struct{}{}
+			return &relaygrpc.RegisterValidatorResponse{Code: 0, Message: "success"}, nil
+		})
+
+		_, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: []byte("registration")})
+		assert.Nil(t, err)
+
+		select {
+		case <-forwarded:
+			assert.Equal(t, int64(2), attempts.Load())
+		case <-time.After(2*regForwardRetryBackoff + 2*time.Second):
+			t.Fatal("registration was not retried")
+		}
+	})
+
+	t.Run("does not retry permanent relay rejections", func(t *testing.T) {
+		var attempts atomic.Int64
+		done := make(chan struct{}, regForwardMaxAttempts)
+		s := newRegistrationTestService(func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
+			attempts.Add(1)
+			done <- struct{}{}
+			return &relaygrpc.RegisterValidatorResponse{Code: 2, Message: "failed"}, nil
+		})
+
+		_, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: []byte("registration")})
+		assert.Nil(t, err)
+
+		<-done
+		time.Sleep(2 * regForwardRetryBackoff)
+		assert.Equal(t, int64(1), attempts.Load())
+	})
+
+	t.Run("rejects when queue byte limit is reached", func(t *testing.T) {
+		s := newRegistrationTestService(nil)
+		s.registrationQueueBytes.Store(regQueueMaxBytes)
+
+		_, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: []byte("registration")})
+		assert.NotNil(t, err)
+		errResp, ok := err.(*ErrorResp)
+		assert.True(t, ok)
+		assert.Equal(t, http.StatusServiceUnavailable, errResp.Code)
+		assert.Equal(t, int64(regQueueMaxBytes), s.registrationQueueBytes.Load())
+	})
 }
 
 func TestService_GetHeader(t *testing.T) {
@@ -177,7 +208,6 @@ func TestService_GetHeader(t *testing.T) {
 			c := &common.Client{RelayClient: &mockRelayClient{}}
 			pc := &common.ParentClient{
 				SafeClient: c,
-				FastClient: c,
 			}
 			opts = append(opts, WithClients([]*common.ParentClient{pc}))
 			opts = append(opts, WithSvcTracer(noop.NewTracerProvider().Tracer("test")))
@@ -239,7 +269,6 @@ func TestService_getPayload(t *testing.T) {
 			c := &common.Client{RelayClient: &mockRelayClient{GetPayloadFunc: tt.f}}
 			pc := &common.ParentClient{
 				SafeClient: c,
-				FastClient: c,
 			}
 			svcOpts = append(svcOpts, WithClients([]*common.ParentClient{pc}))
 			svcOpts = append(svcOpts, WithSvcTracer(noop.NewTracerProvider().Tracer("test")))
@@ -634,11 +663,11 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	defer conn.Close()
 	dSvc := NewDataService(WithDataSvcLogger(zerolog.Nop()))
 	svcOpts := make([]ServiceOption, 0)
-	c := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn, "")
+	c := common.NewParentClient(lis.Addr().String(), conn, "")
 	clients := []*common.ParentClient{c}
-	sc := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn, "")
+	sc := common.NewParentClient(lis.Addr().String(), conn, "")
 	streamingClients := []*common.ParentClient{sc}
-	registrationClient := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn, "")
+	registrationClient := common.NewParentClient(lis.Addr().String(), conn, "")
 	registrationClients := []*common.ParentClient{registrationClient}
 	tracer := noop.NewTracerProvider().Tracer("test")
 	svcOpts = append(svcOpts, WithSvcLogger(l))
@@ -655,7 +684,7 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	service.accountsLists = &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 		AccountNameToInfo: make(map[AccountName]*AccountInfo)}
 	go func() {
-		if _, err := service.StreamHeader(ctx, c.FastClient, c); err != nil {
+		if _, err := service.StreamHeader(ctx, c.SafeClient, c); err != nil {
 			panic(err)
 		}
 	}()
@@ -1117,7 +1146,6 @@ func TestGetPayloadWithRetry(t *testing.T) {
 			client := &common.Client{URL: "", NodeID: "", RelayClient: mockClient}
 			parentClient := &common.ParentClient{
 				SafeClient: client,
-				FastClient: client,
 			}
 			service := &Service{
 				clients: []*common.ParentClient{parentClient},

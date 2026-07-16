@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	eth2Api "github.com/attestantio/go-eth2-client/api"
@@ -106,6 +107,9 @@ type Service struct {
 	registrationClients           []*common.ParentClient
 	currentRegistrationRelayIndex int
 	registrationRelayMutex        sync.Mutex
+	registrationQueue             chan *registrationTask
+	registrationQueueBytes        atomic.Int64
+	registrationWorkersOnce       sync.Once
 
 	secretKey            *bls.SecretKey
 	publicKey            phase0.BLSPubKey

@@ -578,35 +578,42 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	handleRegistrationSpan.SetAttributes(
 		attribute.Bool("proposerMevProtect", hasProposerMevProtect),
 	)
-	bodyBytes, err := io.ReadAll(r.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, maxRegistrationPayloadBytes+1))
 	if err != nil {
 		handleRegistrationSpan.SetStatus(codes.Error, err.Error())
 		log.Error().Err(err).Msg("could not read registration")
 		respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, toErrorResp(http.StatusInternalServerError, "could not read registration"), &log, s.tracer, receivedAt)
 		return
 	}
+	if len(bodyBytes) > maxRegistrationPayloadBytes {
+		handleRegistrationSpan.SetStatus(codes.Error, "registration payload too large")
+		log.Error().Int("payloadBytes", len(bodyBytes)).Msg("registration payload too large")
+		respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, toErrorResp(http.StatusRequestEntityTooLarge, "registration payload too large"), &log, s.tracer, receivedAt)
+		return
+	}
 	handleRegistrationSpan.AddEvent("handleRegistration- svcRegisterValidator")
-	go func() {
-		_, err := s.svc.RegisterValidator(handleRegistrationCtx, &log, outgoingCtx, &RegistrationParams{
-			ReceivedAt:         receivedAt,
-			Payload:            bodyBytes,
-			ClientIP:           clientIP,
-			AuthHeader:         authHeader,
-			ValidatorID:        validatorID,
-			AccountID:          accountID,
-			ComplianceList:     complianceList,
-			ProposerMevProtect: hasProposerMevProtect,
-			SkipOptimism:       isSkipOptimism,
-		})
-		if err != nil {
-			handleRegistrationSpan.SetStatus(codes.Error, err.Error())
-			handleRegistrationSpan.SetAttributes(
-				attribute.String("error", err.Error()),
-			)
-			log.Error().Err(err).Msg("error in RegisterValidator")
+	// enqueues for asynchronous forwarding; only fails when the queue is full
+	if _, err := s.svc.RegisterValidator(handleRegistrationCtx, &log, outgoingCtx, &RegistrationParams{
+		ReceivedAt:         receivedAt,
+		Payload:            bodyBytes,
+		ClientIP:           clientIP,
+		AuthHeader:         authHeader,
+		ValidatorID:        validatorID,
+		AccountID:          accountID,
+		ComplianceList:     complianceList,
+		ProposerMevProtect: hasProposerMevProtect,
+		SkipOptimism:       isSkipOptimism,
+	}); err != nil {
+		handleRegistrationSpan.SetStatus(codes.Error, err.Error())
+		handleRegistrationSpan.SetAttributes(
+			attribute.String("error", err.Error()),
+		)
+		log.Error().Err(err).Msg("error in RegisterValidator")
+		if errResp, ok := err.(*ErrorResp); ok && errResp.Code == http.StatusServiceUnavailable {
+			respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, errResp, &log, s.tracer, receivedAt)
 			return
 		}
-	}()
+	}
 
 	if err := respondOK(handleRegistrationCtx, handleRegistrationSpan, registration, w, struct{}{}, &log, s.tracer, false, receivedAt); err == nil {
 		success = true
