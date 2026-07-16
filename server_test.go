@@ -211,6 +211,36 @@ func TestServer_HandleRegistration(t *testing.T) {
 			assert.Equal(t, tc.expectedCode, rr.Code)
 		})
 	}
+
+	t.Run("Empty registration body gets 400 without forwarding, mirroring the relay", func(t *testing.T) {
+		forwarded := false
+		server := &Server{
+			svc: &MockService{
+				logger: zap.NewNop(),
+				RegisterValidatorFunc: func(ctx context.Context, outgoingctx context.Context, in *RegistrationParams) (interface{}, error) {
+					forwarded = true
+					return nil, nil
+				},
+			},
+			logger: zerolog.Nop(),
+			tracer: noop.NewTracerProvider().Tracer("test"),
+			accountsLists: &AccountsLists{
+				AccountIDToInfo:   make(map[string]*AccountInfo),
+				AccountNameToInfo: make(map[AccountName]*AccountInfo),
+			},
+			performanceStats: stat.NewPerformanceStats(),
+		}
+		req, err := http.NewRequest("POST", "/eth/v1/builder/validators", bytes.NewBuffer(nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		rr := httptest.NewRecorder()
+		h := server.Middleware(http.HandlerFunc(server.HandleRegistration))
+		h.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Contains(t, rr.Body.String(), "empty json/ssz body")
+		assert.False(t, forwarded, "empty registration must not be forwarded to relays")
+	})
 }
 
 func TestServer_HandleGetHeader(t *testing.T) {

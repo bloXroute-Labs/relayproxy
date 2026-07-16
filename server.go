@@ -591,6 +591,17 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 		respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, toErrorResp(http.StatusRequestEntityTooLarge, "registration payload too large"), &log, s.tracer, receivedAt)
 		return
 	}
+
+	// Some clients send zero-length registration
+	// Reject without forwarding, mirroring the MEV	Relay's empty-body response
+	// (mev-boost-relay handleRegisterValidator), and keep the dropped counter clean
+	if len(bodyBytes) == 0 {
+		handleRegistrationSpan.AddEvent("handleRegistration- emptyPayloadRejected")
+		log.Warn().Msg("empty body received on registerValidator")
+		respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, toErrorResp(http.StatusBadRequest, "empty json/ssz body"), &log, s.tracer, receivedAt)
+		return
+	}
+
 	handleRegistrationSpan.AddEvent("handleRegistration- svcRegisterValidator")
 	// enqueues for asynchronous forwarding (drop-oldest under overload), so
 	// registration errors are never surfaced to the client
