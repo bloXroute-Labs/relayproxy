@@ -97,6 +97,9 @@ func TestService_RegisterValidator(t *testing.T) {
 			t.Fatal("registration was not forwarded to the relay")
 		}
 		assert.Equal(t, int64(0), s.registrationQueueBytes.Load())
+		assert.Eventually(t, func() bool {
+			return s.regForwardedOK.Load() == 1 && s.regForwardFailedAttempts.Load() == 0
+		}, time.Second, 10*time.Millisecond, "success counter was not incremented")
 	})
 
 	t.Run("retries transient failures then succeeds", func(t *testing.T) {
@@ -119,6 +122,9 @@ func TestService_RegisterValidator(t *testing.T) {
 		case <-time.After(2*regForwardRetryBackoff + 2*time.Second):
 			t.Fatal("registration was not retried")
 		}
+		assert.Eventually(t, func() bool {
+			return s.regForwardedOK.Load() == 1 && s.regForwardFailedAttempts.Load() == 1 && s.regForwardDropped.Load() == 0
+		}, time.Second, 10*time.Millisecond, "retry counters were not incremented")
 	})
 
 	t.Run("does not retry permanent relay rejections", func(t *testing.T) {

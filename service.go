@@ -113,6 +113,9 @@ type Service struct {
 	registrationWorkersOnce       sync.Once
 	regInFlightBytes              *semaphore.Weighted
 	regInFlightSlots              chan struct{}
+	regForwardedOK                atomic.Int64 // registrations acknowledged by a relay since the last monitor tick
+	regForwardFailedAttempts      atomic.Int64 // failed forward attempts since the last monitor tick
+	regForwardDropped             atomic.Int64 // registrations abandoned after retries since the last monitor tick
 
 	secretKey            *bls.SecretKey
 	publicKey            phase0.BLSPubKey

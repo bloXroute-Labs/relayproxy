@@ -42,10 +42,13 @@ const (
 	// registration volume observed through one proxy is only tens of MB.
 	regQueueMaxBytes = 768 << 20
 	// regMaxInFlightBytes caps the total payload bytes being forwarded
-	// concurrently (at the observed ~200KB per batch this allows ~1300 parallel
-	// forwards); regMaxInFlightTasks additionally bounds goroutine count when
-	// payloads are tiny.
-	regMaxInFlightBytes     = 256 << 20
+	// concurrently — at the observed ~200KB per batch this allows ~330 parallel
+	// forwards, draining an epoch-boundary burst in seconds. Note gRPC amplifies
+	// each in-flight payload ~7-9x in heap (marshal copy, transport and pooled
+	// response buffers, measured 2026-07-16), so the real transient cost is
+	// several times this budget; regMaxInFlightTasks additionally bounds
+	// goroutine count when payloads are tiny.
+	regMaxInFlightBytes     = 64 << 20
 	regMaxInFlightTasks     = 4096
 	regForwardMaxAttempts   = 3
 	regForwardRetryBackoff  = time.Second
@@ -173,24 +176,36 @@ func (s *Service) ensureRegistrationWorkers() {
 	})
 }
 
-// monitorRegistrationQueue periodically logs the registration queue backlog so
-// its distance from the regQueueMaxTasks/regQueueMaxBytes limits can be
-// monitored; quiet while the queue is empty.
+// monitorRegistrationQueue periodically logs the registration queue backlog
+// (quiet while the queue is empty) and the forwarding outcomes since the last
+// tick — forwardedOK is the positive confirmation that registrations are
+// reaching the relays (quiet when there was no registration activity at all).
 func (s *Service) monitorRegistrationQueue() {
 	ticker := time.NewTicker(regQueueMonitorInterval)
 	defer ticker.Stop()
 	for range ticker.C {
 		queuedTasks := len(s.registrationQueue)
 		queuedBytes := s.registrationQueueBytes.Load()
-		if queuedTasks == 0 && queuedBytes == 0 {
-			continue
+		if queuedTasks != 0 || queuedBytes != 0 {
+			s.logger.Info().
+				Int("queuedTasks", queuedTasks).
+				Int("maxTasks", regQueueMaxTasks).
+				Int64("queuedBytes", queuedBytes).
+				Int64("maxBytes", regQueueMaxBytes).
+				Msg("Registration queue backlog")
 		}
-		s.logger.Info().
-			Int("queuedTasks", queuedTasks).
-			Int("maxTasks", regQueueMaxTasks).
-			Int64("queuedBytes", queuedBytes).
-			Int64("maxBytes", regQueueMaxBytes).
-			Msg("Registration queue backlog")
+
+		forwardedOK := s.regForwardedOK.Swap(0)
+		failedAttempts := s.regForwardFailedAttempts.Swap(0)
+		dropped := s.regForwardDropped.Swap(0)
+		if forwardedOK != 0 || failedAttempts != 0 || dropped != 0 {
+			s.logger.Info().
+				Int64("forwardedOK", forwardedOK).
+				Int64("failedAttempts", failedAttempts).
+				Int64("dropped", dropped).
+				Dur("interval", regQueueMonitorInterval).
+				Msg("Registration forwarding stats")
+		}
 	}
 }
 
@@ -244,10 +259,13 @@ func (s *Service) forwardRegistration(task *registrationTask) {
 		cancel()
 
 		if errResp == nil {
+			s.regForwardedOK.Add(1)
 			return
 		}
+		s.regForwardFailedAttempts.Add(1)
 
 		if task.attempts >= regForwardMaxAttempts || !isRetryableRegistrationError(errResp) {
+			s.regForwardDropped.Add(1)
 			task.log.Error().Str("err", errResp.Error()).Int("attempts", task.attempts).Msg("Dropping validator registration")
 			return
 		}
