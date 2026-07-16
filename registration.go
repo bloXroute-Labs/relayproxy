@@ -205,7 +205,7 @@ func (s *Service) monitorRegistrationQueue() {
 				Int64("failedAttempts", failedAttempts).
 				Int64("dropped", dropped).
 				Int64("succeededAfterRetry", succeededAfterRetry).
-				Dur("interval", regQueueMonitorInterval).
+				Str("interval", regQueueMonitorInterval.String()).
 				Msg("Registration forwarding stats")
 		}
 	}
