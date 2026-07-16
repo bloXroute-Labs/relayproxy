@@ -32,6 +32,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	otelcodes "go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -110,6 +111,8 @@ type Service struct {
 	registrationQueue             chan *registrationTask
 	registrationQueueBytes        atomic.Int64
 	registrationWorkersOnce       sync.Once
+	regInFlightBytes              *semaphore.Weighted
+	regInFlightSlots              chan struct{}
 
 	secretKey            *bls.SecretKey
 	publicKey            phase0.BLSPubKey

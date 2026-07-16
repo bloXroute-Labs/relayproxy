@@ -13,19 +13,24 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	otelcodes "go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// Registration forwarding is asynchronous: RegisterValidator enqueues and a fixed
-// worker pool forwards to the registration relays, each attempt with its own
-// deadline. The queue is bounded by task count and total payload bytes, so a
-// registration burst against slow relays pins a bounded amount of memory instead
-// of accumulating unbounded gRPC send buffers (MEV-1984). When full, the oldest
-// queued registrations are shed (drop-oldest) so clients always receive success —
-// validators re-send every epoch, and a saturated queue means the registration
-// relays are failing, where delivery would fail under any shedding policy.
+// Registration forwarding is asynchronous: RegisterValidator enqueues, and a
+// dispatcher forwards each registration in its own goroutine with its own
+// deadline, gated by an in-flight byte budget rather than a fixed worker count.
+// Epoch boundaries deliver thousands of ~200KB batches within seconds, so drain
+// concurrency must scale with the burst (a fixed 16-worker pool caused ~250
+// drop-oldest evictions per epoch); the relays have always absorbed this
+// concurrency — the byte budget only caps how much memory in-flight requests can
+// pin when relays stall (MEV-1984/MEV-1985). The queue is bounded by task count
+// and total payload bytes; when it overflows, the oldest queued registrations
+// are shed (drop-oldest) so clients always receive success — validators re-send
+// every epoch, and a saturated queue means the registration relays are failing,
+// where delivery would fail under any shedding policy.
 const (
 	// maxRegistrationPayloadBytes is anti-abuse only and must stay far above any
 	// legitimate batch: every mainnet validator (~880k) registering in a single
@@ -35,8 +40,13 @@ const (
 	// regQueueMaxBytes must be >= maxRegistrationPayloadBytes so a max-size
 	// request can always enqueue into an empty queue; typical epoch-wide
 	// registration volume observed through one proxy is only tens of MB.
-	regQueueMaxBytes        = 768 << 20
-	regQueueWorkers         = 16
+	regQueueMaxBytes = 768 << 20
+	// regMaxInFlightBytes caps the total payload bytes being forwarded
+	// concurrently (at the observed ~200KB per batch this allows ~1300 parallel
+	// forwards); regMaxInFlightTasks additionally bounds goroutine count when
+	// payloads are tiny.
+	regMaxInFlightBytes     = 256 << 20
+	regMaxInFlightTasks     = 4096
 	regForwardMaxAttempts   = 3
 	regForwardRetryBackoff  = time.Second
 	regQueueMonitorInterval = 30 * time.Second
@@ -156,9 +166,9 @@ func (s *Service) ensureRegistrationWorkers() {
 		if s.registrationQueue == nil {
 			s.registrationQueue = make(chan *registrationTask, regQueueMaxTasks)
 		}
-		for range regQueueWorkers {
-			go s.registrationWorker()
-		}
+		s.regInFlightBytes = semaphore.NewWeighted(regMaxInFlightBytes)
+		s.regInFlightSlots = make(chan struct{}, regMaxInFlightTasks)
+		go s.registrationDispatcher()
 		go s.monitorRegistrationQueue()
 	})
 }
@@ -184,10 +194,29 @@ func (s *Service) monitorRegistrationQueue() {
 	}
 }
 
-func (s *Service) registrationWorker() {
+// registrationDispatcher drains the queue, forwarding each registration in its
+// own goroutine. Concurrency is limited by the in-flight byte budget and task
+// slot cap; when both are exhausted (relays stalled with the budget's worth of
+// requests outstanding) the dispatcher blocks, applying backpressure into the
+// bounded queue, whose drop-oldest overflow is then the shedding mechanism.
+func (s *Service) registrationDispatcher() {
 	for task := range s.registrationQueue {
-		s.registrationQueueBytes.Add(-int64(len(task.req.Payload)))
-		s.forwardRegistration(task)
+		payloadBytes := int64(len(task.req.Payload))
+		// clamp: a payload above the whole budget (allowed up to
+		// maxRegistrationPayloadBytes) must not block Acquire forever
+		weight := min(payloadBytes, regMaxInFlightBytes)
+		s.regInFlightSlots <- struct{}{}
+		// weighted Acquire only fails on ctx cancellation; Background never cancels
+		_ = s.regInFlightBytes.Acquire(context.Background(), weight)
+		s.registrationQueueBytes.Add(-payloadBytes)
+
+		go func(t *registrationTask, n int64) {
+			defer func() {
+				s.regInFlightBytes.Release(n)
+				<-s.regInFlightSlots
+			}()
+			s.forwardRegistration(t)
+		}(task, weight)
 	}
 }
 

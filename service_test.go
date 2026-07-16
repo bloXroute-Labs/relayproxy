@@ -138,6 +138,28 @@ func TestService_RegisterValidator(t *testing.T) {
 		assert.Equal(t, int64(1), attempts.Load())
 	})
 
+	t.Run("forwards a burst concurrently, not serially", func(t *testing.T) {
+		const burst = 64 // far above the old fixed pool size of 16
+		var inFlight atomic.Int64
+		release := make(chan struct{})
+		s := newRegistrationTestService(func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
+			inFlight.Add(1)
+			<-release // hold every call open so concurrency is observable
+			return &relaygrpc.RegisterValidatorResponse{Code: 0, Message: "success"}, nil
+		})
+
+		for range burst {
+			_, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: []byte("registration")})
+			assert.Nil(t, err)
+		}
+
+		// every registration of the burst must be in flight simultaneously
+		assert.Eventually(t, func() bool {
+			return inFlight.Load() == burst
+		}, 2*time.Second, 10*time.Millisecond, "burst was not forwarded concurrently: %d in flight", inFlight.Load())
+		close(release)
+	})
+
 	t.Run("evicts oldest when task capacity is reached", func(t *testing.T) {
 		s := newRegistrationTestService(nil)
 		// disarm the worker pool and use a tiny queue so eviction is deterministic
