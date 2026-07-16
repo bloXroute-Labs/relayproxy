@@ -123,7 +123,8 @@ func TestService_RegisterValidator(t *testing.T) {
 			t.Fatal("registration was not retried")
 		}
 		assert.Eventually(t, func() bool {
-			return s.regForwardedOK.Load() == 1 && s.regForwardFailedAttempts.Load() == 1 && s.regForwardDropped.Load() == 0
+			return s.regForwardedOK.Load() == 1 && s.regForwardFailedAttempts.Load() == 1 &&
+				s.regForwardDropped.Load() == 0 && s.regSucceededAfterRetry.Load() == 1
 		}, time.Second, 10*time.Millisecond, "retry counters were not incremented")
 	})
 

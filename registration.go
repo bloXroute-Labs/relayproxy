@@ -198,11 +198,13 @@ func (s *Service) monitorRegistrationQueue() {
 		forwardedOK := s.regForwardedOK.Swap(0)
 		failedAttempts := s.regForwardFailedAttempts.Swap(0)
 		dropped := s.regForwardDropped.Swap(0)
+		succeededAfterRetry := s.regSucceededAfterRetry.Swap(0)
 		if forwardedOK != 0 || failedAttempts != 0 || dropped != 0 {
 			s.logger.Info().
 				Int64("forwardedOK", forwardedOK).
 				Int64("failedAttempts", failedAttempts).
 				Int64("dropped", dropped).
+				Int64("succeededAfterRetry", succeededAfterRetry).
 				Dur("interval", regQueueMonitorInterval).
 				Msg("Registration forwarding stats")
 		}
@@ -260,6 +262,9 @@ func (s *Service) forwardRegistration(task *registrationTask) {
 
 		if errResp == nil {
 			s.regForwardedOK.Add(1)
+			if task.attempts > 1 {
+				s.regSucceededAfterRetry.Add(1)
+			}
 			return
 		}
 		s.regForwardFailedAttempts.Add(1)

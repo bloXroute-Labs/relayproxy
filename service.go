@@ -116,6 +116,7 @@ type Service struct {
 	regForwardedOK                atomic.Int64 // registrations acknowledged by a relay since the last monitor tick
 	regForwardFailedAttempts      atomic.Int64 // failed forward attempts since the last monitor tick
 	regForwardDropped             atomic.Int64 // registrations abandoned after retries since the last monitor tick
+	regSucceededAfterRetry        atomic.Int64 // registrations that needed >=1 retry to be acknowledged, since the last monitor tick
 
 	secretKey            *bls.SecretKey
 	publicKey            phase0.BLSPubKey
