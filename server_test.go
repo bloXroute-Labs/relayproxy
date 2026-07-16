@@ -174,7 +174,7 @@ func TestServer_HandleRegistration(t *testing.T) {
 			},
 			expectedCode: http.StatusOK,
 		},
-		"When registration queue is full": {
+		"Service errors are never surfaced to the client": {
 			requestBody: []byte(`{"key": "value"}`),
 			url:         "/eth/v1/builder/validators",
 			mockService: &MockService{
@@ -183,7 +183,7 @@ func TestServer_HandleRegistration(t *testing.T) {
 					return nil, toErrorResp(http.StatusServiceUnavailable, "registration queue is full")
 				},
 			},
-			expectedCode: http.StatusServiceUnavailable,
+			expectedCode: http.StatusOK,
 		},
 	}
 

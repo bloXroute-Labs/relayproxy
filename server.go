@@ -592,7 +592,8 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	handleRegistrationSpan.AddEvent("handleRegistration- svcRegisterValidator")
-	// enqueues for asynchronous forwarding; only fails when the queue is full
+	// enqueues for asynchronous forwarding (drop-oldest under overload), so
+	// registration errors are never surfaced to the client
 	if _, err := s.svc.RegisterValidator(handleRegistrationCtx, &log, outgoingCtx, &RegistrationParams{
 		ReceivedAt:         receivedAt,
 		Payload:            bodyBytes,
@@ -609,10 +610,6 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 			attribute.String("error", err.Error()),
 		)
 		log.Error().Err(err).Msg("Error in RegisterValidator")
-		if errResp, ok := err.(*ErrorResp); ok && errResp.Code == http.StatusServiceUnavailable {
-			respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, errResp, &log, s.tracer, receivedAt)
-			return
-		}
 	}
 
 	if err := respondOK(handleRegistrationCtx, handleRegistrationSpan, registration, w, struct{}{}, &log, s.tracer, false, receivedAt); err == nil {

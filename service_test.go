@@ -138,15 +138,56 @@ func TestService_RegisterValidator(t *testing.T) {
 		assert.Equal(t, int64(1), attempts.Load())
 	})
 
-	t.Run("rejects when queue byte limit is reached", func(t *testing.T) {
+	t.Run("evicts oldest when task capacity is reached", func(t *testing.T) {
 		s := newRegistrationTestService(nil)
+		// disarm the worker pool and use a tiny queue so eviction is deterministic
+		s.registrationWorkersOnce.Do(func() {})
+		s.registrationQueue = make(chan *registrationTask, 2)
+
+		for _, payload := range []string{"first", "second", "third"} {
+			got, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: []byte(payload)})
+			assert.Nil(t, err)
+			assert.Equal(t, struct{}{}, got)
+		}
+
+		// "first" (the oldest) was evicted to admit "third"
+		assert.Equal(t, 2, len(s.registrationQueue))
+		assert.Equal(t, []byte("second"), (<-s.registrationQueue).req.Payload)
+		assert.Equal(t, []byte("third"), (<-s.registrationQueue).req.Payload)
+		assert.Equal(t, int64(len("second")+len("third")), s.registrationQueueBytes.Load())
+	})
+
+	t.Run("evicts oldest when byte limit is reached", func(t *testing.T) {
+		s := newRegistrationTestService(nil)
+		s.registrationWorkersOnce.Do(func() {})
+		s.registrationQueue = make(chan *registrationTask, 4)
+
+		_, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: make([]byte, 100)})
+		assert.Nil(t, err)
+		// pretend the queue already holds the byte cap
 		s.registrationQueueBytes.Store(regQueueMaxBytes)
 
-		_, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: []byte("registration")})
-		assert.NotNil(t, err)
-		errResp, ok := err.(*ErrorResp)
-		assert.True(t, ok)
-		assert.Equal(t, http.StatusServiceUnavailable, errResp.Code)
+		got, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: make([]byte, 50)})
+		assert.Nil(t, err)
+		assert.Equal(t, struct{}{}, got)
+
+		// the 100-byte head was evicted to fit the 50-byte newcomer under the cap
+		assert.Equal(t, 1, len(s.registrationQueue))
+		assert.Equal(t, 50, len((<-s.registrationQueue).req.Payload))
+		assert.Equal(t, int64(regQueueMaxBytes-100+50), s.registrationQueueBytes.Load())
+	})
+
+	t.Run("drops the new registration when nothing can be evicted", func(t *testing.T) {
+		s := newRegistrationTestService(nil)
+		s.registrationWorkersOnce.Do(func() {})
+		s.registrationQueue = make(chan *registrationTask, 4)
+		// over byte cap with an empty queue: nothing to evict, newcomer is shed
+		s.registrationQueueBytes.Store(regQueueMaxBytes)
+
+		got, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: []byte("registration")})
+		assert.Nil(t, err)
+		assert.Equal(t, struct{}{}, got) // client still sees success
+		assert.Equal(t, 0, len(s.registrationQueue))
 		assert.Equal(t, int64(regQueueMaxBytes), s.registrationQueueBytes.Load())
 	})
 }

@@ -22,7 +22,10 @@ import (
 // worker pool forwards to the registration relays, each attempt with its own
 // deadline. The queue is bounded by task count and total payload bytes, so a
 // registration burst against slow relays pins a bounded amount of memory instead
-// of accumulating unbounded gRPC send buffers (MEV-1984).
+// of accumulating unbounded gRPC send buffers (MEV-1984). When full, the oldest
+// queued registrations are shed (drop-oldest) so clients always receive success —
+// validators re-send every epoch, and a saturated queue means the registration
+// relays are failing, where delivery would fail under any shedding policy.
 const (
 	// maxRegistrationPayloadBytes is anti-abuse only and must stay far above any
 	// legitimate batch: every mainnet validator (~880k) registering in a single
@@ -93,31 +96,58 @@ func (s *Service) RegisterValidator(ctx context.Context, log *zerolog.Logger, ou
 	task := &registrationTask{req: req, md: md, log: *log}
 
 	s.ensureRegistrationWorkers()
+	s.enqueueRegistration(task, span)
+	return struct{}{}, nil
+}
 
-	payloadBytes := int64(len(in.Payload))
-	if s.registrationQueueBytes.Add(payloadBytes) > regQueueMaxBytes {
-		s.registrationQueueBytes.Add(-payloadBytes)
-		span.SetStatus(otelcodes.Error, "registration queue byte limit reached")
-		log.Error().
-			Int64("payloadBytes", payloadBytes).
-			Int("queuedTasks", len(s.registrationQueue)).
-			Int64("queuedBytes", s.registrationQueueBytes.Load()).
-			Msg("Registration queue byte limit reached, rejecting registration with 503")
-		return nil, toErrorResp(http.StatusServiceUnavailable, "registration queue is full")
+// enqueueRegistration adds a registration to the forwarding queue, evicting the
+// oldest queued registrations to make room when the task or byte cap is hit
+// (drop-oldest). Clients therefore always get a success response; shed
+// registrations are logged and re-sent by validators on their next epoch cycle.
+// A saturated queue only occurs when the registration relays are failing, in
+// which case delivery would fail regardless of shedding policy.
+func (s *Service) enqueueRegistration(task *registrationTask, span trace.Span) {
+	payloadBytes := int64(len(task.req.Payload))
+	s.registrationQueueBytes.Add(payloadBytes)
+
+	// bounded so a pathological race with concurrent enqueuers cannot spin forever
+	for range regQueueMaxTasks + 1 {
+		if s.registrationQueueBytes.Load() <= regQueueMaxBytes {
+			select {
+			case s.registrationQueue <- task:
+				return
+			default:
+			}
+		}
+		if !s.evictOldestRegistration(span) {
+			break // nothing left to evict yet still no room: give up on the new task
+		}
 	}
 
+	s.registrationQueueBytes.Add(-payloadBytes)
+	span.SetStatus(otelcodes.Error, "registration dropped, could not make room in queue")
+	task.log.Error().
+		Int64("payloadBytes", payloadBytes).
+		Int("queuedTasks", len(s.registrationQueue)).
+		Int64("queuedBytes", s.registrationQueueBytes.Load()).
+		Msg("Dropping registration, could not make room in full queue")
+}
+
+// evictOldestRegistration sheds the head of the queue (the oldest pending
+// registration). Reports false when the queue is empty.
+func (s *Service) evictOldestRegistration(span trace.Span) bool {
 	select {
-	case s.registrationQueue <- task:
-		return struct{}{}, nil
-	default:
-		s.registrationQueueBytes.Add(-payloadBytes)
-		span.SetStatus(otelcodes.Error, "registration queue task limit reached")
-		log.Error().
-			Int64("payloadBytes", payloadBytes).
+	case dropped := <-s.registrationQueue:
+		s.registrationQueueBytes.Add(-int64(len(dropped.req.Payload)))
+		span.AddEvent("evicted oldest queued registration")
+		dropped.log.Error().
+			Int("payloadBytes", len(dropped.req.Payload)).
 			Int("queuedTasks", len(s.registrationQueue)).
 			Int64("queuedBytes", s.registrationQueueBytes.Load()).
-			Msg("Registration queue task limit reached, rejecting registration with 503")
-		return nil, toErrorResp(http.StatusServiceUnavailable, "registration queue is full")
+			Msg("Evicting oldest queued registration to admit a newer one")
+		return true
+	default:
+		return false
 	}
 }
 
