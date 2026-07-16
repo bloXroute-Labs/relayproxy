@@ -581,13 +581,13 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, maxRegistrationPayloadBytes+1))
 	if err != nil {
 		handleRegistrationSpan.SetStatus(codes.Error, err.Error())
-		log.Error().Err(err).Msg("could not read registration")
-		respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, toErrorResp(http.StatusInternalServerError, "could not read registration"), &log, s.tracer, receivedAt)
+		log.Error().Err(err).Msg("failed to read validator registration bytes")
+		respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, toErrorResp(http.StatusInternalServerError, "failed to read validator registration bytes"), &log, s.tracer, receivedAt)
 		return
 	}
 	if len(bodyBytes) > maxRegistrationPayloadBytes {
-		handleRegistrationSpan.SetStatus(codes.Error, "registration payload too large")
-		log.Error().Int("payloadBytes", len(bodyBytes)).Msg("registration payload too large")
+		handleRegistrationSpan.SetStatus(codes.Error, "Registration payload too large")
+		log.Error().Int("payloadBytes", len(bodyBytes)).Msg("Registration payload too large")
 		respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, toErrorResp(http.StatusRequestEntityTooLarge, "registration payload too large"), &log, s.tracer, receivedAt)
 		return
 	}
@@ -608,7 +608,7 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 		handleRegistrationSpan.SetAttributes(
 			attribute.String("error", err.Error()),
 		)
-		log.Error().Err(err).Msg("error in RegisterValidator")
+		log.Error().Err(err).Msg("Error in RegisterValidator")
 		if errResp, ok := err.(*ErrorResp); ok && errResp.Code == http.StatusServiceUnavailable {
 			respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, errResp, &log, s.tracer, receivedAt)
 			return
@@ -885,8 +885,8 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
-		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("could not read registration")
-		respondError(getPayloadCtx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "could not read registration"), &log, s.tracer, receivedAt)
+		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("could not read getPayload request bytes")
+		respondError(getPayloadCtx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "could not read getPayload request bytes"), &log, s.tracer, receivedAt)
 		return
 	}
 	signedBlindedBeaconBlock := new(common.VersionedSignedBlindedBeaconBlock)
@@ -1088,8 +1088,8 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
-		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("could not read registration")
-		respondError(getPayloadCtx, span, getPayloadV2, w, toErrorResp(http.StatusInternalServerError, "could not read payload"), &log, s.tracer, receivedAt)
+		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("could not read getPayloadV2 request bytes")
+		respondError(getPayloadCtx, span, getPayloadV2, w, toErrorResp(http.StatusInternalServerError, "could not read getPayloadV2 request bytes"), &log, s.tracer, receivedAt)
 		return
 	}
 	signedBlindedBeaconBlock := new(common.VersionedSignedBlindedBeaconBlock)

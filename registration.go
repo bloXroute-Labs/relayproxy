@@ -189,11 +189,11 @@ func (s *Service) forwardRegistration(task *registrationTask) {
 		}
 
 		if task.attempts >= regForwardMaxAttempts || !isRetryableRegistrationError(errResp) {
-			task.log.Error().Str("err", errResp.Error()).Int("attempts", task.attempts).Msg("dropping validator registration")
+			task.log.Error().Str("err", errResp.Error()).Int("attempts", task.attempts).Msg("Dropping validator registration")
 			return
 		}
 
-		task.log.Warn().Str("err", errResp.Error()).Int("attempts", task.attempts).Msg("retrying validator registration")
+		task.log.Warn().Str("err", errResp.Error()).Int("attempts", task.attempts).Msg("Retrying validator registration")
 		time.Sleep(regForwardRetryBackoff)
 	}
 }
