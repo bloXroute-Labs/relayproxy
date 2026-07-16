@@ -32,10 +32,11 @@ const (
 	// regQueueMaxBytes must be >= maxRegistrationPayloadBytes so a max-size
 	// request can always enqueue into an empty queue; typical epoch-wide
 	// registration volume observed through one proxy is only tens of MB.
-	regQueueMaxBytes       = 768 << 20
-	regQueueWorkers        = 16
-	regForwardMaxAttempts  = 3
-	regForwardRetryBackoff = time.Second
+	regQueueMaxBytes        = 768 << 20
+	regQueueWorkers         = 16
+	regForwardMaxAttempts   = 3
+	regForwardRetryBackoff  = time.Second
+	regQueueMonitorInterval = 30 * time.Second
 )
 
 // registrationTask is one registration waiting to be forwarded to the relays.
@@ -97,7 +98,11 @@ func (s *Service) RegisterValidator(ctx context.Context, log *zerolog.Logger, ou
 	if s.registrationQueueBytes.Add(payloadBytes) > regQueueMaxBytes {
 		s.registrationQueueBytes.Add(-payloadBytes)
 		span.SetStatus(otelcodes.Error, "registration queue byte limit reached")
-		log.Error().Int64("payloadBytes", payloadBytes).Msg("registration queue byte limit reached, rejecting registration")
+		log.Error().
+			Int64("payloadBytes", payloadBytes).
+			Int("queuedTasks", len(s.registrationQueue)).
+			Int64("queuedBytes", s.registrationQueueBytes.Load()).
+			Msg("Registration queue byte limit reached, rejecting registration with 503")
 		return nil, toErrorResp(http.StatusServiceUnavailable, "registration queue is full")
 	}
 
@@ -107,7 +112,11 @@ func (s *Service) RegisterValidator(ctx context.Context, log *zerolog.Logger, ou
 	default:
 		s.registrationQueueBytes.Add(-payloadBytes)
 		span.SetStatus(otelcodes.Error, "registration queue task limit reached")
-		log.Error().Msg("registration queue task limit reached, rejecting registration")
+		log.Error().
+			Int64("payloadBytes", payloadBytes).
+			Int("queuedTasks", len(s.registrationQueue)).
+			Int64("queuedBytes", s.registrationQueueBytes.Load()).
+			Msg("Registration queue task limit reached, rejecting registration with 503")
 		return nil, toErrorResp(http.StatusServiceUnavailable, "registration queue is full")
 	}
 }
@@ -120,7 +129,29 @@ func (s *Service) ensureRegistrationWorkers() {
 		for range regQueueWorkers {
 			go s.registrationWorker()
 		}
+		go s.monitorRegistrationQueue()
 	})
+}
+
+// monitorRegistrationQueue periodically logs the registration queue backlog so
+// its distance from the regQueueMaxTasks/regQueueMaxBytes limits can be
+// monitored; quiet while the queue is empty.
+func (s *Service) monitorRegistrationQueue() {
+	ticker := time.NewTicker(regQueueMonitorInterval)
+	defer ticker.Stop()
+	for range ticker.C {
+		queuedTasks := len(s.registrationQueue)
+		queuedBytes := s.registrationQueueBytes.Load()
+		if queuedTasks == 0 && queuedBytes == 0 {
+			continue
+		}
+		s.logger.Info().
+			Int("queuedTasks", queuedTasks).
+			Int("maxTasks", regQueueMaxTasks).
+			Int64("queuedBytes", queuedBytes).
+			Int64("maxBytes", regQueueMaxBytes).
+			Msg("Registration queue backlog")
+	}
 }
 
 func (s *Service) registrationWorker() {
