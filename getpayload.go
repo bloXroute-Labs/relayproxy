@@ -372,31 +372,6 @@ func (s *Service) sendPayloadStats(payload []byte, log *zerolog.Logger, isSuccee
 		statsUserAgent = fmt.Sprintf("%s/%s", statsUserAgent, in.Cluster)
 	}
 
-	go s.IDataService.GetFlowService().RecordGetPayload(out.GetSlot(), out.GetParentHash(), out.GetBlockHash(), out.GetPubkey(), out.GetBlockValue(), s.nodeID, GetPayloadFlowEvent{
-		FlowEventSentAt:       time.Now().UTC(),
-		ReqID:                 id,
-		ClientIP:              in.ClientIP,
-		Source:                "",
-		Success:               isSucceeded,
-		DurationMs:            time.Since(startTime).Milliseconds(),
-		MsIntoSlotStart:       msIntoSlot,
-		MsIntoSlotEnd:         0,
-		PayloadSizeBytes:      0,
-		BlockValueEth:         out.GetBlockValue(),
-		RelayURL:              "",
-		Error:                 errMsg,
-		GetHeaderReqID:        "",
-		GetPayloadStartUnixMs: in.GetPayloadStartTimeUnixMS,
-		SlotStartTimeUnix:     0,
-		MsIntoSlotHeaderStart: 0,
-		UserAgent:             statsUserAgent,
-		AccountID:             in.AccountID,
-		ValidatorID:           in.ValidatorID,
-		Latency:               latency,
-		SlotUID:               in.SlotUID,
-		NodeID:                s.nodeID,
-	})
-
 	statsRecord := SlotStatsRecord{
 		PayloadReqID:              id,
 		PayloadReqReceivedAt:      in.ReceivedAt,

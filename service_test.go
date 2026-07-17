@@ -1235,33 +1235,6 @@ func TestVouch(t *testing.T) {
 	require.True(t, isVouch("Vouch/1.9.1"))
 }
 
-// mockFlowService is a mock of IFlowService
-type mockFlowService struct{}
-
-func (m *mockFlowService) RecordHeaderFlow(slot uint64, parentHash, blockHash, blockValue, proposerPubkey, nodeID string, ev HeaderFlowEvent) {
-}
-
-func (m *mockFlowService) RecordPrefetchStart(slot uint64, parentHash, blockHash, proposerPubkey, blockValue, nodeID string, ev PrefetchFlowEvent) {
-}
-
-func (m *mockFlowService) RecordPrefetchDone(slot uint64, parentHash, blockHash, proposerPubkey, reqID, getHeaderReqID string, success bool, durationMs int64, source FlowSource, serverURL, serverNodeID string, payloadSizeBytes int, errStr string) {
-}
-
-func (m *mockFlowService) RecordGetPayload(slot uint64, parentHash, blockHash, proposerPubkey, blockValue, nodeID string, ev GetPayloadFlowEvent) {
-}
-
-func (m *mockFlowService) GetAllFlowsSnapshot() map[string]*FlowRecord {
-	return nil
-}
-
-func (m *mockFlowService) GetFlowsBySlot(slot uint64) []*FlowRecord {
-	return nil
-}
-
-func (m *mockFlowService) GetFlowsBySlotAndBlock(slot uint64, blockHash string) []*FlowRecord {
-	return nil
-}
-
 // mockDataService is a mock of IDataService
 type mockDataService struct{}
 
@@ -1291,8 +1264,4 @@ func (m *mockDataService) DelayGetHeader(ctx context.Context, in DelayGetHeaderP
 
 func (m *mockDataService) GetSlotDuty(slot uint64) (*common.MiniValidatorLatency, error) {
 	return nil, nil
-}
-
-func (m *mockDataService) GetFlowService() IFlowService {
-	return &mockFlowService{}
 }

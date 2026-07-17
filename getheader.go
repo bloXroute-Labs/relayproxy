@@ -270,37 +270,6 @@ func (s *Service) GetHeader(parentSpan trace.Span, parentCtx context.Context, lo
 		PayloadFetchUrl:          slotBestHeader.PayloadFetchUrl,
 		IsValidatorIP:            isValidatorIP,
 	}
-	relayURL := ""
-	if slotBestHeader.Client != nil {
-		relayURL = slotBestHeader.Client.String()
-	}
-	go s.IDataService.GetFlowService().RecordHeaderFlow(_slot, in.ParentHash, slotBestHeader.BlockHash, weiToEther(blockValue), in.PubKey, s.nodeID, HeaderFlowEvent{
-		FlowEventSentAt:      time.Now().UTC(),
-		ServedByThisNode:     true,
-		SlotStartTime:        slotStartTime,
-		MsIntoSlot:           msIntoSlot,
-		MsIntoSlotWithDelay:  getHeaderSleepData.MsIntoSlotIncludingDelay,
-		AccountID:            in.AccountID,
-		ValidatorID:          in.ValidatorID,
-		Source:               FlowSourceLocalBidCache, // adjust if needed
-		GetHeaderReqID:       id,
-		GetHeaderStartUnixMs: in.GetHeaderStartTimeUnixMS,
-		BlockValue:           weiToEther(blockValue),
-		BuilderPubkey:        slotBestHeader.BuilderPubkey,
-		BuilderExtraData:     slotBestHeader.BuilderExtraData,
-		BlockHashReceivedAt:  slotBestHeader.ReceivedAt,
-		RelayURL:             relayURL,
-		BlockSequenceNumber:  slotBestHeader.BlockSequenceNumber,
-		Latency:              latency,
-		Sleep:                getHeaderSleepData.SleepMs,
-		MaxSleep:             getHeaderSleepData.MaxSleepMs,
-		ClientIP:             in.ClientIP,
-		NodeID:               s.nodeID,
-		SlotUID:              in.SlotUID,
-		HeaderUserAgent:      statsUserAgent,
-		RepickedBlock:        getHeaderSleepData.UsedRepick,
-	})
-
 	return signedHeaderResponse, onHeaderDeliveredParams, nil
 }
 
