@@ -578,35 +578,50 @@ func (s *Server) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	handleRegistrationSpan.SetAttributes(
 		attribute.Bool("proposerMevProtect", hasProposerMevProtect),
 	)
-	bodyBytes, err := io.ReadAll(r.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, maxRegistrationPayloadBytes+1))
 	if err != nil {
 		handleRegistrationSpan.SetStatus(codes.Error, err.Error())
-		log.Error().Err(err).Msg("could not read registration")
-		respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, toErrorResp(http.StatusInternalServerError, "could not read registration"), &log, s.tracer, receivedAt)
+		log.Error().Err(err).Msg("failed to read validator registration bytes")
+		respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, toErrorResp(http.StatusInternalServerError, "failed to read validator registration bytes"), &log, s.tracer, receivedAt)
 		return
 	}
+	if len(bodyBytes) > maxRegistrationPayloadBytes {
+		handleRegistrationSpan.SetStatus(codes.Error, "Registration payload too large")
+		log.Error().Int("payloadBytes", len(bodyBytes)).Msg("Registration payload too large")
+		respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, toErrorResp(http.StatusRequestEntityTooLarge, "registration payload too large"), &log, s.tracer, receivedAt)
+		return
+	}
+
+	// Some clients send zero-length registration
+	// Reject without forwarding, mirroring the MEV	Relay's empty-body response
+	// (mev-boost-relay handleRegisterValidator), and keep the dropped counter clean
+	if len(bodyBytes) == 0 {
+		handleRegistrationSpan.AddEvent("handleRegistration- emptyPayloadRejected")
+		log.Warn().Msg("empty body received on registerValidator")
+		respondError(handleRegistrationCtx, handleRegistrationSpan, registration, w, toErrorResp(http.StatusBadRequest, "empty json/ssz body"), &log, s.tracer, receivedAt)
+		return
+	}
+
 	handleRegistrationSpan.AddEvent("handleRegistration- svcRegisterValidator")
-	go func() {
-		_, err := s.svc.RegisterValidator(handleRegistrationCtx, &log, outgoingCtx, &RegistrationParams{
-			ReceivedAt:         receivedAt,
-			Payload:            bodyBytes,
-			ClientIP:           clientIP,
-			AuthHeader:         authHeader,
-			ValidatorID:        validatorID,
-			AccountID:          accountID,
-			ComplianceList:     complianceList,
-			ProposerMevProtect: hasProposerMevProtect,
-			SkipOptimism:       isSkipOptimism,
-		})
-		if err != nil {
-			handleRegistrationSpan.SetStatus(codes.Error, err.Error())
-			handleRegistrationSpan.SetAttributes(
-				attribute.String("error", err.Error()),
-			)
-			log.Error().Err(err).Msg("error in RegisterValidator")
-			return
-		}
-	}()
+	// enqueues for asynchronous forwarding (drop-oldest under overload), so
+	// registration errors are never surfaced to the client
+	if _, err := s.svc.RegisterValidator(handleRegistrationCtx, &log, outgoingCtx, &RegistrationParams{
+		ReceivedAt:         receivedAt,
+		Payload:            bodyBytes,
+		ClientIP:           clientIP,
+		AuthHeader:         authHeader,
+		ValidatorID:        validatorID,
+		AccountID:          accountID,
+		ComplianceList:     complianceList,
+		ProposerMevProtect: hasProposerMevProtect,
+		SkipOptimism:       isSkipOptimism,
+	}); err != nil {
+		handleRegistrationSpan.SetStatus(codes.Error, err.Error())
+		handleRegistrationSpan.SetAttributes(
+			attribute.String("error", err.Error()),
+		)
+		log.Error().Err(err).Msg("Error in RegisterValidator")
+	}
 
 	if err := respondOK(handleRegistrationCtx, handleRegistrationSpan, registration, w, struct{}{}, &log, s.tracer, false, receivedAt); err == nil {
 		success = true
@@ -878,8 +893,8 @@ func (s *Server) HandleGetPayload(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
-		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("could not read registration")
-		respondError(getPayloadCtx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "could not read registration"), &log, s.tracer, receivedAt)
+		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("could not read getPayload request bytes")
+		respondError(getPayloadCtx, span, getPayload, w, toErrorResp(http.StatusInternalServerError, "could not read getPayload request bytes"), &log, s.tracer, receivedAt)
 		return
 	}
 	signedBlindedBeaconBlock := new(common.VersionedSignedBlindedBeaconBlock)
@@ -1081,8 +1096,8 @@ func (s *Server) HandleGetPayloadV2(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
-		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("could not read registration")
-		respondError(getPayloadCtx, span, getPayloadV2, w, toErrorResp(http.StatusInternalServerError, "could not read payload"), &log, s.tracer, receivedAt)
+		log.Error().Err(err).Time("currentTime", time.Now().UTC()).Msg("could not read getPayloadV2 request bytes")
+		respondError(getPayloadCtx, span, getPayloadV2, w, toErrorResp(http.StatusInternalServerError, "could not read getPayloadV2 request bytes"), &log, s.tracer, receivedAt)
 		return
 	}
 	signedBlindedBeaconBlock := new(common.VersionedSignedBlindedBeaconBlock)

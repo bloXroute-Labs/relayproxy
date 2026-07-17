@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,61 +64,161 @@ const (
 	TestAuthHeader = "NzM2NWJiYzgtMTBkNS00OGZjLTk5NGQtNjFlODQzYjE0OGNjOmZiMmQ3NWU5LWIwY2YtNDIyMS1hZjMxLTZjYTYwOGYyZTExNA=="
 )
 
-func TestService_RegisterValidator(t *testing.T) {
-	tests := map[string]struct {
-		f               func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error)
-		expectedSuccess any
-		expectedErr     *ErrorResp
-	}{
-		"If registerValidator succeeded ": {
-			f: func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
-				return &relaygrpc.RegisterValidatorResponse{Code: 0, Message: "success"}, nil
-			},
-			expectedSuccess: struct{}{},
-			expectedErr:     nil,
-		},
-		"If registerValidator returns error": {
-			f: func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
-				return nil, fmt.Errorf("relays returned error")
-			},
-			expectedErr: toErrorResp(http.StatusInternalServerError, "relays returned error"),
-		},
-		"If registerValidator returns empty output": {
-			f: func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
-				return nil, nil
-			},
-			expectedErr: toErrorResp(http.StatusInternalServerError, "empty response from relay"),
-		},
-		"If registerValidator returns error output": {
-			f: func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
-				return &relaygrpc.RegisterValidatorResponse{Code: 2, Message: "failed"}, nil
-			},
-			expectedErr: toErrorResp(http.StatusInternalServerError, "relay returned failure response code 2"),
-		},
+func newRegistrationTestService(f func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error)) *Service {
+	c := &common.Client{RelayClient: &mockRelayClient{RegisterValidatorFunc: f}}
+	pc := &common.ParentClient{
+		SafeClient: c,
 	}
+	return &Service{
+		logger:              zerolog.Nop(),
+		clients:             []*common.ParentClient{pc},
+		registrationClients: []*common.ParentClient{pc},
+		tracer:              noop.NewTracerProvider().Tracer("test"),
+		fluentD:             fluentstats.NewStats(true, "0.0.0.0:24224"),
+	}
+}
 
-	for testName, tt := range tests {
-		t.Run(testName, func(t *testing.T) {
-			c := &common.Client{RelayClient: &mockRelayClient{RegisterValidatorFunc: tt.f}}
-			pc := &common.ParentClient{
-				SafeClient: c,
-				FastClient: c,
-			}
-			s := &Service{
-				logger:              zerolog.Nop(),
-				clients:             []*common.ParentClient{pc},
-				registrationClients: []*common.ParentClient{pc},
-				tracer:              noop.NewTracerProvider().Tracer("test"),
-				fluentD:             fluentstats.NewStats(true, "0.0.0.0:24224"),
-			}
-			got, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{})
-			if err == nil {
-				assert.Equal(t, tt.expectedSuccess, got)
-				return
-			}
-			assert.Equal(t, tt.expectedErr.Error(), err.Error())
+func TestService_RegisterValidator(t *testing.T) {
+	t.Run("enqueues and forwards to the relay", func(t *testing.T) {
+		forwarded := make(chan *relaygrpc.RegisterValidatorRequest, 1)
+		s := newRegistrationTestService(func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
+			forwarded <- req
+			return &relaygrpc.RegisterValidatorResponse{Code: 0, Message: "success"}, nil
 		})
-	}
+
+		got, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: []byte("registration")})
+		assert.Nil(t, err)
+		assert.Equal(t, struct{}{}, got)
+
+		select {
+		case req := <-forwarded:
+			assert.Equal(t, []byte("registration"), req.Payload)
+		case <-time.After(2 * time.Second):
+			t.Fatal("registration was not forwarded to the relay")
+		}
+		assert.Equal(t, int64(0), s.registrationQueueBytes.Load())
+		assert.Eventually(t, func() bool {
+			return s.regForwardedOK.Load() == 1 && s.regForwardFailedAttempts.Load() == 0
+		}, time.Second, 10*time.Millisecond, "success counter was not incremented")
+	})
+
+	t.Run("retries transient failures then succeeds", func(t *testing.T) {
+		var attempts atomic.Int64
+		forwarded := make(chan struct{}, 1)
+		s := newRegistrationTestService(func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
+			if attempts.Add(1) == 1 {
+				return nil, fmt.Errorf("relays returned error")
+			}
+			forwarded <- struct{}{}
+			return &relaygrpc.RegisterValidatorResponse{Code: 0, Message: "success"}, nil
+		})
+
+		_, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: []byte("registration")})
+		assert.Nil(t, err)
+
+		select {
+		case <-forwarded:
+			assert.Equal(t, int64(2), attempts.Load())
+		case <-time.After(2*regForwardRetryBackoff + 2*time.Second):
+			t.Fatal("registration was not retried")
+		}
+		assert.Eventually(t, func() bool {
+			return s.regForwardedOK.Load() == 1 && s.regForwardFailedAttempts.Load() == 1 &&
+				s.regForwardDropped.Load() == 0 && s.regSucceededAfterRetry.Load() == 1
+		}, time.Second, 10*time.Millisecond, "retry counters were not incremented")
+	})
+
+	t.Run("does not retry permanent relay rejections", func(t *testing.T) {
+		var attempts atomic.Int64
+		done := make(chan struct{}, regForwardMaxAttempts)
+		s := newRegistrationTestService(func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
+			attempts.Add(1)
+			done <- struct{}{}
+			return &relaygrpc.RegisterValidatorResponse{Code: 2, Message: "failed"}, nil
+		})
+
+		_, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: []byte("registration")})
+		assert.Nil(t, err)
+
+		<-done
+		time.Sleep(2 * regForwardRetryBackoff)
+		assert.Equal(t, int64(1), attempts.Load())
+	})
+
+	t.Run("forwards a burst concurrently, not serially", func(t *testing.T) {
+		const burst = 64 // far above the old fixed pool size of 16
+		var inFlight atomic.Int64
+		release := make(chan struct{})
+		s := newRegistrationTestService(func(ctx context.Context, req *relaygrpc.RegisterValidatorRequest, opts ...grpc.CallOption) (*relaygrpc.RegisterValidatorResponse, error) {
+			inFlight.Add(1)
+			<-release // hold every call open so concurrency is observable
+			return &relaygrpc.RegisterValidatorResponse{Code: 0, Message: "success"}, nil
+		})
+
+		for range burst {
+			_, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: []byte("registration")})
+			assert.Nil(t, err)
+		}
+
+		// every registration of the burst must be in flight simultaneously
+		assert.Eventually(t, func() bool {
+			return inFlight.Load() == burst
+		}, 2*time.Second, 10*time.Millisecond, "burst was not forwarded concurrently: %d in flight", inFlight.Load())
+		close(release)
+	})
+
+	t.Run("evicts oldest when task capacity is reached", func(t *testing.T) {
+		s := newRegistrationTestService(nil)
+		// disarm the worker pool and use a tiny queue so eviction is deterministic
+		s.registrationWorkersOnce.Do(func() {})
+		s.registrationQueue = make(chan *registrationTask, 2)
+
+		for _, payload := range []string{"first", "second", "third"} {
+			got, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: []byte(payload)})
+			assert.Nil(t, err)
+			assert.Equal(t, struct{}{}, got)
+		}
+
+		// "first" (the oldest) was evicted to admit "third"
+		assert.Equal(t, 2, len(s.registrationQueue))
+		assert.Equal(t, []byte("second"), (<-s.registrationQueue).req.Payload)
+		assert.Equal(t, []byte("third"), (<-s.registrationQueue).req.Payload)
+		assert.Equal(t, int64(len("second")+len("third")), s.registrationQueueBytes.Load())
+	})
+
+	t.Run("evicts oldest when byte limit is reached", func(t *testing.T) {
+		s := newRegistrationTestService(nil)
+		s.registrationWorkersOnce.Do(func() {})
+		s.registrationQueue = make(chan *registrationTask, 4)
+
+		_, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: make([]byte, 100)})
+		assert.Nil(t, err)
+		// pretend the queue already holds the byte cap
+		s.registrationQueueBytes.Store(regQueueMaxBytes)
+
+		got, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: make([]byte, 50)})
+		assert.Nil(t, err)
+		assert.Equal(t, struct{}{}, got)
+
+		// the 100-byte head was evicted to fit the 50-byte newcomer under the cap
+		assert.Equal(t, 1, len(s.registrationQueue))
+		assert.Equal(t, 50, len((<-s.registrationQueue).req.Payload))
+		assert.Equal(t, int64(regQueueMaxBytes-100+50), s.registrationQueueBytes.Load())
+	})
+
+	t.Run("drops the new registration when nothing can be evicted", func(t *testing.T) {
+		s := newRegistrationTestService(nil)
+		s.registrationWorkersOnce.Do(func() {})
+		s.registrationQueue = make(chan *registrationTask, 4)
+		// over byte cap with an empty queue: nothing to evict, newcomer is shed
+		s.registrationQueueBytes.Store(regQueueMaxBytes)
+
+		got, err := s.RegisterValidator(context.Background(), &zerolog.Logger{}, context.Background(), &RegistrationParams{Payload: []byte("registration")})
+		assert.Nil(t, err)
+		assert.Equal(t, struct{}{}, got) // client still sees success
+		assert.Equal(t, 0, len(s.registrationQueue))
+		assert.Equal(t, int64(regQueueMaxBytes), s.registrationQueueBytes.Load())
+	})
 }
 
 func TestService_GetHeader(t *testing.T) {
@@ -177,7 +278,6 @@ func TestService_GetHeader(t *testing.T) {
 			c := &common.Client{RelayClient: &mockRelayClient{}}
 			pc := &common.ParentClient{
 				SafeClient: c,
-				FastClient: c,
 			}
 			opts = append(opts, WithClients([]*common.ParentClient{pc}))
 			opts = append(opts, WithSvcTracer(noop.NewTracerProvider().Tracer("test")))
@@ -239,7 +339,6 @@ func TestService_getPayload(t *testing.T) {
 			c := &common.Client{RelayClient: &mockRelayClient{GetPayloadFunc: tt.f}}
 			pc := &common.ParentClient{
 				SafeClient: c,
-				FastClient: c,
 			}
 			svcOpts = append(svcOpts, WithClients([]*common.ParentClient{pc}))
 			svcOpts = append(svcOpts, WithSvcTracer(noop.NewTracerProvider().Tracer("test")))
@@ -634,11 +733,11 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	defer conn.Close()
 	dSvc := NewDataService(WithDataSvcLogger(zerolog.Nop()))
 	svcOpts := make([]ServiceOption, 0)
-	c := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn, "")
+	c := common.NewParentClient(lis.Addr().String(), conn, "")
 	clients := []*common.ParentClient{c}
-	sc := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn, "")
+	sc := common.NewParentClient(lis.Addr().String(), conn, "")
 	streamingClients := []*common.ParentClient{sc}
-	registrationClient := common.NewParentClient(lis.Addr().String(), conn, lis.Addr().String(), conn, "")
+	registrationClient := common.NewParentClient(lis.Addr().String(), conn, "")
 	registrationClients := []*common.ParentClient{registrationClient}
 	tracer := noop.NewTracerProvider().Tracer("test")
 	svcOpts = append(svcOpts, WithSvcLogger(l))
@@ -655,7 +754,7 @@ func TestService_StreamHeaderAndGetMethod(t *testing.T) {
 	service.accountsLists = &AccountsLists{AccountIDToInfo: make(map[string]*AccountInfo),
 		AccountNameToInfo: make(map[AccountName]*AccountInfo)}
 	go func() {
-		if _, err := service.StreamHeader(ctx, c.FastClient, c); err != nil {
+		if _, err := service.StreamHeader(ctx, c.SafeClient, c); err != nil {
 			panic(err)
 		}
 	}()
@@ -1117,7 +1216,6 @@ func TestGetPayloadWithRetry(t *testing.T) {
 			client := &common.Client{URL: "", NodeID: "", RelayClient: mockClient}
 			parentClient := &common.ParentClient{
 				SafeClient: client,
-				FastClient: client,
 			}
 			service := &Service{
 				clients: []*common.ParentClient{parentClient},

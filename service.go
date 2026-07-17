@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	eth2Api "github.com/attestantio/go-eth2-client/api"
@@ -31,6 +32,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	otelcodes "go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -106,6 +108,15 @@ type Service struct {
 	registrationClients           []*common.ParentClient
 	currentRegistrationRelayIndex int
 	registrationRelayMutex        sync.Mutex
+	registrationQueue             chan *registrationTask
+	registrationQueueBytes        atomic.Int64
+	registrationWorkersOnce       sync.Once
+	regInFlightBytes              *semaphore.Weighted
+	regInFlightSlots              chan struct{}
+	regForwardedOK                atomic.Int64 // registrations acknowledged by a relay since the last monitor tick
+	regForwardFailedAttempts      atomic.Int64 // failed forward attempts since the last monitor tick
+	regForwardDropped             atomic.Int64 // registrations abandoned after retries since the last monitor tick
+	regSucceededAfterRetry        atomic.Int64 // registrations that needed >=1 retry to be acknowledged, since the last monitor tick
 
 	secretKey            *bls.SecretKey
 	publicKey            phase0.BLSPubKey
