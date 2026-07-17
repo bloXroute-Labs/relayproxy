@@ -273,7 +273,7 @@ func (fs *FlowService) RecordGetPayload(slot uint64, parentHash, blockHash, prop
 
 func (fs *FlowService) GetAllFlowsSnapshot() map[string]*FlowRecord {
 	if fs.flowCache == nil {
-		return nil
+		return map[string]*FlowRecord{}
 	}
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
@@ -290,7 +290,7 @@ func (fs *FlowService) GetAllFlowsSnapshot() map[string]*FlowRecord {
 
 func (fs *FlowService) GetFlowsBySlot(slot uint64) []*FlowRecord {
 	if fs.flowCache == nil {
-		return nil
+		return []*FlowRecord{}
 	}
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
@@ -311,7 +311,7 @@ func (fs *FlowService) GetFlowsBySlot(slot uint64) []*FlowRecord {
 
 func (fs *FlowService) GetFlowsBySlotAndBlock(slot uint64, blockHash string) []*FlowRecord {
 	if fs.flowCache == nil {
-		return nil
+		return []*FlowRecord{}
 	}
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()

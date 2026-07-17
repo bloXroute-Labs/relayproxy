@@ -21,8 +21,8 @@ const (
 	GetHeaderRequestCutoffMs             = 3000
 	delayEligibilityCacheCleanupInterval = 60 * time.Second
 
-	flowRetention       = 3 * 24 * time.Hour // keep in-memory for 3 days
-	flowCleanupInterval = 5 * time.Minute    // how often expired entries are purged
+	flowRetention       = time.Hour       // keep in-memory long enough for on-call /flows debugging
+	flowCleanupInterval = 5 * time.Minute // how often expired entries are purged
 )
 
 type IDataService interface {
