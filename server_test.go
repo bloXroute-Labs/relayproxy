@@ -35,14 +35,6 @@ type MockService struct {
 	SetDelayForValidatorFunc  func(id string, delay, maxDelay int64)
 	SetDelayForValidatorsFunc func(settings map[string]DelaySettings)
 	DelayGetHeaderFunc        func(ctx context.Context, params DelayGetHeaderParams) (DelayGetHeaderResponse, error)
-	GetDelayServiceFunc       func() IFlowService
-}
-
-func (m *MockService) GetFlowService() IFlowService {
-	if m.GetDelayServiceFunc != nil {
-		return m.GetDelayServiceFunc()
-	}
-	return nil
 }
 
 func (m *MockService) GetAccounts(ctx context.Context) map[string]any {

@@ -20,9 +20,6 @@ import (
 const (
 	GetHeaderRequestCutoffMs             = 3000
 	delayEligibilityCacheCleanupInterval = 60 * time.Second
-
-	flowRetention       = time.Hour       // keep in-memory long enough for on-call /flows debugging
-	flowCleanupInterval = 5 * time.Minute // how often expired entries are purged
 )
 
 type IDataService interface {
@@ -34,8 +31,6 @@ type IDataService interface {
 	SetDelayForValidator(id string, delay, maxDelay int64)
 	SetDelayForValidators(settings map[string]DelaySettings)
 	GetSlotDuty(slot uint64) (*common.MiniValidatorLatency, error)
-
-	GetFlowService() IFlowService
 }
 
 type DataService struct {
@@ -55,8 +50,6 @@ type DataService struct {
 	accountsLists          *AccountsLists
 	delayerPlugin          func(accountID string, msIntoSlot int64, cluster, userAgent string, latency int64, clientIP string, logger zerolog.Logger, getHeaderTimeout map[string]int64, clientTimeoutMS int64, bidAdjustmentBufferTimeMs int64) (int64, int64, int64, error)
 	miniProposerSlotMap    *SyncMap[uint64, *common.MiniValidatorLatency]
-
-	flowSvc *FlowService
 }
 
 func NewDataService(opts ...DataServiceOption) *DataService {
@@ -68,7 +61,6 @@ func NewDataService(opts ...DataServiceOption) *DataService {
 			AccountIDToInfo:   make(map[string]*AccountInfo),
 			AccountNameToInfo: make(map[AccountName]*AccountInfo),
 		},
-		flowSvc: NewFlowService(flowRetention, flowCleanupInterval),
 	}
 
 	for _, opt := range opts {
@@ -203,8 +195,4 @@ func (s *DataService) GetSlotDuty(slot uint64) (*common.MiniValidatorLatency, er
 	}
 	v, _ := s.miniProposerSlotMap.Load(slot)
 	return v, nil
-}
-
-func (s *DataService) GetFlowService() IFlowService {
-	return s.flowSvc
 }
