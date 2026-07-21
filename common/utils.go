@@ -243,3 +243,7 @@ func RandomStringSliceEntry(array []string) (string, error) {
 	}
 	return array[rand.Intn(len(array))], nil
 }
+
+func OutdatedBlockSequenceNumber(existing *uint64, new *uint64) bool {
+	return existing != nil && new != nil && *existing > *new
+}
