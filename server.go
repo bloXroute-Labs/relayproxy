@@ -602,6 +602,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 
 	receivedAt := time.Now().UTC()
 	slot := chi.URLParam(r, "slot")
+	slotInt, _ := fastParseUint(slot)
 	parentHash := chi.URLParam(r, "parent_hash")
 	pubKey := chi.URLParam(r, "pubkey")
 	parsedURL := r.Context().Value(keyParsedURL).(*url.URL)
@@ -651,7 +652,7 @@ func (s *Server) HandleGetHeader(w http.ResponseWriter, r *http.Request) {
 			attribute.String("method", getHeader),
 			attribute.String("key", "slot-"+slot+"-parentHash-"+parentHash),
 			attribute.Int64("receivedAt", receivedAt.UnixMilli()),
-			attribute.String("slot", slot),
+			attribute.Int64("slot", int64(slotInt)),
 			attribute.String("headerTimeoutStr", headerTimeoutStr),
 		)
 		if onHeaderDeliveredParams != nil {
