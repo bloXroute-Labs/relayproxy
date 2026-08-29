@@ -55,7 +55,7 @@ type DataService struct {
 func NewDataService(opts ...DataServiceOption) *DataService {
 	svc := &DataService{
 		accounts:     cache.New(cache.NoExpiration, cache.NoExpiration),
-		accountCh:    make(chan account, 500),
+		accountCh:    make(chan account, 1000),
 		ipCacheStore: cache.New(delayEligibilityCacheCleanupInterval, delayEligibilityCacheCleanupInterval),
 		accountsLists: &AccountsLists{
 			AccountIDToInfo:   make(map[string]*AccountInfo),
